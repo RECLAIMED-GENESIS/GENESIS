@@ -90,7 +90,8 @@ const mainMenuElement = createMainMenu(
             }
         }, 200);
     },
-    // onCreditsClick
+  
+          // onCreditsClick
     () => {
         console.log('📋 Credits clicked');
         const creditsDiv = document.createElement('div');
@@ -98,7 +99,7 @@ const mainMenuElement = createMainMenu(
             position: fixed;
             top: 0; left: 0;
             width: 100%; height: 100%;
-            background: rgba(0,0,0,0.92);
+            background: rgba(0,0,0,0.95);
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -106,16 +107,33 @@ const mainMenuElement = createMainMenu(
             color: white;
             font-family: 'Courier New', monospace;
             z-index: 200;
+            overflow-y: auto;
+            padding: 20px;
         `;
         creditsDiv.innerHTML = `
             <h1 style="color: #00ffff; font-size: 36px; margin-bottom: 30px;">CREDITS</h1>
-            <div style="font-size: 18px; line-height: 2; color: #aaa;">
-                <p><span style="color: #00ffff;">●</span> Three.js</p>
-                <p><span style="color: #00ffff;">●</span> Cannon-es</p>
-                <p><span style="color: #00ffff;">●</span> Howler.js</p>
-                <p><span style="color: #00ffff;">●</span> Vite</p>
-                <p style="margin-top: 30px; color: #666;">Team Members Coming Soon</p>
+            
+            <div style="text-align: left; font-size: 16px; line-height: 2; color: #aaa; max-width: 600px;">
+                <h2 style="color: #ffffff; font-size: 20px; margin-bottom: 10px;">LIBRARIES</h2>
+                <p>● Three.js (MIT) - <a href="https://threejs.org" style="color: #00ffff;">threejs.org</a></p>
+                <p>● Cannon-es (MIT) - <a href="https://github.com/pmndrs/cannon-es" style="color: #00ffff;">pmndrs/cannon-es</a></p>
+                <p>● Howler.js (MIT) - <a href="https://howlerjs.com" style="color: #00ffff;">howlerjs.com</a></p>
+                <p>● Vite (MIT) - <a href="https://vitejs.dev" style="color: #00ffff;">vitejs.dev</a></p>
+
+                <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">SOUND EFFECTS & MUSIC (OpenGameArt)</h2>
+                <p>● Punch SFX by DavidW (CC-BY 3.0) - <a href="https://opengameart.org/content/punch-sfx" style="color: #00ffff;">Link</a></p>
+                <p>● Spell Sounds Starter Pack by p0ss (CC-BY-SA 3.0) - <a href="https://opengameart.org/content/spell-sounds-starter-pack" style="color: #00ffff;">Link</a></p>
+                <p>● A Kinda Cool Sound Effect by Spring Spring (CC0) - <a href="https://opengameart.org/content/a-kinda-cool-sound-effect" style="color: #00ffff;">Link</a></p>
+                <p>● Tactical Weapons and Tactics Sound Pack by XCVG (CC-BY 3.0) - <a href="https://opengameart.org/content/tactical-weapons-and-tactics-sound-pack" style="color: #00ffff;">Link</a></p>
+                <p>● 37 hits/punches by independent.nu (CC-BY 3.0) - <a href="https://opengameart.org/content/37-hitspunches" style="color: #00ffff;">Link</a></p>
+
+                <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">TEAM MEMBERS</h2>
+                <p>● Banele - UI, Audio, Deployment</p>
+                <p>● Busisiwe - Shaders</p>
+                <p>● Pumelela - Environment, Art</p>
+                <p>● Sibusiso - Player, Controls, Physics</p>
             </div>
+            
             <button onclick="this.parentElement.remove()" style="
                 margin-top: 40px;
                 background: #00ffff;
@@ -130,6 +148,7 @@ const mainMenuElement = createMainMenu(
         `;
         document.body.appendChild(creditsDiv);
     }
+    
 );
 uiManager.registerScreen('main-menu', mainMenuElement);
 uiManager.showScreen('main-menu');
