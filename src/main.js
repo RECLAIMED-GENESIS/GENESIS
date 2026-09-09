@@ -64,6 +64,9 @@ const mainMenuElement = createMainMenu(
                 const continueBtn = document.getElementById('continueBtn');
                 if (continueBtn) {
                     continueBtn.onclick = () => {
+                      if (gameOver) {
+                        resetGame();
+                      }
                         uiManager.hideAllScreens();
                         uiManager.showHUD();
                         if (!gameStarted) {
@@ -294,7 +297,7 @@ gameOverDiv.innerHTML = `
 document.body.appendChild(gameOverDiv);
 
 document.getElementById('restartBtn').addEventListener('click', () => {
-    location.reload(); // TEMPORARY - will be replaced with state reset later
+    resetGame(); // 
 });
 
 function flashPlayer() {
@@ -1075,3 +1078,90 @@ function animate() {
 
 // NOTE: spawnWave() and animate() are now called from the PLAY button callback
 // Do NOT call them here anymore.
+function resetGame() {
+    // Reset game state flags
+    gameStarted = false;
+    gameOver = false;
+    currentWave = 0;
+    waveInProgress = false;
+    playerHealth = PLAYER_MAX_HEALTH;
+    fragmentsCollected = 0;
+    playerInvincible = false;
+    playerInvincibleTimer = 0;
+    playerFlashing = false;
+    isAttacking = false;
+    attackType = null;
+    commanderAlive = false;
+    commanderDefeated = false;
+    commander = null;
+    terminalVisible = false;
+    terminalActive = false;
+    portalActive = false;
+    
+    // Reset player body
+    playerBody.position.set(0, 3, 0);
+    playerBody.velocity.set(0, 0, 0);
+    playerMesh.material.color.set(0x00ffff);
+    playerMesh.material.emissive.set(0x000000);
+    playerMesh.material.emissiveIntensity = 0;
+
+    // Remove all enemies from scene and physics world
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        scene.remove(enemy.mesh);
+        physicsWorld.removeBody(enemy.body);
+        enemy.mesh.geometry.dispose();
+        enemy.mesh.material.dispose();
+        if (enemy.barContainer && enemy.barContainer.parentNode) {
+            enemy.barContainer.parentNode.removeChild(enemy.barContainer);
+        }
+    }
+    enemies.length = 0;
+
+    // Remove all fragments
+    for (let i = fragments.length - 1; i >= 0; i--) {
+        const fragment = fragments[i];
+        scene.remove(fragment);
+        fragment.geometry.dispose();
+        fragment.material.dispose();
+    }
+    fragments.length = 0;
+
+    // Remove commander mesh if it exists
+    if (commander) {
+        scene.remove(commander.mesh);
+        physicsWorld.removeBody(commander.body);
+        commander.mesh.geometry.dispose();
+        commander.mesh.material.dispose();
+        commander = null;
+    }
+
+    // Hide specific objects
+    terminalMesh.visible = false;
+    screenMesh.visible = false;
+    portalMesh.visible = false;
+    attackIndicator.visible = false;
+
+    // Hide UI elements
+    gameOverDiv.style.display = 'none';
+
+    // Restart music
+    audioManager.stopMusic();
+    audioManager.playLevelMusic(1);
+
+    // Reset HUD
+    updateHUD(
+        playerHealth,
+        PLAYER_MAX_HEALTH,
+        fragmentsCollected,
+        FRAGMENTS_NEEDED,
+        currentWave,
+        TOTAL_WAVES
+    );
+
+    // Show main menu again
+    uiManager.hideAllScreens();
+    uiManager.showScreen('main-menu');
+
+    console.log('🔄 Game reset complete');
+}
