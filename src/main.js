@@ -1,6 +1,7 @@
 // src/main.js - COMPLETE WITH UI + LOADING SCREEN + AUDIO
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { Minimap } from './Minimap.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { loadAllAudio } from './audio/loadAudio.js';
 import { UIManager } from './ui/UIManager.js';
@@ -138,6 +139,7 @@ uiManager.showScreen('main-menu');
 // ============================================
 let gameStarted = false;
 
+
 // ============================================
 // PHYSICS WORLD
 // ============================================
@@ -249,6 +251,8 @@ const playerBody = new CANNON.Body({
     linearDamping: 0.9
 });
 physicsWorld.addBody(playerBody);
+
+
 
 // ============================================
 // PLAYER HEALTH
@@ -648,6 +652,8 @@ const ENEMY_TYPES = {
 };
 
 const enemies = [];
+
+let minimap = new Minimap(scene, camera, playerMesh, enemies);
 
 function spawnEnemy(type = 'normal', spawnPos = null) {
     const config = ENEMY_TYPES[type];
@@ -1072,9 +1078,18 @@ function animate() {
         currentWave,
         TOTAL_WAVES
     );
+        // Update minimap (Level 2 & 3 only)
+    if (currentWave >= 4) {
+        minimap.show();
+        minimap.update();
+    } else {
+        minimap.hide();
+    }
 
     renderer.render(scene, camera);
 }
+
+
 
 // NOTE: spawnWave() and animate() are now called from the PLAY button callback
 // Do NOT call them here anymore.
