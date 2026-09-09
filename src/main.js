@@ -1,4 +1,4 @@
-// src/main.js - COMPLETE WITH UI + AUDIO
+// src/main.js - COMPLETE WITH UI + LOADING SCREEN + AUDIO
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { AudioManager } from './audio/AudioManager.js';
@@ -6,6 +6,7 @@ import { loadAllAudio } from './audio/loadAudio.js';
 import { UIManager } from './ui/UIManager.js';
 import { createMainMenu } from './ui/MainMenu.js';
 import { createHUD, updateHUD } from './ui/HUD.js';
+import { createLoadingScreen, updateLoadingScreen } from './ui/LoadingScreen.js';
 
 // ============================================
 // AUDIO SYSTEM
@@ -23,19 +24,67 @@ const uiManager = new UIManager();
 const hudElement = createHUD();
 uiManager.registerScreen('hud', hudElement);
 
+// Create and register Loading Screen
+const loadingScreenElement = createLoadingScreen();
+uiManager.registerScreen('loading', loadingScreenElement);
+
 // Create and register Main Menu
 const mainMenuElement = createMainMenu(
     // onPlayClick
     () => {
         console.log('🎮 Game Started!');
         audioManager.playLevelMusic(1);
-        uiManager.hideAllScreens();
-        uiManager.showHUD();
-        if (!gameStarted) {
-            gameStarted = true;
-            spawnWave();
-            animate();
-        }
+        
+        // Show loading screen first
+        uiManager.showScreen('loading');
+        updateLoadingScreen(
+            'LEVEL 1',
+            'THE FLAT WORLD',
+            'The slave labour camp. Fight your way through the guards and collect the Gold Fragments.',
+            0,
+            'Initializing...'
+        );
+        
+        // Simulate loading progress
+        let progress = 0;
+        const loadInterval = setInterval(() => {
+            progress += Math.random() * 15 + 5;
+            if (progress >= 100) {
+                progress = 100;
+                clearInterval(loadInterval);
+                updateLoadingScreen(
+                    'LEVEL 1',
+                    'THE FLAT WORLD',
+                    'The slave labour camp. Fight your way through the guards and collect the Gold Fragments.',
+                    100,
+                    'Ready!',
+                    true
+                );
+                // Wait for Continue button
+                const continueBtn = document.getElementById('continueBtn');
+                if (continueBtn) {
+                    continueBtn.onclick = () => {
+                        uiManager.hideAllScreens();
+                        uiManager.showHUD();
+                        if (!gameStarted) {
+                            gameStarted = true;
+                            spawnWave();
+                            animate();
+                        }
+                    };
+                }
+            } else {
+                const statuses = ['Loading assets...', 'Building world...', 'Spawning enemies...', 'Almost ready...'];
+                const statusIndex = Math.floor(Math.random() * statuses.length);
+                updateLoadingScreen(
+                    'LEVEL 1',
+                    'THE FLAT WORLD',
+                    'The slave labour camp. Fight your way through the guards and collect the Gold Fragments.',
+                    progress,
+                    statuses[statusIndex % statuses.length]
+                );
+            }
+        }, 200);
     },
     // onCreditsClick
     () => {
