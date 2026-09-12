@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GENESIS - Shader Demo (Task 1)</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #111;
+      }
+      #info {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        color: #00ffff;
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+        z-index: 10;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="info">Task 1 - GLSL ShaderMaterial demo: colour changes over time (uTime uniform)</div>
+    <script type="module" src="/src/shaders/shaderDemo.js"></script>
+  </body>
+</html>

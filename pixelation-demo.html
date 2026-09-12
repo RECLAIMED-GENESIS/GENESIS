@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GENESIS - Pixelation Shader (Task 2 + Task 3)</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #111;
+      }
+      #panel {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        color: #00ffff;
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+        z-index: 10;
+        background: rgba(0, 0, 0, 0.55);
+        padding: 10px 14px;
+        border: 1px solid #00ffff44;
+        border-radius: 6px;
+      }
+      #panel label { display: block; margin-bottom: 6px; }
+      #panel input[type='range'] { width: 200px; vertical-align: middle; }
+      #panel button {
+        margin-top: 8px;
+        background: #9900ff;
+        border: none;
+        color: #fff;
+        padding: 6px 14px;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+        cursor: pointer;
+        border-radius: 4px;
+      }
+      #panel .stat { color: #ff00aa; }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <label>Task 2 / Task 3 - Pixelation post-process</label>
+      Base pixel size:
+      <input id="pixelSize" type="range" min="1" max="32" step="1" value="8" />
+      <span id="pixelSizeValue">8</span>px
+      <div style="margin-top: 6px;">
+        Fade to clear (uFade): <span id="fadeValue" class="stat">0%</span>
+      </div>
+      <div style="margin-top: 4px; font-size: 12px; color: #aaa;">
+        Walk toward the purple portal, or:
+      </div>
+      <button id="activatePortal">Activate Portal</button>
+    </div>
+    <script type="module" src="/src/shaders/pixelationDemo.js"></script>
+  </body>
+</html>
