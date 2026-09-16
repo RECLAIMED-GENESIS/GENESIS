@@ -1,64 +1,100 @@
-import * as CANNON from 'cannon-es';
-import { spawnEnemy, enemies } from './Enemy.js';
+import * as CANNON from 'cannon-es'
+import { spawnEnemy, removeEnemy, getEnemies } from './Enemy.js'
+import { healPlayer } from '../player/Player.js'
 
-export const TOTAL_WAVES = 7;
-export let currentWave = 0;
-export let waveInProgress = false;
+let currentWave = 0
+const TOTAL_WAVES = 7
+let waveInProgress = false
+let scene = null
+let onAllWavesComplete = null
 
-export const waveConfigs = [
-    { spawns: [{ type: 'normal' }, { type: 'normal' }, { type: 'normal' }] },
-    { spawns: [{ type: 'fast' }, { type: 'fast' }, { type: 'fast' }, { type: 'fast' }, { type: 'normal' }] },
-    { spawns: [{ type: 'heavy' }, { type: 'heavy' }, { type: 'normal' }, { type: 'normal' }] },
-    { spawns: [{ type: 'fast' }, { type: 'fast' }, { type: 'fast' }, { type: 'heavy' }, { type: 'heavy' }] },
-    { spawns: [{ type: 'tank' }, { type: 'tank' }, { type: 'normal' }, { type: 'normal' }, { type: 'normal' }] },
-    { spawns: [
-        { type: 'fast',  pos: new CANNON.Vec3(-9, 1, -9) },
-        { type: 'fast',  pos: new CANNON.Vec3( 9, 1, -9) },
-        { type: 'fast',  pos: new CANNON.Vec3(-9, 1,  9) },
-        { type: 'fast',  pos: new CANNON.Vec3( 9, 1,  9) },
-        { type: 'heavy', pos: new CANNON.Vec3(-9, 1,  0) },
-        { type: 'heavy', pos: new CANNON.Vec3( 9, 1,  0) },
-        { type: 'normal',pos: new CANNON.Vec3( 0, 1, -9) },
-        { type: 'normal',pos: new CANNON.Vec3( 0, 1,  9) },
-    ]},
-    { spawns: [
-        { type: 'tank' },
-        { type: 'heavy' }, { type: 'heavy' },
-        { type: 'fast' },  { type: 'fast' }, { type: 'fast' },
-        { type: 'normal'},{ type: 'normal'},{ type: 'normal' }
-    ]}
-];
+const waveConfigs = [
+  { spawns: [
+    { type: 'normal' }, { type: 'normal' }, { type: 'normal' }
+  ]},
+  { spawns: [
+    { type: 'fast' }, { type: 'fast' }, { type: 'fast' },
+    { type: 'fast' }, { type: 'normal' }
+  ]},
+  { spawns: [
+    { type: 'heavy' }, { type: 'heavy' },
+    { type: 'normal' }, { type: 'normal' }
+  ]},
+  { spawns: [
+    { type: 'fast' }, { type: 'fast' }, { type: 'fast' },
+    { type: 'heavy' }, { type: 'heavy' }
+  ]},
+  { spawns: [
+    { type: 'tank' }, { type: 'tank' },
+    { type: 'normal' }, { type: 'normal' }, { type: 'normal' }
+  ]},
+  { spawns: [
+    { type: 'fast',   pos: new CANNON.Vec3(-9, 1, -9) },
+    { type: 'fast',   pos: new CANNON.Vec3( 9, 1, -9) },
+    { type: 'fast',   pos: new CANNON.Vec3(-9, 1,  9) },
+    { type: 'fast',   pos: new CANNON.Vec3( 9, 1,  9) },
+    { type: 'heavy',  pos: new CANNON.Vec3(-9, 1,  0) },
+    { type: 'heavy',  pos: new CANNON.Vec3( 9, 1,  0) },
+    { type: 'normal', pos: new CANNON.Vec3( 0, 1, -9) },
+    { type: 'normal', pos: new CANNON.Vec3( 0, 1,  9) },
+  ]},
+  { spawns: [
+    { type: 'tank' },
+    { type: 'heavy' }, { type: 'heavy' },
+    { type: 'fast' },  { type: 'fast' }, { type: 'fast' },
+    { type: 'normal' },{ type: 'normal' },{ type: 'normal' }
+  ]}
+]
 
-/**
- * Spawn next wave and update HUD.
- */
-export function spawnWave(scene, updateHUD, hudArgs) {
-    currentWave++;
-    waveInProgress = true;
-    const config = waveConfigs[currentWave - 1];
-    config.spawns.forEach(s => spawnEnemy(scene, s.type, s.pos || null));
-    if (updateHUD && hudArgs) updateHUD(...hudArgs());
+function spawnWave() {
+  currentWave++
+  waveInProgress = true
+  console.log('Wave', currentWave, 'of', TOTAL_WAVES, 'starting')
+
+  const config = waveConfigs[currentWave - 1]
+  config.spawns.forEach(s => {
+    spawnEnemy(scene, s.type, s.pos || null)
+  })
 }
 
-export function onWaveComplete(deps) {
-    const { scene, spawnFragment, audioManager, updateHUD, hudArgs, spawnCommander } = deps;
-    // spawnFragment is CANNON.Vec3 callback
-    spawnFragment(new CANNON.Vec3((Math.random() - 0.5) * 10, 0, (Math.random() - 0.5) * 10));
-    if (currentWave < TOTAL_WAVES) {
-        setTimeout(() => spawnWave(scene, updateHUD, hudArgs), 3000);
-    } else {
-        setTimeout(() => spawnCommander(), 2000);
-    }
+function onWaveComplete(spawnFragment) {
+  waveInProgress = false
+  console.log('Wave', currentWave, 'complete - fragment dropped')
+
+  // Heal player for surviving the wave
+  healPlayer(5)
+  console.log('Wave clear bonus heal')
+
+  spawnFragment(new CANNON.Vec3(
+    (Math.random() - 0.5) * 10,
+    0,
+    (Math.random() - 0.5) * 10
+  ))
+
+  if (currentWave < TOTAL_WAVES) {
+    setTimeout(() => spawnWave(), 3000)
+  } else {
+    console.log('All waves complete - commander spawns')
+    if (onAllWavesComplete) setTimeout(() => onAllWavesComplete(), 2000)
+  }
 }
 
-export function notifyWaveEmpty(deps) {
-    waveInProgress = false;
-    onWaveComplete(deps);
+function initWaves(gameScene, onComplete) {
+  scene = gameScene
+  onAllWavesComplete = onComplete
+  spawnWave()
 }
 
-export function resetWaves() {
-    currentWave = 0;
-    waveInProgress = false;
-}
+function getCurrentWave() { return currentWave }
+function getTotalWaves() { return TOTAL_WAVES }
+function isWaveInProgress() { return waveInProgress }
+function setWaveInProgress(val) { waveInProgress = val }
 
-export function setWaveInProgress(v) { waveInProgress = v; }
+export {
+  initWaves,
+  onWaveComplete,
+  getCurrentWave,
+  getTotalWaves,
+  isWaveInProgress,
+  setWaveInProgress
+}
