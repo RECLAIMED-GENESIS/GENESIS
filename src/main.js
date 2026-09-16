@@ -1,696 +1,230 @@
-import * as THREE from 'three';
-
-import { Level1 } from './levels/Level1.js';
-import { Level1 as Level2 } from './levels/Level2.js';
-import { Level3 } from './levels/Level3.js';
-
+import * as THREE from 'three'
+import { initLevel1, updateLevel1 } from './levels/Level1.js'
+import { initLevel2, updateLevel2 } from './levels/Level2.js'
+import { initLevel3, updateLevel3, isArchitectDefeated } from './levels/Level3.js'
+import { playerMesh } from './player/Player.js'
 
 // =====================================================
-// CURRENT LEVEL
+// SCENE
 // =====================================================
 
-let currentLevel = null;
-let currentLevelNumber = 1;
-
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x111111)
 
 // =====================================================
 // CAMERAS
 // =====================================================
 
-// -----------------------------------------------------
-// LEVEL 1 CAMERA
-// ORTHOGRAPHIC = 2D / PIXEL ART STYLE
-// -----------------------------------------------------
-
+// Level 1 — orthographic top-down, per the brief:
+// "Orthographic (2D-style) camera — nowhere else in the game"
 const level1Camera = new THREE.OrthographicCamera(
-    -12,
-    12,
-    9,
-    -9,
-    0.1,
-    1000
-);
+  -12, 12, 9, -9, 0.1, 1000
+)
+level1Camera.position.set(0, 20, 0)
+level1Camera.rotation.set(-Math.PI / 2, 0, 0)
 
-// Look straight down at the arena
-level1Camera.position.set(
-    0,
-    20,
-    0
-);
-
-level1Camera.rotation.set(
-    -Math.PI / 2,
-    0,
-    0
-);
-
-
-// -----------------------------------------------------
-// LEVEL 2 / LEVEL 3 CAMERA
-// NORMAL 3D PERSPECTIVE
-// -----------------------------------------------------
-
+// Levels 2 & 3 — normal 3D perspective
 const perspectiveCamera = new THREE.PerspectiveCamera(
-    75,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000
-);
+  75,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1000
+)
+perspectiveCamera.position.set(0, 5, 10)
+perspectiveCamera.lookAt(0, 0, 0)
 
-perspectiveCamera.position.set(
-    0,
-    1.8,
-    25
-);
-
-
-// -----------------------------------------------------
-// ACTIVE CAMERA
-// -----------------------------------------------------
-
-let camera = level1Camera;
-
+let camera = level1Camera
 
 // =====================================================
 // RENDERER
 // =====================================================
 
-const renderer = new THREE.WebGLRenderer({
-    antialias: true
-});
-
-renderer.setSize(
-    window.innerWidth,
-    window.innerHeight
-);
-
-renderer.setPixelRatio(
-    Math.min(
-        window.devicePixelRatio,
-        2
-    )
-);
-
-renderer.shadowMap.enabled = true;
-
-renderer.shadowMap.type =
-    THREE.PCFSoftShadowMap;
-
-renderer.outputColorSpace =
-    THREE.SRGBColorSpace;
-
-document.body.appendChild(
-    renderer.domElement
-);
-
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setSize(window.innerWidth, window.innerHeight)
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+renderer.shadowMap.enabled = true
+renderer.shadowMap.type = THREE.PCFSoftShadowMap
+renderer.outputColorSpace = THREE.SRGBColorSpace
+document.body.appendChild(renderer.domElement)
 
 // =====================================================
-// PLAYER MOVEMENT
+// AMBIENT/GLOBAL LIGHTS
+// (kept minimal — each level module adds its own lighting rig;
+//  this is just a safety fallback so nothing renders pure black
+//  for a frame before a level's own lights are added)
 // =====================================================
 
-const keys = {};
-
-const moveSpeed = 8;
-const sprintSpeed = 15;
-
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.3)
+scene.add(ambientLight)
 
 // =====================================================
-// LEVEL LOADING
+// INPUT
 // =====================================================
 
-function loadLevel(number) {
+const keys = {}
 
-    // Dispose previous level
-    if (
-        currentLevel &&
-        currentLevel.dispose
-    ) {
-        currentLevel.dispose();
-    }
+window.addEventListener('keydown', (event) => {
+  keys[event.code] = true
 
+  // ---------------------------------------------------
+  // DEBUG LEVEL SELECTOR
+  // Reloads the page and restarts fresh at the chosen level,
+  // rather than hot-swapping — see note above about why the
+  // old in-place dispose()-based swap doesn't fit this
+  // shared-scene/shared-physics-world architecture yet.
+  // ---------------------------------------------------
 
-    currentLevelNumber = number;
+  if (event.code === 'Digit1') goToLevelFresh(1)
+  if (event.code === 'Digit2') goToLevelFresh(2)
+  if (event.code === 'Digit3') goToLevelFresh(3)
+})
 
+window.addEventListener('keyup', (event) => {
+  keys[event.code] = false
+})
 
-    // =================================================
-    // LEVEL 1
-    // =================================================
-
-    if (number === 1) {
-
-        currentLevel = new Level1();
-
-        // Use ORTHOGRAPHIC camera
-        camera = level1Camera;
-
-        // Put camera above centre of arena
-        camera.position.set(
-            0,
-            20,
-            0
-        );
-
-        // Look straight down
-        camera.rotation.set(
-            -Math.PI / 2,
-            0,
-            0
-        );
-
-        // Reset mouse values
-        yaw = 0;
-        pitch = 0;
-
-        console.log(
-            'LEVEL 1 - ORTHOGRAPHIC 2D CAMERA'
-        );
-    }
-
-
-    // =================================================
-    // LEVEL 2
-    // =================================================
-
-    else if (number === 2) {
-
-        currentLevel = new Level2();
-
-        // Use normal 3D camera
-        camera = perspectiveCamera;
-
-        camera.position.set(
-            0,
-            1.8,
-            25
-        );
-
-        camera.rotation.set(
-            0,
-            0,
-            0
-        );
-
-        yaw = 0;
-        pitch = 0;
-
-        console.log(
-            'LEVEL 2 - 3D PERSPECTIVE CAMERA'
-        );
-    }
-
-
-    // =================================================
-    // LEVEL 3
-    // =================================================
-
-    else if (number === 3) {
-
-        currentLevel = new Level3();
-
-        // Use normal 3D camera
-        camera = perspectiveCamera;
-
-        camera.position.set(
-            0,
-            1.8,
-            25
-        );
-
-        camera.rotation.set(
-            0,
-            0,
-            0
-        );
-
-        yaw = 0;
-        pitch = 0;
-
-        console.log(
-            'LEVEL 3 - 3D PERSPECTIVE CAMERA'
-        );
-    }
-
+function goToLevelFresh(levelNumber) {
+  const url = new URL(window.location.href)
+  url.searchParams.set('level', String(levelNumber))
+  window.location.href = url.toString()
 }
 
-
 // =====================================================
-// KEYBOARD INPUT
-// =====================================================
-
-window.addEventListener(
-    'keydown',
-    (event) => {
-
-        keys[event.code] = true;
-
-
-        // -------------------------------------------------
-        // LEVEL SELECTOR
-        // -------------------------------------------------
-
-        if (event.code === 'Digit1') {
-
-            loadLevel(1);
-
-        }
-
-
-        if (event.code === 'Digit2') {
-
-            loadLevel(2);
-
-        }
-
-
-        if (event.code === 'Digit3') {
-
-            loadLevel(3);
-
-        }
-
-    }
-);
-
-
-window.addEventListener(
-    'keyup',
-    (event) => {
-
-        keys[event.code] = false;
-
-    }
-);
-
-
-// =====================================================
-// MOUSE LOOK
-// ONLY FOR LEVEL 2 / LEVEL 3
+// MOUSE LOOK — Levels 2 & 3 only (perspective camera).
+// Level 1's orthographic top-down camera never uses this.
 // =====================================================
 
-let yaw = 0;
-let pitch = 0;
+let yaw = 0
+let pitch = 0
+const mouseSensitivity = 0.0025
 
-const mouseSensitivity = 0.0025;
+renderer.domElement.addEventListener('click', () => {
+  if (currentLevelNumber === 1) return
+  renderer.domElement.requestPointerLock()
+})
 
+document.addEventListener('mousemove', (event) => {
+  if (currentLevelNumber === 1) return
+  if (document.pointerLockElement !== renderer.domElement) return
 
-// -----------------------------------------------------
-// CLICK TO LOCK MOUSE
-// -----------------------------------------------------
+  yaw -= event.movementX * mouseSensitivity
+  pitch -= event.movementY * mouseSensitivity
 
-renderer.domElement.addEventListener(
-    'click',
-    () => {
+  const maxPitch = Math.PI / 2 - 0.05
+  pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch))
 
-        // DO NOT lock mouse in Level 1
-        if (currentLevelNumber === 1) {
-            return;
-        }
-
-        renderer.domElement.requestPointerLock();
-
-    }
-);
-
-
-// -----------------------------------------------------
-// MOUSE MOVEMENT
-// -----------------------------------------------------
-
-document.addEventListener(
-    'mousemove',
-    (event) => {
-
-        // Level 1 does NOT use mouse look
-        if (currentLevelNumber === 1) {
-            return;
-        }
-
-
-        // Make sure pointer is locked
-        if (
-            document.pointerLockElement !==
-            renderer.domElement
-        ) {
-            return;
-        }
-
-
-        yaw -=
-            event.movementX *
-            mouseSensitivity;
-
-
-        pitch -=
-            event.movementY *
-            mouseSensitivity;
-
-
-        // Prevent camera flipping
-
-        const maxPitch =
-            Math.PI / 2 - 0.05;
-
-
-        pitch =
-            Math.max(
-                -maxPitch,
-                Math.min(
-                    maxPitch,
-                    pitch
-                )
-            );
-
-    }
-);
-
+  perspectiveCamera.rotation.order = 'YXZ'
+  perspectiveCamera.rotation.y = yaw
+  perspectiveCamera.rotation.x = pitch
+})
 
 // =====================================================
 // RESIZE
 // =====================================================
 
-window.addEventListener(
-    'resize',
-    () => {
+window.addEventListener('resize', () => {
+  const aspect = window.innerWidth / window.innerHeight
 
-        // =================================================
-        // LEVEL 1 ORTHOGRAPHIC CAMERA
-        // =================================================
+  const viewHeight = 18
+  const viewWidth = viewHeight * aspect
+  level1Camera.left = -viewWidth / 2
+  level1Camera.right = viewWidth / 2
+  level1Camera.top = viewHeight / 2
+  level1Camera.bottom = -viewHeight / 2
+  level1Camera.updateProjectionMatrix()
 
-        const aspect =
-            window.innerWidth /
-            window.innerHeight;
+  perspectiveCamera.aspect = aspect
+  perspectiveCamera.updateProjectionMatrix()
 
-
-        const viewHeight = 18;
-
-        const viewWidth =
-            viewHeight * aspect;
-
-
-        level1Camera.left =
-            -viewWidth / 2;
-
-        level1Camera.right =
-            viewWidth / 2;
-
-        level1Camera.top =
-            viewHeight / 2;
-
-        level1Camera.bottom =
-            -viewHeight / 2;
-
-
-        level1Camera.updateProjectionMatrix();
-
-
-        // =================================================
-        // LEVEL 2 / LEVEL 3 PERSPECTIVE CAMERA
-        // =================================================
-
-        perspectiveCamera.aspect =
-            aspect;
-
-        perspectiveCamera.updateProjectionMatrix();
-
-
-        // =================================================
-        // RENDERER
-        // =================================================
-
-        renderer.setSize(
-            window.innerWidth,
-            window.innerHeight
-        );
-
-    }
-);
-
+  renderer.setSize(window.innerWidth, window.innerHeight)
+})
 
 // =====================================================
-// CLOCK
+// LEVEL STATE / TRANSITIONS
 // =====================================================
 
-const clock =
-    new THREE.Clock();
-
-
-// =====================================================
-// PLAYER / CAMERA MOVEMENT
-// =====================================================
-
-function updatePlayer(delta) {
-
-    let speed =
-        moveSpeed;
-
-
-    // SHIFT = sprint
-
-    if (
-        keys['ShiftLeft'] ||
-        keys['ShiftRight']
-    ) {
-
-        speed =
-            sprintSpeed;
-
-    }
-
-
-    const distance =
-        speed * delta;
-
-
-    // =================================================
-    // LEVEL 1
-    // ORTHOGRAPHIC 2D MOVEMENT
-    // =================================================
-
-    if (currentLevelNumber === 1) {
-
-        // W = move up on the arena
-        if (keys['KeyW']) {
-
-            camera.position.z -=
-                distance;
-
-        }
-
-
-        // S = move down on the arena
-        if (keys['KeyS']) {
-
-            camera.position.z +=
-                distance;
-
-        }
-
-
-        // A = move left
-        if (keys['KeyA']) {
-
-            camera.position.x -=
-                distance;
-
-        }
-
-
-        // D = move right
-        if (keys['KeyD']) {
-
-            camera.position.x +=
-                distance;
-
-        }
-
-
-        // Keep camera/player inside Level 1 arena
-        camera.position.x =
-            THREE.MathUtils.clamp(
-                camera.position.x,
-                -10,
-                10
-            );
-
-
-        camera.position.z =
-            THREE.MathUtils.clamp(
-                camera.position.z,
-                -6,
-                6
-            );
-
-
-        // IMPORTANT:
-        // Keep Level 1 looking straight down
-
-        camera.rotation.set(
-            -Math.PI / 2,
-            0,
-            0
-        );
-
-
-        return;
-    }
-
-
-    // =================================================
-    // LEVEL 2 / LEVEL 3
-    // NORMAL 3D MOVEMENT
-    // =================================================
-
-    if (keys['KeyW']) {
-
-        camera.translateZ(
-            -distance
-        );
-
-    }
-
-
-    if (keys['KeyS']) {
-
-        camera.translateZ(
-            distance
-        );
-
-    }
-
-
-    if (keys['KeyA']) {
-
-        camera.translateX(
-            -distance
-        );
-
-    }
-
-
-    if (keys['KeyD']) {
-
-        camera.translateX(
-            distance
-        );
-
-    }
-
-
-    // =================================================
-    // CAMERA LOOK
-    // =================================================
-
-    camera.rotation.order =
-        'YXZ';
-
-    camera.rotation.y =
-        yaw;
-
-    camera.rotation.x =
-        pitch;
-
-
-    // =================================================
-    // KEEP PLAYER ABOVE GROUND
-    // =================================================
-
-    if (
-        camera.position.y < 1.5
-    ) {
-
-        camera.position.y =
-            1.5;
-
-    }
-
+let currentLevelNumber = 1
+const clock = new THREE.Clock()
+
+function goToLevel2() {
+  currentLevelNumber = 2
+  camera = perspectiveCamera
+  yaw = 0
+  pitch = 0
+  console.log('Transitioning to Level 2')
+  initLevel2(scene, camera, keys, () => goToLevel3())
 }
 
+function goToLevel3() {
+  currentLevelNumber = 3
+  camera = perspectiveCamera
+  yaw = 0
+  pitch = 0
+  console.log('Transitioning to Level 3')
+  initLevel3(scene, camera, keys, () => {
+    console.log('THE ARCHITECT IS DEFEATED — game complete')
+    // TODO(Banele): win screen — brief calls for "short ending
+    // text and return to menu button"; not built in either branch.
+  })
+}
+
+function startAtLevel(levelNumber) {
+  if (levelNumber === 2) {
+    currentLevelNumber = 2
+    camera = perspectiveCamera
+    initLevel2(scene, camera, keys, () => goToLevel3())
+  } else if (levelNumber === 3) {
+    currentLevelNumber = 3
+    camera = perspectiveCamera
+    initLevel3(scene, camera, keys, () => {
+      console.log('THE ARCHITECT IS DEFEATED — game complete')
+    })
+  } else {
+    currentLevelNumber = 1
+    camera = level1Camera
+    initLevel1(scene, camera, keys, () => goToLevel2())
+  }
+}
+
+// Read ?level=N from the URL (used by the debug selector above);
+// defaults to Level 1 for a normal game start.
+const params = new URLSearchParams(window.location.search)
+const requestedLevel = parseInt(params.get('level'), 10) || 1
+startAtLevel(requestedLevel)
+
+// =====================================================
+// LEVEL 1 CAMERA FOLLOW
+// Orthographic top-down camera tracking playerMesh — see note
+// above: this didn't exist in either original branch and needs
+// a feel-check against the brief's "side-scrolling arena fighter"
+// description (a true side-scroller typically locks one axis).
+// =====================================================
+
+function updateLevel1Camera() {
+  camera.position.x = THREE.MathUtils.clamp(playerMesh.position.x, -10, 10)
+  camera.position.z = THREE.MathUtils.clamp(playerMesh.position.z, -6, 6)
+  camera.position.y = 20
+  camera.rotation.set(-Math.PI / 2, 0, 0)
+}
 
 // =====================================================
 // ANIMATION LOOP
 // =====================================================
 
 function animate() {
+  requestAnimationFrame(animate)
+  const delta = Math.min(clock.getDelta(), 0.05)
 
-    requestAnimationFrame(
-        animate
-    );
+  if (currentLevelNumber === 1) {
+    updateLevel1Camera()
+    updateLevel1(delta, keys)
+  } else if (currentLevelNumber === 2) {
+    updateLevel2(delta, keys)
+  } else if (currentLevelNumber === 3) {
+    updateLevel3(delta, keys)
+  }
 
-
-    const delta =
-        Math.min(
-            clock.getDelta(),
-            0.05
-        );
-
-
-    // -------------------------------------------------
-    // PLAYER
-    // -------------------------------------------------
-
-    updatePlayer(delta);
-
-
-    // -------------------------------------------------
-    // KEEP LEVEL 2 SKY CENTERED ON CAMERA
-    // -------------------------------------------------
-
-    if (
-        currentLevel &&
-        currentLevel.sky
-    ) {
-
-        currentLevel.sky.position.copy(
-            camera.position
-        );
-
-    }
-
-
-    // -------------------------------------------------
-    // UPDATE CURRENT LEVEL
-    // -------------------------------------------------
-
-    if (
-        currentLevel &&
-        currentLevel.update &&
-        typeof currentLevel.update ===
-        'function'
-    ) {
-
-        currentLevel.update(
-            delta
-        );
-
-    }
-
-
-    // -------------------------------------------------
-    // RENDER ACTUAL LEVEL SCENE
-    // -------------------------------------------------
-
-    if (currentLevel) {
-
-        renderer.render(
-            currentLevel.scene,
-            camera
-        );
-
-    }
-
+  renderer.render(scene, camera)
 }
 
-
-// =====================================================
-// START GAME
-// =====================================================
-
-// Automatically start Level 1
-// This means the orthographic camera is used
-// immediately when the game opens.
-
-loadLevel(1);
-
-
-// Start animation
-animate();
+animate()
