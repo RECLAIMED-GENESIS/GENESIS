@@ -3,11 +3,10 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
@@ -19,14 +18,13 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "bugs": {
     "url": "https://github.com/RECLAIMED-GENESIS/GENESIS/issues"
   },
   "homepage": "https://github.com/RECLAIMED-GENESIS/GENESIS#readme",
   "devDependencies": {
     "vite": "^8.2.2"
-  }
+  },
   "dependencies": {
     "cannon-es": "^0.20.0",
     "howler": "^2.2.4",
