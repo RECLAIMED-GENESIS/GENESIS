@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { initLevel1, updateLevel1 } from './levels/Level1.js'
+import { initLevel1, updateLevel1 } from './levels/level1_new.js'
 import { initLevel2, updateLevel2 } from './levels/Level2.js'
 import { initLevel3, updateLevel3, isArchitectDefeated } from './levels/Level3.js'
 import { playerMesh } from './player/Player.js'
