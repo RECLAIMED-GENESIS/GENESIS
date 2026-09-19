@@ -181,18 +181,19 @@ function loadLevel(number) {
         camera.position.set(
             0,
             1.8,
-            25
+            -110
         );
 
-        camera.rotation.set(
-            0,
-            0,
-            0
-        );
-
-        yaw = 0;
+        yaw = Math.PI;
         pitch = 0;
+        
+        camera.rotation.order = 'YXZ';
 
+    camera.rotation.set(
+        0,
+        yaw,
+        pitch
+    );
         console.log(
             'LEVEL 2 - 3D PERSPECTIVE CAMERA'
         );
@@ -205,26 +206,25 @@ function loadLevel(number) {
 
     else if (number === 3) {
 
-        currentLevel = new Level3();
+        currentLevel = new Level3(renderer);
 
         // Use normal 3D camera
         camera = perspectiveCamera;
 
         camera.position.set(
-            0,
+            110,
             1.8,
-            25
+            73
         );
-
-        camera.rotation.set(
-            0,
-            0,
-            0
-        );
-
-        yaw = 0;
+   yaw = Math.PI/2.5;
         pitch = 0;
+        camera.rotation.set(
+           0,
+            yaw,
+            pitch
+        );
 
+    
         console.log(
             'LEVEL 3 - 3D PERSPECTIVE CAMERA'
         );
@@ -632,7 +632,8 @@ function animate() {
 
 
     // -------------------------------------------------
-    // KEEP LEVEL 2 SKY CENTERED ON CAMERA
+    // KEEP LEVEL SKY CENTERED ON CAMERA
+    // (LEVEL 2 SKYBOX / LEVEL 3 STAR SHELL)
     // -------------------------------------------------
 
     if (
