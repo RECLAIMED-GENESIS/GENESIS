@@ -1,329 +1,605 @@
 // ============================================================
-// LEVEL 1 — THE STREET
-// A dark urban fight corridor. Fight flows south -> north:
-// spawn -> car cover -> plaza with the force-field dome -> gate.
-// Rubric wins: static skybox, fog, wet-asphalt reflections,
-// emissive window textures, multiple real + fake lights, shadows,
-// custom force-field shader, pulsing energy veins.
+// LEVEL 1 — THE GROVE VILLAGE (twilight blossom garden)
+// Sorini arrives at a Japanese village at twilight.
+// He must find 5 hidden GENESIS fragments by exploring the
+// village and talking to its inhabitants. Once all 5 are
+// collected, a portal tears open at the shrine.
+//
+// What's here:
+//   * custom dusk sky shader (gradient + stars + moon + clouds)
+//   * rolling terrain with a winding stepping-stone path
+//   * torii gates aligned to the path tangent
+//   * instanced blossom trees (one draw call for all canopies)
+//   * stone lanterns with warm flickering lights
+//   * koi pond with a custom ripple/water shader
+//   * fireflies (GPU-animated point shader)
+//   * falling blossom petals (instanced, animated on CPU)
+//   * shrine platform at the end of the path
+//   * Japanese house, 3 market stalls, 5 NPCs with hints
+//   * 5 glowing GENESIS fragments to collect
+//   * portal that opens at the shrine once all 5 are found
 // ============================================================
 import * as THREE from 'three';
-import { windowTexture, asphaltTextures, starTexture, mulberry32, roadMarkingsTexture } from '../utils/utils.js';
-import { ForceFieldMaterial } from './../shaders/shaders.js';
+import { VillageNPCs } from '../player/villageNPCs.js';
+
+// ---------- noise ----------
+function hash2(x, y) {
+  const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+  return v - Math.floor(v);
+}
+function vnoise(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = hash2(ix, iy), b = hash2(ix + 1, iy);
+  const c = hash2(ix, iy + 1), d = hash2(ix + 1, iy + 1);
+  return a * (1 - ux) * (1 - uy) + b * ux * (1 - uy) + c * (1 - ux) * uy + d * ux * uy;
+}
+function fbm(x, y, oct = 4) {
+  let v = 0, amp = 0.5, f = 1;
+  for (let i = 0; i < oct; i++) { v += vnoise(x * f, y * f) * amp; f *= 2; amp *= 0.5; }
+  return v;
+}
+function sstep(a, b, x) {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
+// ---------- shaders ----------
+const SKY_VERT = `
+varying vec3 vDir;
+void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const SKY_FRAG = `
+uniform float uTime;
+varying vec3 vDir;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x),
+             mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+void main(){
+  vec3 d = normalize(vDir);
+  float h = clamp(d.y, -0.1, 1.0);
+  vec3 horizon = vec3(0.98, 0.55, 0.32);
+  vec3 rose    = vec3(0.55, 0.30, 0.52);
+  vec3 zenith  = vec3(0.10, 0.08, 0.28);
+  vec3 col = mix(horizon, rose, smoothstep(0.0, 0.22, h));
+  col = mix(col, zenith, smoothstep(0.18, 0.65, h));
+  float cl = noise(d.xz / max(d.y + 0.25, 0.12) * 1.4 + uTime * 0.008);
+  col += vec3(0.9, 0.5, 0.45) * smoothstep(0.55, 0.85, cl) * (1.0 - smoothstep(0.05, 0.35, h)) * 0.25;
+  float star = hash(floor(d.xz / max(d.y, 0.05) * 90.0));
+  float tw = 0.5 + 0.5 * sin(uTime * 2.0 + star * 40.0);
+  col += vec3(step(0.994, star)) * tw * smoothstep(0.25, 0.7, h);
+  vec3 moonDir = normalize(vec3(-0.45, 0.55, -0.6));
+  float md = dot(d, moonDir);
+  float disc = smoothstep(0.9992, 0.9996, md);
+  float halo = pow(max(md, 0.0), 220.0) * 0.5;
+  col += vec3(0.95, 0.95, 0.85) * (disc * 0.9 + halo);
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+const WATER_VERT = `
+uniform float uTime;
+varying vec2 vP;
+varying vec3 vView;
+void main(){
+  vP = position.xy;
+  vec3 pos = position;
+  pos.z += sin(position.x * 1.6 + uTime * 1.4) * 0.05
+         + cos(position.y * 1.9 + uTime * 1.1) * 0.05;
+  vec4 mv = modelViewMatrix * vec4(pos, 1.0);
+  vView = normalize(-mv.xyz);
+  gl_Position = projectionMatrix * mv;
+}`;
+const WATER_FRAG = `
+uniform float uTime;
+varying vec2 vP;
+varying vec3 vView;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x),
+             mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y);
+}
+void main(){
+  float r = length(vP) / 9.0;
+  float n1 = noise(vP * 1.3 + uTime * 0.35);
+  float n2 = noise(vP * 2.7 - uTime * 0.5);
+  float ripple = n1 * 0.6 + n2 * 0.4;
+  vec3 deep = vec3(0.09, 0.10, 0.30);
+  vec3 skyRef = vec3(0.85, 0.48, 0.45);
+  float fres = pow(1.0 - abs(vView.z), 2.0);
+  vec3 col = mix(deep, skyRef, fres * 0.75 + ripple * 0.15);
+  float glint = pow(noise(vP * 5.0 + uTime * 0.8), 12.0);
+  col += vec3(1.0, 0.8, 0.5) * glint * 2.0;
+  col *= 0.75 + 0.25 * smoothstep(1.0, 0.3, r);
+  gl_FragColor = vec4(col, 0.92);
+}`;
+
+const FIREFLY_VERT = `
+uniform float uTime;
+attribute float seed;
+varying float vSeed;
+void main(){
+  vSeed = seed;
+  vec3 p = position;
+  p.x += sin(uTime * 0.31 + seed * 17.0) * 1.6;
+  p.y += sin(uTime * 0.23 + seed * 29.0) * 0.9;
+  p.z += cos(uTime * 0.27 + seed * 13.0) * 1.6;
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  float pulse = 0.6 + 0.4 * sin(uTime * 2.2 + seed * 40.0);
+  gl_PointSize = (3.2 * pulse) * (160.0 / -mv.z);
+  gl_Position = projectionMatrix * mv;
+}`;
+const FIREFLY_FRAG = `
+varying float vSeed;
+uniform float uTime;
+void main(){
+  float d = length(gl_PointCoord - 0.5);
+  float a = smoothstep(0.5, 0.06, d);
+  a *= 0.55 + 0.45 * sin(uTime * 2.2 + vSeed * 40.0);
+  gl_FragColor = vec4(vec3(0.75, 1.0, 0.35) * 1.6, a);
+}`;
 
 export class StreetLevel {
-  constructor(scene) {
-    this.name = 'LEVEL 1 — THE STREET';
-    this.root = new THREE.Group();
-    scene.add(this.root);
-    this.colliders = [];        // array of THREE.Box3 the player can't enter
-    this.spawn = new THREE.Vector3(0, 0, 55);
-    this.timeMats = [];         // shader materials that need uTime
-    this.veins = [];            // pulsing emissive strips
-    this.flickerLight = null;
-
-    scene.fog = new THREE.FogExp2(0x0a0b12, 0.011);
-    scene.background = new THREE.Color(0x0a0b12);
-
-    // ---- BASE FILL LIGHT ----
-    // The original level had ZERO ambient/hemisphere light, so anything
-    // outside a spotlight cone rendered pure black. This is the fix:
-    // a soft cool-above / warm-below hemisphere so geometry always reads,
-    // plus a faint ambient so shadow cores aren't crushed to zero.
-    this.root.add(new THREE.HemisphereLight(0x4a5570, 0x0e0b10, 0.85));
-    this.root.add(new THREE.AmbientLight(0x223047, 0.35));
-
-    // ---- STATIC NIGHT SKY (excluded from minimap: stays on layer 0) ----
-    const sky = new THREE.Mesh(
-      new THREE.SphereGeometry(500, 24, 16),
-      new THREE.MeshBasicMaterial({ map: starTexture(99), side: THREE.BackSide, fog: false })
-    );
-    this.root.add(sky);
-
-    // ---- GROUND: wet asphalt (low roughness = shiny reflections) ----
-    const { map, roughnessMap } = asphaltTextures();
-    map.repeat.set(24, 24); roughnessMap.repeat.set(24, 24);
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(320, 320),
-      new THREE.MeshStandardMaterial({
-        map, roughnessMap, roughness: 1.0, metalness: 0.25,
-      })
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    this._add(ground);
-
-    // road markings decal — dashed centre line + edge lines down the
-    // drivable lane, stops the street reading as an undifferentiated
-    // dark plane
-    const markTex = roadMarkingsTexture();
-    markTex.repeat.set(1, 16);
-    const markings = new THREE.Mesh(
-      new THREE.PlaneGeometry(14, 300),
-      new THREE.MeshStandardMaterial({
-        map: markTex, transparent: true, roughness: 0.6, metalness: 0.1,
-        polygonOffset: true, polygonOffsetFactor: -1, // avoid z-fighting with ground
-      })
-    );
-    markings.rotation.x = -Math.PI / 2;
-    markings.position.set(0, 0.01, -20);
-    this.root.add(markings);
-
-    // ---- BUILDINGS: two rows boxing in the street ----
-    // One gap is deliberately left in the west row (see ALLEY_GAP_Z below) —
-    // that missing building is the mouth of the hidden alley to the plaza.
-    const ALLEY_GAP_Z = [-90, -76]; // [min,max] z-range of the carved gap, west side only
-    const rnd = mulberry32(2024);
-    for (let i = 0; i < 14; i++) {
-      const side = i % 2 === 0 ? -1 : 1;
-      const w = 12 + rnd() * 6, h = 22 + rnd() * 36, d = 14;
-      const z = -84 + Math.floor(i / 2) * 24 + (side < 0 ? 0 : 6);
-      if (side < 0 && z > ALLEY_GAP_Z[0] && z < ALLEY_GAP_Z[1]) continue; // carve the alley mouth
-      const tex = windowTexture(100 + i);       // clone-ish variety per building
-      tex.repeat.set(2, Math.max(2, Math.round(h / 12)));
-      tex.offset.set(rnd(), rnd());
-      const b = new THREE.Mesh(
-        new THREE.BoxGeometry(w, h, d),
-        new THREE.MeshStandardMaterial({
-          map: tex, emissiveMap: tex, emissive: 0xffc978, emissiveIntensity: 0.9,
-          roughness: 0.9,
-        })
-      );
-      b.position.set(side * (17 + w / 2), h / 2, z);
-      b.castShadow = true; b.receiveShadow = true;
-      this._add(b);
-      this.colliders.push(new THREE.Box3().setFromObject(b));
+  constructor(sceneOrRenderer = null, rendererMaybe = null) {
+    let outerScene = null;
+    let renderer = null;
+    if (sceneOrRenderer && sceneOrRenderer.isScene) {
+      outerScene = sceneOrRenderer;
+      renderer = rendererMaybe;
+    } else if (sceneOrRenderer && sceneOrRenderer.isWebGLRenderer) {
+      renderer = sceneOrRenderer;
+    } else if (rendererMaybe && rendererMaybe.isWebGLRenderer) {
+      renderer = rendererMaybe;
+    }
+    if (outerScene) {
+      this.scene = outerScene;
+      if (!this.scene.background) this.scene.background = new THREE.Color(0x1a1030);
+      if (this.scene.fog === null || this.scene.fog === undefined) this.scene.fog = new THREE.FogExp2(0x3a2050, 0.011);
+    } else {
+      this.scene = new THREE.Scene();
+      this.scene.background = new THREE.Color(0x1a1030);
+      this.scene.fog = new THREE.FogExp2(0x3a2050, 0.011);
     }
 
-    // distant skyline silhouettes (no colliders — pure atmosphere)
-    const silMat = new THREE.MeshBasicMaterial({ color: 0x0a0c14 });
-    for (let i = 0; i < 26; i++) {
-      const a = (i / 26) * Math.PI * 2;
-      const h = 40 + rnd() * 60;
-      const b = new THREE.Mesh(new THREE.BoxGeometry(18, h, 18), silMat);
-      b.position.set(Math.cos(a) * 190, h / 2, Math.sin(a) * 190);
-      this.root.add(b); // skyline not on minimap layer
-    }
+    this.name = 'LEVEL 1 — THE GROVE VILLAGE';
+    this.colliders = [];
+    this.level = new THREE.Group();
+    this.root = this.level;
+    this.scene.add(this.level);
 
-    // ---- STREETLIGHTS: 8 poles, first 3 get real shadow-casting spots ----
-    for (let i = 0; i < 8; i++) {
-      const side = i % 2 === 0 ? -1 : 1;
-      const z = -72 + Math.floor(i / 2) * 36;
-      const x = side * 10;
-      const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.12, 0.16, 6.5, 8),
-        new THREE.MeshStandardMaterial({ color: 0x2a2f38, roughness: 0.6, metalness: 0.7 })
-      );
-      pole.position.set(x, 3.25, z); pole.castShadow = true;
-      this._add(pole);
-      const head = new THREE.Mesh(
-        new THREE.SphereGeometry(0.35, 12, 8),
-        new THREE.MeshStandardMaterial({ color: 0x332200, emissive: 0xffd27a, emissiveIntensity: 2 })
-      );
-      head.position.set(x, 6.6, z);
-      this._add(head);
-      if (i < 3) {
-        const spot = new THREE.SpotLight(0xffd9a0, 110, 46, 0.75, 0.45, 1.4);
-        spot.position.set(x, 6.6, z);
-        spot.target.position.set(x * 0.6, 0, z);
-        spot.castShadow = true;
-        spot.shadow.mapSize.set(1024, 1024);
-        this.root.add(spot, spot.target);
-        if (i === 1) this.flickerLight = spot; // one faulty lamp, flickers in update()
+    this.time = 0;
+    this.timeMats = [];
+    this.lanternMats = [];
+    this.spawn = new THREE.Vector3(0, this._h(0, 62), 62);
+
+    this.createSky();
+    this.createLighting();
+    this.createTerrain();
+    this.createPath();
+    this.createToriiGates();
+    this.createTrees();
+    this.createLanterns();
+    this.createPond();
+    this.createShrine();
+    this.createFireflies();
+    this.createPetals();
+
+    // shadows on everything built so far
+    this.level.traverse((o) => {
+      if (o.isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; }
+    });
+
+    // ── Village NPCs, stalls, house, fragments, portal ──────
+    // switchLevel is exposed on window by main.js so the portal
+    // callback can trigger level 2 from inside villageNPCs.js
+    this.villageNPCs = new VillageNPCs(
+      this.level,
+      this._h.bind(this),
+      this.pathX.bind(this),
+      () => {
+        // all 5 fragments collected → walk into portal → go to level 2
+        setTimeout(() => {
+          if (typeof window.__switchLevel === 'function') window.__switchLevel(2);
+        }, 1200);
       }
-    }
-
-    // faint cold moonlight so the street reads even between lamp pools
-    const moon = new THREE.DirectionalLight(0x5f7aa8, 0.5);
-    moon.position.set(-60, 90, 30);
-    this.root.add(moon);
-
-    // ---- COVER PROPS: cars, dumpsters, crates (all have colliders) ----
-    // Brighter, more saturated body colors than the original near-black
-    // set, plus a small warm rim light per car so they read as distinct
-    // shapes instead of dark blobs on a dark street.
-    const carColors = [0x9a3a3a, 0x3a55a0, 0x585862, 0x8a8438, 0x3f7488];
-    for (let i = 0; i < 5; i++) {
-      const car = this._makeCar(carColors[i]);
-      const side = i % 2 === 0 ? -1 : 1;
-      car.position.set(side * 7.5, 0, 30 - i * 22);
-      car.rotation.y = (rnd() - 0.5) * 0.35 + (side < 0 ? Math.PI : 0);
-      this._add(car);
-      this.colliders.push(new THREE.Box3().setFromObject(car));
-      const carLight = new THREE.PointLight(0xffddb0, 6, 12, 2);
-      carLight.position.set(car.position.x, 2.4, car.position.z);
-      this.root.add(carLight);
-    }
-    const dumpster = new THREE.Mesh(
-      new THREE.BoxGeometry(3, 1.6, 1.6),
-      new THREE.MeshStandardMaterial({ color: 0x1d4030, roughness: 0.7, metalness: 0.4 })
     );
-    dumpster.position.set(-13, 0.8, -20); dumpster.castShadow = true;
-    this._add(dumpster);
-    this.colliders.push(new THREE.Box3().setFromObject(dumpster));
-    for (let i = 0; i < 4; i++) {
-      const crate = new THREE.Mesh(
-        new THREE.BoxGeometry(1.2, 1.2, 1.2),
-        new THREE.MeshStandardMaterial({ color: 0x4a3a26, roughness: 0.9 })
-      );
-      crate.position.set(12 + (i % 2) * 1.4, 0.6 + (i > 1 ? 1.2 : 0), -62 - (i % 2) * 0.4);
-      crate.castShadow = true;
-      this._add(crate);
-      this.colliders.push(new THREE.Box3().setFromObject(crate));
-    }
+  }
 
-    // ---- DEAD END: the "obvious" straight path is a lie ----
-    // Anyone who just runs north up the main street hits collapsed
-    // rubble and a wrecked bus. No dome, no obvious way through.
-    // The real way forward is the unlit gap in the west building row.
-    const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x1c1a1c, roughness: 1.0 });
-    const bus = new THREE.Mesh(new THREE.BoxGeometry(9, 3.2, 3.2), rubbleMat);
-    bus.position.set(-2, 1.6, -96);
-    bus.rotation.y = 0.18;
-    bus.castShadow = true; bus.receiveShadow = true;
-    this._add(bus);
-    this.colliders.push(new THREE.Box3().setFromObject(bus));
-    for (let i = 0; i < 5; i++) {
-      const chunk = new THREE.Mesh(
-        new THREE.BoxGeometry(2 + rnd() * 2.5, 1.4 + rnd() * 2.2, 2 + rnd() * 2),
-        rubbleMat
-      );
-      chunk.position.set(-9 + rnd() * 14, chunk.geometry.parameters.height / 2, -92 - rnd() * 6);
-      chunk.rotation.y = rnd() * Math.PI;
-      chunk.castShadow = true; chunk.receiveShadow = true;
-      this._add(chunk);
-      this.colliders.push(new THREE.Box3().setFromObject(chunk));
-    }
-    // one dim, sputtering light over the dead end so it's readable but not inviting
-    const deadEndLight = new THREE.PointLight(0xff7744, 12, 24, 2);
-    deadEndLight.position.set(-2, 5, -92);
-    this.root.add(deadEndLight);
+  // the path wanders gently; everything aligns to it
+  pathX(z) { return Math.sin(z * 0.03) * 8; }
 
-    // ---- HIDDEN ALLEY: through the gap in the west row ----
-    // Unmarked, unlit at the mouth — you have to actually look for it.
-    const alleyMouthX = -17, alleyDeepX = -55, alleyZ = (ALLEY_GAP_Z[0] + ALLEY_GAP_Z[1]) / 2;
-    const alleyWallMat = new THREE.MeshStandardMaterial({ color: 0x14151b, roughness: 0.95 });
-    const wallN = new THREE.Mesh(new THREE.BoxGeometry(alleyMouthX - alleyDeepX + 6, 24, 1.2), alleyWallMat);
-    wallN.position.set((alleyMouthX + alleyDeepX) / 2, 12, ALLEY_GAP_Z[0]);
-    this._add(wallN);
-    this.colliders.push(new THREE.Box3().setFromObject(wallN));
-    const wallS = wallN.clone();
-    wallS.position.z = ALLEY_GAP_Z[1];
-    this._add(wallS);
-    this.colliders.push(new THREE.Box3().setFromObject(wallS));
+  // ONE analytic height function — terrain mesh AND gameplay use it
+  _h(x, z) {
+    let h = (fbm(x * 0.02 + 3.1, z * 0.02 + 7.7) - 0.5) * 2.4;
+    h += (fbm(x * 0.08, z * 0.08, 2) - 0.5) * 0.4;
+    const dp = Math.hypot(x - 14, z - 18);
+    h = h * (1 - sstep(12, 6, dp)) + (-0.8) * sstep(12, 6, dp);
+    const dPath = Math.abs(x - this.pathX(z));
+    h = h * (1 - sstep(7, 2.5, dPath)) + 0.05 * sstep(7, 2.5, dPath);
+    h = h * (1 - sstep(9, 4, Math.hypot(x, z - 62))) + 0.05 * sstep(9, 4, Math.hypot(x, z - 62));
+    h = h * (1 - sstep(10, 5, Math.hypot(x - this.pathX(-58), z + 58))) + 0.1 * sstep(10, 5, Math.hypot(x - this.pathX(-58), z + 58));
+    return h;
+  }
+  getSurfaceHeight(x, z) { return this._h(x, z); }
+  groundHeight(x, z) { return this._h(x, z); }
+  terrainHeight(x, z) { return this._h(x, z); }
 
-    // faint pulsing glyphs in the grime, barely visible — the only real clue
-    const glyphMat = new THREE.MeshStandardMaterial({
-      color: 0x000000, emissive: 0x2fe0ff, emissiveIntensity: 0.5,
-      roughness: 1, transparent: true, opacity: 0.8,
+  // =========================================================
+  // SKY
+  // =========================================================
+  createSky() {
+    this.skyMat = new THREE.ShaderMaterial({
+      vertexShader: SKY_VERT, fragmentShader: SKY_FRAG,
+      uniforms: { uTime: { value: 0 } }, side: THREE.BackSide, depthWrite: false, fog: false,
     });
-    this.glyphs = [];
-    for (let i = 0; i < 6; i++) {
-      const gx = alleyMouthX - i * 7 - 3;
-      const g = new THREE.Mesh(new THREE.CircleGeometry(0.45, 16), glyphMat.clone());
-      g.rotation.x = -Math.PI / 2;
-      g.position.set(gx, 0.03, alleyZ + Math.sin(i * 1.7) * 2.2);
-      g.userData.phase = i * 0.9;
-      this.glyphs.push(g);
-      this._add(g);
+    this.timeMats.push(this.skyMat);
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(600, 32, 24), this.skyMat);
+    this.scene.add(this.sky);
+  }
+
+  // =========================================================
+  // LIGHTING
+  // =========================================================
+  createLighting() {
+    this.scene.add(new THREE.HemisphereLight(0x8a6fd0, 0x2e1f3f, 0.7));
+    const sun = new THREE.DirectionalLight(0xffb27a, 1.9);
+    sun.position.set(70, 32, -30);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, far: 260 });
+    sun.shadow.bias = -0.0004;
+    this.level.add(sun);
+    this.sun = sun;
+  }
+
+  // =========================================================
+  // TERRAIN
+  // =========================================================
+  createTerrain() {
+    const geo = new THREE.PlaneGeometry(260, 260, 110, 110);
+    geo.rotateX(-Math.PI / 2);
+    const pos = geo.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const cGrass = new THREE.Color(0x2e5c3a), cMoss = new THREE.Color(0x4a7a44),
+          cPath = new THREE.Color(0x6a5a48), cDusk = new THREE.Color(0x3a4a6a), tmp = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i);
+      const h = this._h(x, z);
+      pos.setY(i, h);
+      const n = fbm(x * 0.05 + 11, z * 0.05 + 4, 3);
+      tmp.lerpColors(cGrass, cMoss, n);
+      tmp.lerp(cDusk, sstep(0.8, 2.2, h) * 0.5);
+      const dPath = Math.abs(x - this.pathX(z));
+      tmp.lerp(cPath, 1 - sstep(2.5, 5.5, dPath));
+      colors[i * 3] = tmp.r; colors[i * 3 + 1] = tmp.g; colors[i * 3 + 2] = tmp.b;
     }
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+    const terrain = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
+    this.level.add(terrain);
+  }
 
-    // ---- HIDDEN COURTYARD (end of the alley): the device wakes up here ----
-    const plaza = new THREE.Mesh(
-      new THREE.CylinderGeometry(13, 13, 0.2, 40),
-      new THREE.MeshStandardMaterial({ color: 0x232733, roughness: 0.3, metalness: 0.5 })
-    );
-    plaza.position.set(alleyDeepX, 0.1, alleyZ);
-    plaza.receiveShadow = true;
-    this._add(plaza);
-
-    // force-field dome — custom shader, uPower = game state (kills, story)
-    this.forceMat = ForceFieldMaterial();
-    this.timeMats.push(this.forceMat);
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(8, 40, 28), this.forceMat);
-    dome.position.set(alleyDeepX, 0.4, alleyZ);
-    this._add(dome);
-    const domeLight = new THREE.PointLight(0x33ddff, 70, 46, 1.6);
-    domeLight.position.set(alleyDeepX, 4, alleyZ);
-    this.root.add(domeLight);
-    this.exitPosition = new THREE.Vector3(alleyDeepX, 0.4, alleyZ); // for main.js level-complete checks
-
-    // energy veins pulsing on the walls near the plaza (emissive + sin pulse)
-    const veinMat = new THREE.MeshStandardMaterial({
-      color: 0x120016, emissive: 0xff2fd8, emissiveIntensity: 1.5, roughness: 0.5,
-    });
-    for (let i = 0; i < 6; i++) {
-      const v = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 7 + rnd() * 5), veinMat.clone());
-      const side = i % 2 === 0 ? -1 : 1;
-      v.position.set(alleyDeepX + side * 15.8, 4.5, alleyZ - 6 + i * 2.2);
-      v.rotation.y = -side * Math.PI / 2;
-      v.userData.phase = rnd() * Math.PI * 2;
-      this.veins.push(v);
-      this._add(v);
+  // =========================================================
+  // STEPPING-STONE PATH
+  // =========================================================
+  createPath() {
+    const pts = [];
+    for (let z = 62; z >= -58; z -= 10) pts.push(new THREE.Vector3(this.pathX(z), 0, z));
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const stoneMat = new THREE.MeshStandardMaterial({ color: 0x9a94a8, roughness: 0.7, metalness: 0.05 });
+    const glowMat = new THREE.MeshStandardMaterial({ color: 0x332200, emissive: 0xffc46a, emissiveIntensity: 2 });
+    const stoneGeo = new THREE.CylinderGeometry(0.75, 0.85, 0.22, 7);
+    const count = Math.floor(curve.getLength() / 1.7);
+    for (let i = 0; i <= count; i++) {
+      const t = i / count;
+      const p = curve.getPointAt(t);
+      const tan = curve.getTangentAt(t);
+      const stone = new THREE.Mesh(stoneGeo, stoneMat);
+      stone.position.set(p.x + Math.sin(i * 7.3) * 0.25, this._h(p.x, p.z) + 0.08, p.z);
+      stone.rotation.y = Math.atan2(tan.x, tan.z) + Math.sin(i * 3.1) * 0.3;
+      this.level.add(stone);
+      if (i % 5 === 2) {
+        const rune = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.24, 6), glowMat);
+        rune.position.set(p.x, this._h(p.x, p.z) + 0.1, p.z);
+        rune.userData.noShadow = true;
+        this.level.add(rune);
+      }
     }
   }
 
-  _makeCar(color) {
+  // =========================================================
+  // TORII GATES
+  // =========================================================
+  createToriiGates() {
+    const vermilion = new THREE.MeshStandardMaterial({ color: 0xd8503c, roughness: 0.55 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x2a1420, roughness: 0.6 });
+    for (const gz of [42, 16, -12, -38]) {
+      const gx = this.pathX(gz);
+      const dz = 0.6;
+      const angle = Math.atan2(this.pathX(gz - dz) - this.pathX(gz + dz), -2 * dz);
+      const gate = new THREE.Group();
+      for (const side of [-1, 1]) {
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 4.4, 10), vermilion);
+        pillar.position.set(side * 2.1, 2.2, 0);
+        gate.add(pillar);
+      }
+      const top = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.34, 0.42), vermilion);
+      top.position.y = 4.55; top.rotation.z = 0.02;
+      gate.add(top);
+      const second = new THREE.Mesh(new THREE.BoxGeometry(4.7, 0.26, 0.34), vermilion);
+      second.position.y = 3.85;
+      gate.add(second);
+      const plaque = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.1),
+        new THREE.MeshStandardMaterial({ color: 0x201008, emissive: 0xffb45e, emissiveIntensity: 1.4 }));
+      plaque.position.y = 4.15; plaque.userData.noShadow = true;
+      gate.add(plaque);
+      gate.position.set(gx, this._h(gx, gz), gz);
+      gate.rotation.y = angle;
+      this.level.add(gate);
+    }
+  }
+
+  // =========================================================
+  // BLOSSOM TREES
+  // =========================================================
+  createTrees() {
+    const N = 46;
+    const trunkGeo = new THREE.CylinderGeometry(0.22, 0.38, 3.2, 7);
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3228, roughness: 0.9 });
+    const canGeo = new THREE.IcosahedronGeometry(1.9, 1);
+    const canMat = new THREE.MeshStandardMaterial({
+      color: 0xe88bb0, roughness: 0.8, emissive: 0xa04070, emissiveIntensity: 0.25, flatShading: true,
+    });
+    const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, N);
+    const cans = new THREE.InstancedMesh(canGeo, canMat, N * 3);
+    const M = new THREE.Matrix4(), V = new THREE.Vector3(), Q = new THREE.Quaternion(),
+          S = new THREE.Vector3(), E = new THREE.Euler();
+    let placed = 0, guard = 0;
+    let ci = 0;
+    while (placed < N && guard++ < 2000) {
+      const x = (Math.random() - 0.5) * 220, z = (Math.random() - 0.5) * 220;
+      if (Math.abs(x - this.pathX(z)) < 5) continue;
+      if (Math.hypot(x - 14, z - 18) < 14) continue;
+      if (Math.hypot(x, z - 62) < 8 || Math.hypot(x - this.pathX(-58), z + 58) < 12) continue;
+      const y = this._h(x, z);
+      const s = 0.8 + Math.random() * 1.3;
+      V.set(x, y + 1.6 * s, z); S.set(s, s, s); E.set(0, Math.random() * 6.3, (Math.random() - 0.5) * 0.12);
+      Q.setFromEuler(E);
+      M.compose(V, Q, S);
+      trunks.setMatrixAt(placed, M);
+      for (let k = 0; k < 3; k++) {
+        const a = Math.random() * Math.PI * 2, r = k === 0 ? 0 : 0.9 + Math.random() * 0.5;
+        const cs = s * (1.1 - k * 0.18) * (0.8 + Math.random() * 0.4);
+        V.set(x + Math.cos(a) * r * s, y + (3.1 + k * 0.75) * s, z + Math.sin(a) * r * s);
+        S.set(cs, cs * 0.85, cs);
+        Q.setFromEuler(E);
+        M.compose(V, Q, S);
+        cans.setMatrixAt(ci++, M);
+      }
+      placed++;
+    }
+    this.level.add(trunks, cans);
+    this.canopyMat = canMat;
+  }
+
+  // =========================================================
+  // STONE LANTERNS
+  // =========================================================
+  createLanterns() {
+    const stone = new THREE.MeshStandardMaterial({ color: 0x8a8496, roughness: 0.8 });
+    for (let i = 0; i < 6; i++) {
+      const z = 48 - i * 20;
+      const side = i % 2 ? 1 : -1;
+      const x = this.pathX(z) + side * 2.6;
+      const y = this._h(x, z);
+      const g = new THREE.Group();
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.25, 0.7), stone);
+      base.position.y = 0.12; g.add(base);
+      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.9, 8), stone);
+      pillar.position.y = 0.7; g.add(pillar);
+      const glowMat = new THREE.MeshStandardMaterial({
+        color: 0x3a2410, emissive: 0xffb45e, emissiveIntensity: 2.2,
+      });
+      this.lanternMats.push({ mat: glowMat, phase: i * 1.3 });
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 0.5), glowMat);
+      box.position.y = 1.35; box.userData.noShadow = true; g.add(box);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(0.55, 0.4, 4), stone);
+      roof.position.y = 1.78; roof.rotation.y = Math.PI / 4; g.add(roof);
+      g.position.set(x, y, z);
+      this.level.add(g);
+      if (i === 1 || i === 4) {
+        const l = new THREE.PointLight(0xffb45e, 6, 10, 1.8);
+        l.position.set(x, y + 1.4, z);
+        this.level.add(l);
+      }
+    }
+  }
+
+  // =========================================================
+  // KOI POND
+  // =========================================================
+  createPond() {
+    const px = 14, pz = 18;
+    this.waterMat = new THREE.ShaderMaterial({
+      vertexShader: WATER_VERT, fragmentShader: WATER_FRAG,
+      uniforms: { uTime: { value: 0 } }, transparent: true, fog: false,
+    });
+    this.timeMats.push(this.waterMat);
+    const water = new THREE.Mesh(new THREE.CircleGeometry(9, 48), this.waterMat);
+    water.rotation.x = -Math.PI / 2;
+    water.position.set(px, -0.25, pz);
+    water.userData.noShadow = true;
+    this.level.add(water);
+
+    const padMat = new THREE.MeshStandardMaterial({ color: 0x2e6b3e, roughness: 0.7 });
+    for (let i = 0; i < 7; i++) {
+      const a = Math.random() * Math.PI * 2, r = 2 + Math.random() * 5.5;
+      const pad = new THREE.Mesh(new THREE.CircleGeometry(0.5 + Math.random() * 0.5, 10), padMat);
+      pad.rotation.x = -Math.PI / 2;
+      pad.position.set(px + Math.cos(a) * r, -0.2, pz + Math.sin(a) * r);
+      pad.userData.noShadow = true;
+      this.level.add(pad);
+    }
+    const lotus = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.5, 6),
+      new THREE.MeshStandardMaterial({ color: 0xff9ec4, emissive: 0xd84f88, emissiveIntensity: 1.2 }));
+    lotus.position.set(px + 1.5, -0.05, pz - 1);
+    lotus.userData.noShadow = true;
+    this.level.add(lotus);
+  }
+
+  // =========================================================
+  // SHRINE
+  // =========================================================
+  createShrine() {
+    const sx = this.pathX(-58), sz = -58, sy = this._h(sx, sz);
+    const wood = new THREE.MeshStandardMaterial({ color: 0x5a3a2a, roughness: 0.8 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x2a2033, roughness: 0.6 });
     const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.35, metalness: 0.6 });
-    const body = new THREE.Mesh(new THREE.BoxGeometry(2, 1, 4.4), mat);
-    body.position.y = 0.75; body.castShadow = true;
-    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.7, 2.2),
-      new THREE.MeshStandardMaterial({ color: 0x101418, roughness: 0.1, metalness: 0.8 }));
-    cab.position.set(0, 1.55, -0.2); cab.castShadow = true;
-    g.add(body, cab);
-    const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.3, 12);
-    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 0.9 });
-    for (const [wx, wz] of [[-1, 1.4], [1, 1.4], [-1, -1.4], [1, -1.4]]) {
-      const w = new THREE.Mesh(wheelGeo, wheelMat);
-      w.rotation.z = Math.PI / 2;
-      w.position.set(wx, 0.42, wz);
-      g.add(w);
+    const platform = new THREE.Mesh(new THREE.BoxGeometry(7, 0.7, 6), wood);
+    platform.position.y = 0.35; g.add(platform);
+    for (const [cx, cz] of [[-2.8, -2.3], [2.8, -2.3], [-2.8, 2.3], [2.8, 2.3]]) {
+      const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 3.2, 8), wood);
+      pillar.position.set(cx, 2.3, cz); g.add(pillar);
     }
-    return g;
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(5.6, 2.4, 4), roofMat);
+    roof.position.y = 5; roof.rotation.y = Math.PI / 4; g.add(roof);
+    const innerGlow = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.8, 0.1),
+      new THREE.MeshStandardMaterial({ color: 0x2a1808, emissive: 0xffc98a, emissiveIntensity: 2.4 }));
+    innerGlow.position.set(0, 1.9, 2.85); innerGlow.userData.noShadow = true; g.add(innerGlow);
+    g.position.set(sx, sy, sz);
+    this.level.add(g);
+    const light = new THREE.PointLight(0xffc98a, 14, 22, 1.7);
+    light.position.set(sx, sy + 2.2, sz + 2);
+    this.level.add(light);
   }
 
-  // helper: add to scene AND make visible on the minimap (layer 1)
-  _add(obj) {
-    obj.traverse ? obj.traverse(o => o.layers && o.layers.enable(1))
-                 : obj.layers && obj.layers.enable(1);
-    this.root.add(obj);
-  }
-
-  // flat city ground
-  groundHeight() { return 0; }
-
-  update(dt, t) {
-    for (const m of this.timeMats) m.uniforms.uTime.value = t;
-    // the device grows stronger the longer the level runs
-    // -> later you can drive this from kill-count instead of time
-    this.forceMat.uniforms.uPower.value = Math.min(1, 0.45 + t * 0.02);
-    // faulty streetlight flicker
-    if (this.flickerLight) {
-      const n = Math.sin(t * 31.7) * Math.sin(t * 7.3) * Math.sin(t * 2.1);
-      this.flickerLight.intensity = n > 0.55 ? 8 : 60;
+  // =========================================================
+  // FIREFLIES
+  // =========================================================
+  createFireflies() {
+    const N = 220;
+    const pos = new Float32Array(N * 3), seed = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      const z = 60 - Math.random() * 125;
+      const x = this.pathX(z) + (Math.random() - 0.5) * 30;
+      pos[i * 3] = x;
+      pos[i * 3 + 1] = this._h(x, z) + 0.6 + Math.random() * 3.2;
+      pos[i * 3 + 2] = z;
+      seed[i] = Math.random() * 100;
     }
-    // energy veins breathe
-    for (const v of this.veins) {
-      v.material.emissiveIntensity = 1.2 + Math.sin(t * 2.4 + v.userData.phase) * 0.9;
-    }
-    // hidden alley glyphs — slow, faint pulse, easy to miss on purpose
-    for (const g of this.glyphs) {
-      g.material.emissiveIntensity = 0.25 + Math.max(0, Math.sin(t * 1.1 + g.userData.phase)) * 0.55;
-    }
-  }
-
-  dispose(scene) {
-    this.root.traverse(o => {
-      if (o.geometry) o.geometry.dispose();
-      if (o.material) {
-        (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => {
-          for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose();
-          m.dispose();
-        });
-      }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('seed', new THREE.BufferAttribute(seed, 1));
+    this.fireflyMat = new THREE.ShaderMaterial({
+      vertexShader: FIREFLY_VERT, fragmentShader: FIREFLY_FRAG,
+      uniforms: { uTime: { value: 0 } },
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
-    scene.remove(this.root);
-    scene.fog = null;
-    scene.background = null;
+    this.timeMats.push(this.fireflyMat);
+    this.fireflies = new THREE.Points(geo, this.fireflyMat);
+    this.level.add(this.fireflies);
   }
+
+  // =========================================================
+  // FALLING BLOSSOM PETALS
+  // =========================================================
+  createPetals() {
+    const N = 160;
+    this.petals = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(0.14, 0.14),
+      new THREE.MeshBasicMaterial({ color: 0xffc4d8, side: THREE.DoubleSide, transparent: true, opacity: 0.9 }),
+      N);
+    this.petals.userData.noShadow = true;
+    this.petalData = [];
+    for (let i = 0; i < N; i++) {
+      const z = 65 - Math.random() * 130;
+      const x = this.pathX(z) + (Math.random() - 0.5) * 44;
+      this.petalData.push({
+        x, z, y: this._h(x, z) + 2 + Math.random() * 7,
+        speed: 0.5 + Math.random() * 0.7, sway: Math.random() * 6.3, rot: Math.random() * 6.3,
+      });
+    }
+    this.level.add(this.petals);
+    this._petalM = new THREE.Matrix4();
+    this._petalQ = new THREE.Quaternion();
+    this._petalE = new THREE.Euler();
+    this._petalS = new THREE.Vector3(1, 1, 1);
+    this._petalV = new THREE.Vector3();
+  }
+
+  // =========================================================
+  // UPDATE — called every frame by main.js as update(dt, t, player)
+  // =========================================================
+  update(deltaTime, t, player) {
+    this.time += deltaTime;
+    for (const m of this.timeMats) m.uniforms.uTime.value = this.time;
+
+    // lantern candle flicker
+    for (const l of this.lanternMats) {
+      l.mat.emissiveIntensity = 2 + Math.sin(this.time * 6 + l.phase) * 0.35 + Math.sin(this.time * 17 + l.phase * 2) * 0.2;
+    }
+
+    // petals drift down and recycle
+    for (let i = 0; i < this.petalData.length; i++) {
+      const p = this.petalData[i];
+      p.y -= p.speed * deltaTime;
+      p.sway += deltaTime;
+      const ground = this._h(p.x, p.z);
+      if (p.y < ground + 0.1) { p.y = ground + 4 + Math.random() * 5; }
+      this._petalV.set(p.x + Math.sin(p.sway) * 0.8, p.y, p.z + Math.cos(p.sway * 0.8) * 0.6);
+      this._petalE.set(p.sway * 0.7, p.rot + p.sway, p.sway);
+      this._petalQ.setFromEuler(this._petalE);
+      this._petalM.compose(this._petalV, this._petalQ, this._petalS);
+      this.petals.setMatrixAt(i, this._petalM);
+    }
+    this.petals.instanceMatrix.needsUpdate = true;
+
+    // village NPCs, fragments and portal
+    if (this.villageNPCs && player) {
+      this.villageNPCs.update(deltaTime, this.time, player);
+    }
+  }
+
+  // =========================================================
+  // DISPOSE
+  // =========================================================
+  dispose(outerScene = null) {
+    // clean up village system first (removes DOM elements too)
+    if (this.villageNPCs) { this.villageNPCs.dispose(); this.villageNPCs = null; }
+
+    if (this.level && this.level.parent) this.level.parent.remove(this.level);
+    if (this.sky && this.sky.parent) this.sky.parent.remove(this.sky);
+    if (this.fireflies && this.fireflies.parent) this.fireflies.parent.remove(this.fireflies);
+
+    if (this.level) {
+      this.level.traverse((object) => {
+        if (!object.isMesh && !object.isPoints) return;
+        if (object.geometry) object.geometry.dispose();
+        if (object.material) {
+          (Array.isArray(object.material) ? object.material : [object.material]).forEach((m) => {
+            for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose();
+            m.dispose();
+          });
+        }
+      });
+    }
+    if (this.sky) {
+      if (this.sky.geometry) this.sky.geometry.dispose();
+      if (this.sky.material) {
+        if (this.sky.material.map) this.sky.material.map.dispose();
+        this.sky.material.dispose();
+      }
+    }
+    this.sky = null; this.fireflies = null; this.petals = null;
+    this.timeMats = []; this.lanternMats = []; this.petalData = [];
+    this.colliders = [];
+  }
+
+  // legacy arity compat
+  _updateLegacy(deltaTime) { return this.update(deltaTime, 0, null); }
 }

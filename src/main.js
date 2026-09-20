@@ -1,11 +1,5 @@
 // ============================================================
 // main.js — bootstrap, player controller, level manager, minimap
-//
-// YOUR CHARACTER GOES HERE:
-//   search for "CHARACTER HOOK" below. Instead of the first-person
-//   camera you can parent your avatar model to a Group that follows
-//   player.pos and player.yaw (third person). Everything else
-//   (maps, collision, pads, phases) already works.
 // ============================================================
 import * as THREE from 'three';
 import { StreetLevel } from './levels/level1.js';
@@ -13,7 +7,7 @@ import { AlienLevel } from './levels/level2.js';
 import { ArchitectLevel } from './levels/level3.js';
 
 // ---------- renderer ----------
-const renderer = new THREE.WebGLRenderer({ antialias: true }); // antialiasing ✅
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
@@ -31,7 +25,7 @@ camera.rotation.order = 'YXZ';
 const player = {
   pos: new THREE.Vector3(0, 0, 55),
   vel: new THREE.Vector3(),
-  yaw: Math.PI,          // face north (-z)
+  yaw: Math.PI,
   pitch: 0,
   grounded: false,
   EYE: 1.7,
@@ -44,11 +38,11 @@ let locked = false;
 addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Space') e.preventDefault();
-  if (e.code === 'KeyR') switchLevel(current);           // restart, no refresh ✅
+  if (e.code === 'KeyR') switchLevel(current);
   if (e.code === 'Digit1') switchLevel(1);
   if (e.code === 'Digit2') switchLevel(2);
   if (e.code === 'Digit3') switchLevel(3);
-  if (e.code === 'KeyP' && level.setPhase) {             // preview boss phases
+  if (e.code === 'KeyP' && level.setPhase) {
     phase = phase % 3 + 1;
     level.setPhase(phase, clock.elapsedTime);
   }
@@ -71,18 +65,70 @@ let level = null, current = 1, phase = 1;
 const hud = document.getElementById('hud');
 
 function switchLevel(n) {
-  if (level) level.dispose(scene);
+  if (level) {
+    try {
+      if (typeof level.dispose === 'function') level.dispose(scene);
+      else {
+        if (level.root && level.root.parent) level.root.parent.remove(level.root);
+        if (level.level && level.level.parent) level.level.parent.remove(level.level);
+      }
+    } catch (e) { console.warn('dispose error', e); }
+    if (level.root && scene.children.includes(level.root)) scene.remove(level.root);
+    if (level.level && scene.children.includes(level.level)) scene.remove(level.level);
+    if (level.sky && scene.children.includes(level.sky)) scene.remove(level.sky);
+    if (level.stars && scene.children.includes(level.stars)) scene.remove(level.stars);
+  }
   current = n; phase = 1;
-  level = new LEVELS[n](scene);
+  try {
+    level = new LEVELS[n](scene, renderer);
+  } catch (e) {
+    try { level = new LEVELS[n](scene); } catch (e2) { level = new LEVELS[n](); }
+  }
+
+  if (level.scene && level.scene !== scene) {
+    if (level.scene.background) scene.background = level.scene.background;
+    scene.fog = level.scene.fog !== undefined ? level.scene.fog : null;
+    if (level.level && level.level.parent === level.scene) {
+      level.scene.remove(level.level);
+      scene.add(level.level);
+    }
+    if (level.root && level.root.parent === level.scene) {
+      level.scene.remove(level.root);
+      scene.add(level.root);
+    }
+    if (level.sky && level.sky.parent === level.scene) {
+      level.scene.remove(level.sky);
+      scene.add(level.sky);
+    }
+    if (level.stars && level.stars.parent === level.scene) {
+      level.scene.remove(level.stars);
+      scene.add(level.stars);
+    }
+  }
+
+  if (!level.spawn || !level.spawn.isVector3) {
+    console.warn(`Level ${n} missing spawn, using fallback`);
+    let fallbackY = 0;
+    try {
+      if (typeof level.getSurfaceHeight === 'function') fallbackY = level.getSurfaceHeight(0, 55);
+      else if (typeof level.groundHeight === 'function') fallbackY = level.groundHeight(0, 55);
+      else if (typeof level.terrainHeight === 'function') fallbackY = level.terrainHeight(0, 55);
+    } catch (e) { fallbackY = 0; }
+    level.spawn = new THREE.Vector3(0, fallbackY + 0.1, 55);
+  }
+  if (!Array.isArray(level.colliders)) level.colliders = [];
+  if (!level.name) level.name = `LEVEL ${n}`;
   player.pos.copy(level.spawn);
   player.vel.set(0, 0, 0);
 }
 
-// ---------- minimap (picture-in-picture orthographic view) ✅ ----------
+// ── expose switchLevel globally so villageNPCs portal can call it ──
+window.__switchLevel = switchLevel;
+
+// ---------- minimap ----------
 const mini = new THREE.OrthographicCamera(-55, 55, 55, -55, 1, 300);
-mini.layers.set(1);          // layer 1 = map meshes only
-mini.layers.enable(2);       // layer 2 = player marker
-// player arrow on the minimap
+mini.layers.set(1);
+mini.layers.enable(2);
 const marker = new THREE.Mesh(
   new THREE.ConeGeometry(1.1, 2.6, 6),
   new THREE.MeshBasicMaterial({ color: 0x33ffee }));
@@ -93,12 +139,10 @@ scene.add(marker);
 // ---------- physics ----------
 const GRAV = 30, SPEED = 12, SPRINT = 24;
 function stepPlayer(dt) {
-  // input direction in camera space
   const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
   const s = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
   const sp = keys.ShiftLeft || keys.ShiftRight ? SPRINT : SPEED;
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
-  // forward = (-sin, 0, -cos), right = (cos, 0, -sin)
   player.vel.x = (-sin * f + cos * s) * sp;
   player.vel.z = (-cos * f - sin * s) * sp;
   player.vel.y -= GRAV * dt;
@@ -106,18 +150,22 @@ function stepPlayer(dt) {
 
   player.pos.addScaledVector(player.vel, dt);
 
-  // ground
-  const g = level.groundHeight(player.pos.x, player.pos.z, player.pos.y);
+  let g = 0;
+  try {
+    if (level && typeof level.getSurfaceHeight === 'function') g = level.getSurfaceHeight(player.pos.x, player.pos.z);
+    else if (level && typeof level.groundHeight === 'function') g = level.groundHeight(player.pos.x, player.pos.z, player.pos.y);
+    else if (level && typeof level.terrainHeight === 'function') g = level.terrainHeight(player.pos.x, player.pos.z);
+  } catch (e) { g = 0; }
   if (player.pos.y <= g) { player.pos.y = g; player.vel.y = 0; player.grounded = true; }
   else player.grounded = false;
 
-  // AABB colliders (buildings, cars, props)
+  const colliders = (level && Array.isArray(level.colliders)) ? level.colliders : [];
   const pMin = new THREE.Vector3(player.pos.x - player.R, player.pos.y, player.pos.z - player.R);
   const pMax = new THREE.Vector3(player.pos.x + player.R, player.pos.y + player.H, player.pos.z + player.R);
   const pb = new THREE.Box3(pMin, pMax);
-  for (const c of level.colliders) {
+  for (const c of colliders) {
+    if (!c || typeof c.intersectsBox !== 'function') continue;
     if (!c.intersectsBox(pb)) continue;
-    // push out along the smaller horizontal overlap
     const ox = Math.min(pMax.x - c.min.x, c.max.x - pMin.x);
     const oz = Math.min(pMax.z - c.min.z, c.max.z - pMin.z);
     if (ox < oz) player.pos.x += (pMax.x - c.min.x < c.max.x - pMin.x) ? -ox : ox;
@@ -126,19 +174,12 @@ function stepPlayer(dt) {
     pMax.set(player.pos.x + player.R, player.pos.y + player.H, player.pos.z + player.R);
   }
 
-  // fell off the world -> respawn
   if (player.pos.y < -60) {
-    player.pos.copy(level.spawn);
+    if (level && level.spawn && level.spawn.isVector3) player.pos.copy(level.spawn);
+    else player.pos.set(0, 2, 55);
     player.vel.set(0, 0, 0);
   }
 }
-
-// ---------- CHARACTER HOOK ----------
-// Third person? Create a Group, add your model to it, then each frame:
-//   yourGroup.position.copy(player.pos);
-//   yourGroup.rotation.y = player.yaw + Math.PI;
-// and move `camera` to trail behind. That's it — collision, pads and
-// phases already feed through player.pos / level.update().
 
 // ---------- loop ----------
 const clock = new THREE.Clock();
@@ -147,31 +188,31 @@ function tick() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
 
+  if (!level) return;
   stepPlayer(dt);
-  level.update(dt, t, player);
+  if (typeof level.update === 'function') {
+    try { level.update(dt, t, player); }
+    catch (e) { console.warn('level.update error', e); }
+  }
 
-  // first-person camera (swap for your third-person rig at the hook above)
   camera.position.set(player.pos.x, player.pos.y + player.EYE, player.pos.z);
   camera.rotation.y = player.yaw;
   camera.rotation.x = player.pitch;
 
-  // marker for the minimap
   marker.position.set(player.pos.x, player.pos.y + 2, player.pos.z);
   marker.rotation.set(-Math.PI / 2, player.yaw, 0);
 
+  const levelName = (level && level.name) ? level.name : `LEVEL ${current}`;
   hud.innerHTML =
     `<b>GENESIS — THE DEVICE</b><br>` +
-    `${level.name}${level.setPhase ? ' · phase ' + phase : ''}<br>` +
-    `1/2/3 levels · R restart · P boss phase` +
-    (player.pos.distanceTo(level.spawn) > 2 ? '' : '');
+    `${levelName}${level && level.setPhase ? ' · phase ' + phase : ''}<br>` +
+    `1/2/3 levels · R restart · P boss phase`;
 
-  // main view (full screen)
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   renderer.clear();
   renderer.render(scene, camera);
 
-  // minimap (bottom-right corner)
   const S = 200;
   renderer.setScissorTest(true);
   renderer.setViewport(innerWidth - S - 12, 12, S, S);
@@ -193,4 +234,3 @@ addEventListener('resize', () => {
 
 switchLevel(1);
 tick();
-
