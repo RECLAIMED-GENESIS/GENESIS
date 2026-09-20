@@ -1,25 +1,38 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Genesis</title>
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      body {
-        background: #000;
-        overflow: hidden;
-      }
-      canvas {
-        display: block;
-      }
-    </style>
-  </head>
-  <body>
-    <script type="module" src="./src/main.js"></script>
-  </body>
+<head>
+<meta charset="utf-8">
+<title>GENESIS — The Device | Level Maps</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000;
+               font-family: 'Courier New', monospace; }
+  #hud {
+    position: fixed; top: 14px; left: 14px; color: #d8f4ff;
+    text-shadow: 0 0 6px #0af; font-size: 13px; line-height: 1.7;
+    pointer-events: none; user-select: none;
+  }
+  #hud b { color: #7ef3ff; letter-spacing: 2px; }
+  #msg {
+    position: fixed; bottom: 40px; width: 100%; text-align: center;
+    color: #ffffff; font-size: 15px; letter-spacing: 3px;
+    text-shadow: 0 0 8px #0af; pointer-events: none; user-select: none;
+  }
+  #cross {
+    position: fixed; top: 50%; left: 50%; width: 4px; height: 4px;
+    margin: -2px 0 0 -2px; border-radius: 50%;
+    background: rgba(255,255,255,.8); pointer-events: none;
+  }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<base target="_blank">
+</head>
+<body>
+<div id="hud"></div>
+<div id="msg">CLICK TO ENTER — WASD move · SPACE jump · SHIFT sprint · Mouse look</div>
+<div id="cross"></div>
+<script type="module" src="src/main.js"></script>
+</body>
 </html>
+
