@@ -1,11 +1,11 @@
 // src/enemies/commander.js
 // The Warden — Level 1 Boss
-// Uses X_Bot.fbx scaled up, dark red + gold accents
+// Uses grunt.fbx scaled up, dark red + gold accents
 
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
-// Root motion stripper (same technique as Sorini's main.js)
+// Root motion stripper
 function stripRootMotion(clip) {
   if (!clip || !clip.tracks) return clip;
   for (const track of clip.tracks) {
@@ -22,33 +22,28 @@ function stripRootMotion(clip) {
 }
 
 export class Commander {
-  /**
-   * @param {THREE.Scene} scene - Scene to add commander to
-   * @param {THREE.Vector3} position - Spawn position
-   * @param {Object} callbacks - { onMinionSpawn(threshold), onDeath() }
-   */
   constructor(scene, position, callbacks = {}) {
     this.scene = scene;
     this.position = position.clone();
     this.callbacks = callbacks;
 
-    // ── Config ──
+    // Config
     this.MAX_HEALTH = 100;
     this.health = this.MAX_HEALTH;
-    this.SCALE = 0.013 * 2.0;      // 2× normal character size
-    this.SPEED = 2.0;               // slow chase
-    this.CHARGE_SPEED = 8.0;        // dash speed
+    this.SCALE = 0.013 * 3.5;         // 3.5× grunt size
+    this.SPEED = 2.0;
+    this.CHARGE_SPEED = 8.0;
     this.ATTACK_RANGE = 2.5;
     this.ATTACK_DAMAGE = 2;
     this.ATTACK_COOLDOWN = 1.8;
     this.CHARGE_COOLDOWN = 6.0;
     this.ROAR_COOLDOWN = 12.0;
 
-    // ── State ──
+    // State
     this.alive = true;
-    this.phase = 1;                 // 1: 100-50%, 2: 50-25%, 3: 25-0%
+    this.phase = 1;
     this.attackTimer = 0;
-    this.chargeTimer = 4.0;         // first charge after 4s
+    this.chargeTimer = 4.0;
     this.roarTimer = 10.0;
     this.isCharging = false;
     this.isAttacking = false;
@@ -61,12 +56,12 @@ export class Commander {
     this.model = null;
     this.hitFlashTimer = 0;
 
-    // Minion spawn thresholds (HP percentages)
-   this.spawnThresholds = [
-  { pct: 0.75, spawned: false, count: 2 },
-  { pct: 0.50, spawned: false, count: 2 },
-  { pct: 0.25, spawned: false, count: 3 }
-];
+    // Minion spawn thresholds
+    this.spawnThresholds = [
+      { pct: 0.75, spawned: false, count: 2 },
+      { pct: 0.50, spawned: false, count: 2 },
+      { pct: 0.25, spawned: false, count: 3 }
+    ];
 
     this._group = new THREE.Group();
     this._group.position.copy(this.position);
@@ -75,18 +70,14 @@ export class Commander {
     this._loadModel();
   }
 
-  // ─────────────────────────────────────────
-  // MODEL LOADING
-  // ─────────────────────────────────────────
   _loadModel() {
     const loader = new FBXLoader();
 
-    loader.load('./assets/models/enemy/X_Bot.fbx', (fbx) => {
-      // Scale + position
+    loader.load('./assets/models/enemy/grunt.fbx', (fbx) => {
       fbx.scale.setScalar(this.SCALE);
-      fbx.position.y = -0.13 * 2.0;  // matches player offset but scaled
+      fbx.position.y = -0.13 * 3.5;
 
-      // Tint: dark red body + gold accents
+      // Tint: dark red body + glowing gold accents (The Warden)
       fbx.traverse((o) => {
         if (o.isMesh) {
           o.castShadow = true;
@@ -96,14 +87,11 @@ export class Commander {
             const mats = Array.isArray(o.material) ? o.material : [o.material];
             mats.forEach((mat) => {
               if (mat.color) {
-                // Dark red body
-                mat.color.setHex(0x661111);
-
-                // Gold emissive accent
-                if (mat.emissive) {
-                  mat.emissive.setHex(0x442200);
-                  mat.emissiveIntensity = 0.3;
-                }
+                mat.color.setHex(0x661111);      // dark red body
+              }
+              if (mat.emissive) {
+                mat.emissive.setHex(0xffaa00);   // glowing gold
+                mat.emissiveIntensity = 0.6;
               }
             });
           }
@@ -113,19 +101,17 @@ export class Commander {
       this._group.add(fbx);
       this.model = fbx;
 
-      // Animation mixer
       this.mixer = new THREE.AnimationMixer(fbx);
 
-      // Load all needed animations
       const base = './assets/models/enemy/';
       const animPaths = {
-        idle:      base + 'Idle.fbx',
-        walk:      base + 'Mutant Walking.fbx',
-        run:       base + 'Running.fbx',
-        punch:     base + 'Mutant_Punch.fbx',
-        roar:      base + 'Mutant_Roaring.fbx',
-        hit:       base + 'Reaction.fbx',
-        die:       base + 'Dying.fbx'
+        idle:  base + 'Idle.fbx',
+        walk:  base + 'Mutant Walking.fbx',
+        run:   base + 'Running.fbx',
+        punch: base + 'Mutant_Punch.fbx',
+        roar:  base + 'Mutant_Roaring.fbx',
+        hit:   base + 'Reaction.fbx',
+        die:   base + 'Dying.fbx'
       };
 
       for (const [key, path] of Object.entries(animPaths)) {
@@ -137,14 +123,10 @@ export class Commander {
         }, undefined, (e) => console.warn(`Commander anim failed: ${key}`, e));
       }
 
-      // Start idle after animations load
       setTimeout(() => this._playAction('idle'), 500);
-    }, undefined, (e) => console.error('Commander X_Bot load failed:', e));
+    }, undefined, (e) => console.error('Commander grunt.fbx load failed:', e));
   }
 
-  // ─────────────────────────────────────────
-  // ANIMATION CONTROL
-  // ─────────────────────────────────────────
   _playAction(name, loop = true) {
     const next = this.actions[name];
     if (!next) return;
@@ -162,23 +144,17 @@ export class Commander {
     this._currentName = name;
   }
 
-  // ─────────────────────────────────────────
-  // UPDATE — called every frame
-  // ─────────────────────────────────────────
   update(delta, playerPos) {
     if (!this.alive) return;
 
     this.mixer?.update(delta);
 
-    // Update phase based on HP
     const hpPct = this.health / this.MAX_HEALTH;
     if (hpPct <= 0.5 && this.phase < 2) this.phase = 2;
     if (hpPct <= 0.25 && this.phase < 3) this.phase = 3;
 
-    // Check minion thresholds
     this._checkMinionSpawns();
 
-    // Hit flash timer
     if (this.hitFlashTimer > 0) {
       this.hitFlashTimer -= delta;
       if (this.hitFlashTimer <= 0 && this.model) {
@@ -186,7 +162,6 @@ export class Commander {
       }
     }
 
-    // Face player
     const toPlayer = new THREE.Vector3(
       playerPos.x - this.position.x,
       0,
@@ -199,7 +174,6 @@ export class Commander {
       this._group.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
     }
 
-    // ── Movement / AI ──
     if (this.isCharging) {
       this._updateCharge(delta, distance);
     } else if (this.isAttacking) {
@@ -210,17 +184,14 @@ export class Commander {
       this._updateIdleBehavior(delta, toPlayer, distance);
     }
 
-    // Sync group position
     this._group.position.set(this.position.x, this.position.y, this.position.z);
   }
 
   _updateIdleBehavior(delta, toPlayer, distance) {
-    // Cooldowns
     this.attackTimer -= delta;
     this.chargeTimer -= delta;
     this.roarTimer -= delta;
 
-    // Decide action
     if (distance < this.ATTACK_RANGE && this.attackTimer <= 0) {
       this._startAttack();
       return;
@@ -236,7 +207,6 @@ export class Commander {
       return;
     }
 
-    // Chase player
     if (distance > this.ATTACK_RANGE - 0.5) {
       const speed = this.phase === 1 ? this.SPEED : this.SPEED * 1.5;
       this.position.x += toPlayer.x * speed * delta;
@@ -253,7 +223,6 @@ export class Commander {
     this._playAction('punch', false);
     this._attackDidHit = false;
 
-    // Reset after animation
     setTimeout(() => {
       this.isAttacking = false;
       this._playAction('idle');
@@ -261,7 +230,6 @@ export class Commander {
   }
 
   _updateAttack(delta, distance) {
-    // Mid-swing hit check
     if (!this._attackDidHit && distance < this.ATTACK_RANGE + 0.5) {
       this._attackDidHit = true;
       if (this.callbacks.onDamagePlayer) {
@@ -274,7 +242,7 @@ export class Commander {
     this.isCharging = true;
     this.chargeTimer = this.CHARGE_COOLDOWN;
     this.chargeDirection.copy(direction);
-    this.chargeTimeLeft = 0.6;  // charge lasts 0.6s
+    this.chargeTimeLeft = 0.6;
     this._playAction('run', true);
 
     setTimeout(() => {
@@ -287,11 +255,10 @@ export class Commander {
     this.position.x += this.chargeDirection.x * this.CHARGE_SPEED * delta;
     this.position.z += this.chargeDirection.z * this.CHARGE_SPEED * delta;
 
-    // Hit player during charge
     if (distance < 2.0 && !this._chargeDidHit) {
       this._chargeDidHit = true;
       if (this.callbacks.onDamagePlayer) {
-        this.callbacks.onDamagePlayer(3);  // heavy damage
+        this.callbacks.onDamagePlayer(3);
       }
     }
   }
@@ -313,9 +280,6 @@ export class Commander {
     // Roar damages player if close
   }
 
-  // ─────────────────────────────────────────
-  // MINION SPAWNING
-  // ─────────────────────────────────────────
   _checkMinionSpawns() {
     const hpPct = this.health / this.MAX_HEALTH;
     for (const t of this.spawnThresholds) {
@@ -328,9 +292,6 @@ export class Commander {
     }
   }
 
-  // ─────────────────────────────────────────
-  // COMBAT
-  // ─────────────────────────────────────────
   takeDamage(amount) {
     if (!this.alive) return;
 
@@ -338,7 +299,6 @@ export class Commander {
     this.hitFlashTimer = 0.15;
     this._flashColor();
 
-    // Hit reaction
     if (this.actions.hit && !this.isCharging) {
       this._playAction('hit', false);
       setTimeout(() => {
@@ -373,8 +333,8 @@ export class Commander {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         mats.forEach((mat) => {
           if (mat.emissive) {
-            mat.emissive.setHex(0x442200);
-            mat.emissiveIntensity = 0.3;
+            mat.emissive.setHex(0xffaa00);
+            mat.emissiveIntensity = 0.6;
           }
         });
       }
@@ -390,16 +350,25 @@ export class Commander {
     }, 1500);
   }
 
-  // ─────────────────────────────────────────
-  // CLEANUP
-  // ─────────────────────────────────────────
   dispose() {
     if (this.model) {
       this.model.traverse((o) => {
         if (o.isMesh) {
           o.geometry?.dispose();
-          if (Array.isArray(o.material)) o.material.forEach(m => m.dispose());
-          else o.material?.dispose();
+          if (Array.isArray(o.material)) {
+            o.material.forEach(m => {
+              if (m.map) m.map.dispose();
+              if (m.normalMap) m.normalMap.dispose();
+              if (m.emissiveMap) m.emissiveMap.dispose();
+              m.dispose();
+            });
+          } else if (o.material) {
+            const m = o.material;
+            if (m.map) m.map.dispose();
+            if (m.normalMap) m.normalMap.dispose();
+            if (m.emissiveMap) m.emissiveMap.dispose();
+            m.dispose();
+          }
         }
       });
     }

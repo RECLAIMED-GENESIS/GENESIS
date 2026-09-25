@@ -225,8 +225,24 @@ export class StreetLevel {
     this.keySpawned = false;
 
     // Expose spawnCommander so villageNPCs.js can trigger it
+        // Expose spawnCommander so villageNPCs.js can trigger it
     window.__spawnCommander = () => this._spawnCommander();
+
+    // ── Spawn initial aliens from the portal at level start ──
+    setTimeout(() => {
+      const sx = this.pathX(-58);
+      const sz = -58;
+      const sy = this._h(sx, sz);
+      const portalPos = new THREE.Vector3(sx, sy, sz);
+
+      console.log('👽 Initial alien wave incoming...');
+      this.grunts.spawnWave(portalPos, 2);
+      for (const g of this.grunts.grunts) {
+        this.minionHealthBar.register(g);
+      }
+    }, 2000);
   }
+  
 
   // the path wanders gently; everything aligns to it
     // ── Commander spawn ──
@@ -239,7 +255,7 @@ export class StreetLevel {
     const sy = this._h(sx, sz);
 
     // Spawn opposite end of shrine
-    const spawnPos = new THREE.Vector3(sx, sy, sz + 5);
+    const spawnPos = new THREE.Vector3(sx, sy, sz);
 
     console.log('⚔️ THE WARDEN AWAKENS');
 
