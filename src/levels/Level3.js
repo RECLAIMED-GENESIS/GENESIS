@@ -658,19 +658,58 @@ createMoonSurface() {
     // LUNAR MATERIAL
     // =====================================================
     //
-    // This is deliberately still MeshStandardMaterial.
-    // We will replace this with moon.js later.
+    // moon.js shader with moon.jpg, lit by the scene's sun and
+    // fill light and receiving the sun's shadows.
+
+    const moonTexture =
+        new THREE.TextureLoader().load(
+            './assets/textures/moon.jpg'
+        );
+
+    moonTexture.colorSpace =
+        THREE.SRGBColorSpace;
+
+    // Mirrored so tiles meet without seams
+    moonTexture.wrapS =
+        THREE.MirroredRepeatWrapping;
+
+    moonTexture.wrapT =
+        THREE.MirroredRepeatWrapping;
+
+    moonTexture.anisotropy = 8;
 
     const material =
     new THREE.ShaderMaterial({
         vertexShader: moonVertexShader,
         fragmentShader: moonFragmentShader,
 
+        uniforms:
+            THREE.UniformsUtils.merge([
+                THREE.UniformsLib.lights,
+                {
+                    uMoonTexture: {
+                        value: null
+                    },
+
+                    // World size of one tile for the two
+                    // texture layers (38 m and 97 m)
+                    uTileSizes: {
+                        value: new THREE.Vector2(38, 97)
+                    }
+                }
+            ]),
+
+        lights: true,
+
         side: THREE.FrontSide,
 
         depthWrite: true,
         depthTest: true
     });
+
+    // Set after merge() - merge() clones textures
+    material.uniforms.uMoonTexture.value =
+        moonTexture;
 
 
     const moon =
@@ -847,15 +886,20 @@ createMoonSurface() {
 
     createDistantLunarTerrain() {
 
+        // Same moon.js material as the ground, so the ridge has
+        // the same moon.jpg texture, lighting and shadows.
+        // Plain grey only if the ground wasn't built first.
         const material =
-            new THREE.MeshStandardMaterial({
+            this.moonSurface
+                ? this.moonSurface.material
+                : new THREE.MeshStandardMaterial({
 
-                color: 0x777777,
+                    color: 0x777777,
 
-                roughness: 1.0,
+                    roughness: 1.0,
 
-                metalness: 0.0
-            });
+                    metalness: 0.0
+                });
 
 
         // One long irregular lunar ridge instead of artificial
