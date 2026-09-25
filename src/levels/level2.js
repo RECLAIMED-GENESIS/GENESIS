@@ -6165,23 +6165,23 @@ createCityBackground() {
     const farZ = 143;
 
     const farBuildings = [
-        [-31, 28, 15, 42],
-        [-15, 40, 18, 55],
-        [2, 30, 16, 46],
-        [17, 42, 19, 62],
-        [33, 27, 14, 38],
-        [-43, 23, 13, 35],
-        [45, 24, 16, 44]
+        [-31, 15, 28, 42],
+        [-15, 18, 40, 55],
+        [  2, 16, 30, 46],
+        [ 17, 19, 42, 62],
+        [ 33, 14, 27, 38],
+        [-43, 13, 23, 35],
+        [ 45, 16, 24, 44]
     ];
 
-    farBuildings.forEach((data, index) => {
+   farBuildings.forEach((data, index) => {
 
         createBackgroundBuilding(
-            data[0],
-            farZ,
-            data[2],
-            data[3],
-            data[4],
+            data[0],   // x
+            farZ,      // z — fixed for the whole far wall
+            data[1],   // width
+            data[2],   // depth
+            data[3],   // height
             index
         );
 
