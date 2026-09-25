@@ -174,7 +174,7 @@ export function createLevelViewer(renderer, { onEnter, onExit } = {}) {
 
             // Start at the +Z end of the road (road runs z -130 to 130),
             // facing down the road towards -Z
-            camera.position.set(0, 1.8, 110);
+            camera.position.set(0, 1.8, 129);
 
             yaw = 0;
             pitch = 0;
