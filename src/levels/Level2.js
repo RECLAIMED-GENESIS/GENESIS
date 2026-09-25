@@ -6,6 +6,12 @@ import {
     riverFragmentShader
 } from '../shaders/river.js';
 
+// Street light colour (bulb glow, halo and light pools)
+//   cyan:                 0x00e5ff
+//   white:                0xffffff
+//   white with cyan tint: 0xe0f7ff
+const STREET_LIGHT_COLOR = 0x00e5ff;
+
 export class Level2 {
 
     constructor() {
@@ -82,11 +88,13 @@ export class Level2 {
         // LIGHTING
         // =========================================================
 
+        // Lowered from 2.2 so the sunset and street light
+        // pools stand out
         const ambient =
             new THREE.HemisphereLight(
                 0x756fa8,
                 0x171321,
-                2.2
+                1.6
             );
 
         this.level.add(
@@ -94,19 +102,62 @@ export class Level2 {
         );
 
 
-        const sunset =
-            new THREE.DirectionalLight(
-                0xffd6cf,
-                1.7
+        // ---------------------------------------------------------
+        // SUNSET SUN
+        // Matches the sun painted in skybox1.png: pixel (998, 431)
+        // of 1774 x 887 = 2.5 degrees above the horizon, towards
+        // (0.92, -0.38) in x/z, i.e. setting over the sea.
+        // Raised to 10 degrees so shadows are long (about 5.7x an
+        // object's height) without putting the whole road in shadow.
+        // ---------------------------------------------------------
+
+        const SUN_ELEVATION = THREE.MathUtils.degToRad(10);
+        const SUN_AZIMUTH = Math.atan2(-0.3844, 0.9221);
+        const SUN_DISTANCE = 250;
+
+        this.sunDirection =
+            new THREE.Vector3(
+                Math.cos(SUN_ELEVATION) * Math.cos(SUN_AZIMUTH),
+                Math.sin(SUN_ELEVATION),
+                Math.cos(SUN_ELEVATION) * Math.sin(SUN_AZIMUTH)
             );
 
-        sunset.position.set(
-            -80,
-            100,
-            -40
+        const sunset =
+            new THREE.DirectionalLight(
+                0xffb46b,
+                2.8
+            );
+
+        // Aim at the middle of the road
+        sunset.target.position.set(
+            0,
+            0,
+            -10
         );
 
+        this.level.add(
+            sunset.target
+        );
+
+        sunset.position
+            .copy(this.sunDirection)
+            .multiplyScalar(SUN_DISTANCE)
+            .add(sunset.target.position);
+
         sunset.castShadow = true;
+
+        // Low sun: bias stops shadow speckle on grazing surfaces
+        sunset.shadow.bias =
+            -0.0005;
+
+        sunset.shadow.normalBias =
+            0.05;
+
+        sunset.shadow.camera.near =
+            1;
+
+        sunset.shadow.camera.far =
+            600;
 
         sunset.shadow.mapSize.width =
             2048;
@@ -114,17 +165,19 @@ export class Level2 {
         sunset.shadow.mapSize.height =
             2048;
 
+        // Shadow area fitted to the low sun: wide across the
+        // road's length, shorter vertically
         sunset.shadow.camera.left =
-            -120;
+            -150;
 
         sunset.shadow.camera.right =
-            120;
+            150;
 
         sunset.shadow.camera.top =
-            120;
+            70;
 
         sunset.shadow.camera.bottom =
-            -120;
+            -70;
 
         this.level.add(
             sunset
@@ -1228,6 +1281,24 @@ createStreetLights() {
             const originalLight = gltf.scene;
 
             // -------------------------------------------------
+            // Glowing bulbs
+            // The lamp heads use the model's "Light" material,
+            // shared by every clone, so this lights them all
+            // -------------------------------------------------
+
+            originalLight.traverse((object) => {
+                if (
+                    object.isMesh &&
+                    object.material &&
+                    object.material.name === 'Light'
+                ) {
+                    object.material.emissive =
+                        new THREE.Color(STREET_LIGHT_COLOR);
+                    object.material.emissiveIntensity = 2.5;
+                }
+            });
+
+            // -------------------------------------------------
             // Positions along the road
             // -------------------------------------------------
             //
@@ -1402,6 +1473,8 @@ createStreetLights() {
                     light
                 );
 
+                this.addStreetLightBulbs(light);
+
             });
 
         },
@@ -1417,6 +1490,102 @@ createStreetLights() {
 
         }
     );
+}
+
+
+// =============================================================
+// STREET LIGHT BULBS
+// One downward spotlight per lamp head (no shadows) plus a
+// soft additive halo sprite. Bulb positions are read from the
+// model's "Light" meshes, so they follow the model.
+// =============================================================
+
+addStreetLightBulbs(light) {
+
+    if (!this.streetLightHaloMaterial) {
+
+        // Radial glow texture, made once and shared
+        const size = 128;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+
+        const ctx = canvas.getContext('2d');
+        const gradient =
+            ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+
+        gradient.addColorStop(0.0, 'rgba(255,255,255,1)');
+        gradient.addColorStop(0.2, 'rgba(255,255,255,0.55)');
+        gradient.addColorStop(0.5, 'rgba(255,255,255,0.12)');
+        gradient.addColorStop(1.0, 'rgba(255,255,255,0)');
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, size, size);
+
+        this.streetLightHaloMaterial =
+            new THREE.SpriteMaterial({
+                map: new THREE.CanvasTexture(canvas),
+                color: STREET_LIGHT_COLOR,
+                blending: THREE.AdditiveBlending,
+                transparent: true,
+                depthWrite: false
+            });
+
+        this.streetLightSpots = [];
+    }
+
+    light.updateMatrixWorld(true);
+
+    const box = new THREE.Box3();
+
+    light.traverse((object) => {
+
+        if (
+            !object.isMesh ||
+            !object.material ||
+            object.material.name !== 'Light'
+        ) {
+            return;
+        }
+
+        box.setFromObject(object);
+
+        const center = box.getCenter(new THREE.Vector3());
+
+        // -------------------------------------------------
+        // Light pool on the ground below the lamp head
+        // -------------------------------------------------
+
+        const spot =
+            new THREE.SpotLight(
+                STREET_LIGHT_COLOR,
+                3000,                         // candela
+                45,                           // range
+                THREE.MathUtils.degToRad(40), // cone half-angle
+                0.65,                         // soft edge
+                2                             // physical falloff
+            );
+
+        spot.position.set(center.x, box.min.y - 0.1, center.z);
+        spot.target.position.set(center.x, 0, center.z);
+
+        this.level.add(spot);
+        this.level.add(spot.target);
+
+        this.streetLightSpots.push(spot);
+
+        // -------------------------------------------------
+        // Halo around the bulb
+        // -------------------------------------------------
+
+        const halo =
+            new THREE.Sprite(this.streetLightHaloMaterial);
+
+        halo.position.set(center.x, box.min.y + 0.2, center.z);
+        halo.scale.set(5, 5, 1);
+
+        this.level.add(halo);
+    });
 }
 
 
