@@ -1,10 +1,19 @@
-// src/main.js - COMPLETE WITH LOADING SCREEN
+// src/main.js - COMPLETE WITH UI + LOADING SCREEN + AUDIO
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
+import { AudioManager } from './audio/AudioManager.js';
+import { loadAllAudio } from './audio/loadAudio.js';
 import { UIManager } from './ui/UIManager.js';
 import { createMainMenu } from './ui/MainMenu.js';
 import { createHUD, updateHUD } from './ui/HUD.js';
 import { createLoadingScreen, updateLoadingScreen } from './ui/LoadingScreen.js';
+
+// ============================================
+// AUDIO SYSTEM
+// ============================================
+const audioManager = new AudioManager();
+loadAllAudio(audioManager);
+console.log('🎵 Audio system ready');
 
 // ============================================
 // UI SYSTEM INITIALIZATION
@@ -24,6 +33,8 @@ const mainMenuElement = createMainMenu(
     // onPlayClick
     () => {
         console.log('🎮 Game Started!');
+        audioManager.playLevelMusic(1);
+        
         // Show loading screen first
         uiManager.showScreen('loading');
         updateLoadingScreen(
@@ -97,6 +108,7 @@ const mainMenuElement = createMainMenu(
             <div style="font-size: 18px; line-height: 2; color: #aaa;">
                 <p><span style="color: #00ffff;">●</span> Three.js</p>
                 <p><span style="color: #00ffff;">●</span> Cannon-es</p>
+                <p><span style="color: #00ffff;">●</span> Howler.js</p>
                 <p><span style="color: #00ffff;">●</span> Vite</p>
                 <p style="margin-top: 30px; color: #666;">Team Members Coming Soon</p>
             </div>
@@ -296,6 +308,7 @@ function flashPlayer() {
 function triggerGameOver() {
     if (gameOver) return;
     gameOver = true;
+    audioManager.stopMusic();
     gameOverDiv.style.display = 'flex';
     uiManager.hideHUD();
 }
@@ -360,6 +373,7 @@ function checkFragmentCollection() {
             fragment.material.dispose();
             fragments.splice(i, 1);
             fragmentsCollected++;
+            audioManager.playSfx('fragment_collected');
             updateHUD(
                 playerHealth,
                 PLAYER_MAX_HEALTH,
@@ -439,6 +453,7 @@ scene.add(portalMesh);
 function activatePortal() {
     portalActive = true;
     portalMesh.visible = true;
+    audioManager.playSfx('portal_activate');
 }
 
 function checkPortalEntry() {
@@ -501,6 +516,7 @@ function removeCommander() {
     commander.mesh.material.dispose();
     commander = null;
     commanderAlive = false;
+    audioManager.playSfx('portal_activate');
     showTerminal();
 }
 
@@ -580,6 +596,7 @@ function updateCommander(delta) {
         if (hitboxPos.distanceTo(commanderPos) < 1.5) {
             const damage = attackType === 'punch' ? 1 : 2;
             commander.health -= damage;
+            audioManager.playSfx('boss_hit');
             const knockback = new CANNON.Vec3(dir.x * -2, 1, dir.z * -2);
             commander.body.applyImpulse(knockback);
             if (commander.health <= 0) {
@@ -694,6 +711,7 @@ function removeEnemy(enemy) {
     enemy.mesh.material.dispose();
     document.body.removeChild(enemy.barContainer);
     enemies.splice(enemies.indexOf(enemy), 1);
+    audioManager.playSfx('enemy_death');
 
     if (enemies.length === 0 && waveInProgress) {
         waveInProgress = false;
@@ -791,6 +809,7 @@ window.addEventListener('keydown', (e) => {
         attackTimer = ATTACK_DURATION;
         attackIndicator.material = attackMatPunch;
         attackIndicator.visible = true;
+        audioManager.playSfx('punch_hit');
     }
 
     if (e.code === 'KeyX' && !isAttacking) {
@@ -799,6 +818,7 @@ window.addEventListener('keydown', (e) => {
         attackTimer = ATTACK_DURATION;
         attackIndicator.material = attackMatKick;
         attackIndicator.visible = true;
+        audioManager.playSfx('punch_hit');
     }
 });
 
@@ -813,6 +833,7 @@ window.addEventListener('click', () => {
         attackTimer = ATTACK_DURATION;
         attackIndicator.material = attackMatPunch;
         attackIndicator.visible = true;
+        audioManager.playSfx('punch_hit');
     }
 });
 
@@ -1003,6 +1024,7 @@ function animate() {
             if (hitboxPos.distanceTo(enemyPos) < 1.2) {
                 const damage = attackType === 'punch' ? 1 : 2;
                 enemy.health -= damage;
+                audioManager.playSfx('punch_hit');
 
                 const knockback = new CANNON.Vec3(dir.x * -5, 2, dir.z * -5);
                 enemy.body.applyImpulse(knockback);
