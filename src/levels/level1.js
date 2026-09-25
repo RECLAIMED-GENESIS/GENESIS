@@ -176,6 +176,7 @@ export class StreetLevel {
     this.timeMats = [];
     this.lanternMats = [];
     this.spawn = new THREE.Vector3(0, this._h(0, 62), 62);
+    this.spawnYaw = Math.PI;   // face down the path (toward -z)
 
     this.createSky();
     this.createLighting();
@@ -188,6 +189,7 @@ export class StreetLevel {
     this.createShrine();
     this.createFireflies();
     this.createPetals();
+    this._buildColliders();
 
     // shadows on everything built so far
     this.level.traverse((o) => {
@@ -225,6 +227,50 @@ export class StreetLevel {
     h = h * (1 - sstep(10, 5, Math.hypot(x - this.pathX(-58), z + 58))) + 0.1 * sstep(10, 5, Math.hypot(x - this.pathX(-58), z + 58));
     return h;
   }
+  _addBoxCollider(cx, cz, hw, hd, h, baseY = 0) {
+    this.colliders.push(new THREE.Box3(
+      new THREE.Vector3(cx - hw, baseY, cz - hd),
+      new THREE.Vector3(cx + hw, baseY + h, cz + hd)));
+  }
+
+  _buildColliders() {
+    // torii gate pillars (aligned with the gate rotation in createToriiGates)
+    for (const gz of [42, 16, -12, -38]) {
+      const gx = this.pathX(gz);
+      const dz = 0.6;
+      const angle = Math.atan2(this.pathX(gz - dz) - this.pathX(gz + dz), -2 * dz);
+      for (const side of [-1, 1]) {
+        const px = gx + side * 2.1 * Math.cos(angle);
+        const pz = gz - side * 2.1 * Math.sin(angle);
+        this._addBoxCollider(px, pz, 0.4, 0.4, 4.4, this._h(gx, gz));
+      }
+    }
+    // koi pond — keep Sorini out of the water
+    this._addBoxCollider(14, 18, 9.5, 9.5, 1.2, -1.0);
+    // Japanese house
+    const hx = this.pathX(40) - 9;
+    this._addBoxCollider(hx, 40, 3.7, 3.2, 4, this._h(hx, 40));
+    // market stalls
+    const s1x = this.pathX(30) - 5;
+    this._addBoxCollider(s1x, 30, 1.8, 1.0, 3, this._h(s1x, 30));
+    const s2x = this.pathX(18) + 5;
+    this._addBoxCollider(s2x, 18, 1.8, 1.0, 3, this._h(s2x, 18));
+    const s3x = this.pathX(6) + 5;
+    this._addBoxCollider(s3x, 6, 1.8, 1.0, 3, this._h(s3x, 6));
+    // shrine pillars only — the centre stays open so the portal/altar are reachable
+    const sx = this.pathX(-58), sz = -58, sy = this._h(sx, sz);
+    for (const [cx, cz] of [[-2.8, -2.3], [2.8, -2.3], [-2.8, 2.3], [2.8, 2.3]]) {
+      this._addBoxCollider(sx + cx, sz + cz, 0.4, 0.4, 4, sy);
+    }
+    // NPCs
+    for (const [nx, nz] of [
+      [this.pathX(30) - 6, 30], [this.pathX(18) + 6, 18], [this.pathX(6) + 6, 6],
+      [this.pathX(-10) - 4, -10], [this.pathX(-48) + 3, -48],
+    ]) {
+      this._addBoxCollider(nx, nz, 0.45, 0.45, 2.2, this._h(nx, nz));
+    }
+  }
+
   getSurfaceHeight(x, z) { return this._h(x, z); }
   groundHeight(x, z) { return this._h(x, z); }
   terrainHeight(x, z) { return this._h(x, z); }
@@ -252,6 +298,7 @@ export class StreetLevel {
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     Object.assign(sun.shadow.camera, { left: -90, right: 90, top: 90, bottom: -90, far: 260 });
+    sun.shadow.camera.updateProjectionMatrix();
     sun.shadow.bias = -0.0004;
     this.level.add(sun);
     this.sun = sun;
@@ -382,6 +429,10 @@ export class StreetLevel {
         cans.setMatrixAt(ci++, M);
       }
       placed++;
+      // trunk collider so Sorini can't walk through trees
+      this.colliders.push(new THREE.Box3(
+        new THREE.Vector3(x - 0.55, y, z - 0.55),
+        new THREE.Vector3(x + 0.55, y + 3.4 * s, z + 0.55)));
     }
     this.level.add(trunks, cans);
     this.canopyMat = canMat;
@@ -412,6 +463,7 @@ export class StreetLevel {
       roof.position.y = 1.78; roof.rotation.y = Math.PI / 4; g.add(roof);
       g.position.set(x, y, z);
       this.level.add(g);
+      this._addBoxCollider(x, z, 0.5, 0.5, 2, y);
       if (i === 1 || i === 4) {
         const l = new THREE.PointLight(0xffb45e, 6, 10, 1.8);
         l.position.set(x, y + 1.4, z);
@@ -603,3 +655,4 @@ export class StreetLevel {
   // legacy arity compat
   _updateLegacy(deltaTime) { return this.update(deltaTime, 0, null); }
 }
+

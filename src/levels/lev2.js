@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { StreetEnemies } from '../player/streetEnemies.js';
 
 export class AlienLevel {
 
@@ -26,8 +25,7 @@ export class AlienLevel {
         // Contract expected by main.js — must exist before physics runs
         this.name = 'LEVEL 2 — NEON STREET';
         this.colliders = [];
-        this.spawn = new THREE.Vector3(0, 0.1, -120);
-        this.spawnYaw = 0;   // face down the street (toward +z, where the enemies are)
+        this.spawn = new THREE.Vector3(0, 0.1, 55);
         this.root = null; // will alias to this.level after creation
 
         this.level =
@@ -138,8 +136,6 @@ export class AlienLevel {
 
         sunset.shadow.camera.bottom =
             -120;
-
-        sunset.shadow.camera.updateProjectionMatrix();
 
         this.level.add(
             sunset
@@ -487,12 +483,6 @@ export class AlienLevel {
         // player something to collide against on the neon street.
         // =========================================================
         try { this._buildColliders(); } catch (e) { console.warn('AlienLevel collider build failed', e); }
-
-        // ── Street enemies, waves, health bar, portal ──────────
-        this.streetEnemies = new StreetEnemies(
-          this.level,
-          () => { if (typeof window.__switchLevel === 'function') window.__switchLevel(3); }
-        );
 
         // Spawn is already set — ensure it sits on flat ground
         if (typeof this.getSurfaceHeight === 'function') {
@@ -6604,14 +6594,11 @@ createCityBackground() {
     // UPDATE
     // =============================================================
 
-    update(deltaTime, t, player) {
+    update(
+        deltaTime
+    ) {
 
         const now = performance.now();
-
-        // update enemy system
-        if (this.streetEnemies && player) {
-          try { this.streetEnemies.update(deltaTime, t, player); } catch(e) { console.warn(e); }
-        }
 
         if (this.portal) {
 
@@ -6741,7 +6728,6 @@ createCityBackground() {
     // DISPOSE — called by main.js on level switch
     // =============================================================
     dispose(outerScene = null) {
-        if (this.streetEnemies) { this.streetEnemies.dispose(); this.streetEnemies = null; }
         const sceneToClean = outerScene && outerScene.isScene ? outerScene : this.scene;
         // detach primary group / sky from whatever scene they live in
         if (this.level && this.level.parent) this.level.parent.remove(this.level);
@@ -6774,4 +6760,3 @@ createCityBackground() {
         this.sky = null;
     }
 }
-

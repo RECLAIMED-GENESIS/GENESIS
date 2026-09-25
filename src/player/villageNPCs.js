@@ -167,7 +167,7 @@ class NPC {
   _loadModel() {
     const loader = new FBXLoader();
     // Load the base character
-    loader.load('./../../assets/models/enemy/X_Bot.fbx', (fbx) => {
+    loader.load('./assets/models/enemy/X_Bot.fbx', (fbx) => {
       fbx.scale.setScalar(0.013);   // FBX units → metres
       fbx.traverse(o => {
         if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
@@ -177,7 +177,7 @@ class NPC {
 
       // Load idle animation
       const animLoader = new FBXLoader();
-      animLoader.load('./../../assets/models/enemy/Dwarf Idle.fbx', (anim) => {
+      animLoader.load('./assets/models/enemy/Dwarf Idle.fbx', (anim) => {
         this.mixer = new THREE.AnimationMixer(fbx);
         const clip = anim.animations[0];
         if (clip) this.mixer.clipAction(clip).play();
@@ -450,7 +450,7 @@ export class VillageNPCs {
       { x: 14,                     z: 18,   y: 0.6,  color: 0x44ffcc },  // pond lotus
       { x: this.pathX(-5) + 3,     z: -5,   y: 1.4,  color: 0x4466ff },  // blue lantern
       // index 2 is given by NPC — skipped here, collected via _collectFragment(2)
-      { x: this.pathX(-15) - 6,    z: -15,  y: 4.0,  color: 0xff44aa },  // frozen petal
+      { x: this.pathX(-15) - 6,    z: -15,  y: 3.2,  color: 0xff44aa },  // frozen petal
       { x: this.pathX(-58),        z: -58,  y: 2.2,  color: 0xffdd00 },  // shrine altar
     ];
 
@@ -503,10 +503,16 @@ export class VillageNPCs {
   }
 
   _checkFragmentProximity(playerPos) {
-    const PICK_R = 2.2;
+    const PICK_R = 2.6;
+    const chestY = playerPos.y + 1.2;   // Sorini's chest, not his feet
     this.fragments.forEach((f, i) => {
       if (!f || f.collected || !f.mesh) return;
-      if (playerPos.distanceTo(f.mesh.position) < PICK_R) {
+      const dx = playerPos.x - f.mesh.position.x;
+      const dz = playerPos.z - f.mesh.position.z;
+      const dy = chestY - f.mesh.position.y;
+      // planar reach + vertical band — the shrine altar and the frozen
+      // petal were measured from the feet and needed a frame-perfect jump
+      if (Math.hypot(dx, dz) < PICK_R && Math.abs(dy) < 2.8) {
         this._collectFragment(i);
       }
     });
@@ -622,3 +628,4 @@ export class VillageNPCs {
     if (hud) hud.remove();
   }
 }
+
