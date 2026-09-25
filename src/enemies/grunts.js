@@ -5,6 +5,48 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
+// Shared model cache
+let CACHED_GRUNT = null;
+let CACHED_GRUNT_CLIPS = null;
+let LOADING_PROMISE = null;
+
+async function loadGruntModel(loader) {
+  if (CACHED_GRUNT) return { model: CACHED_GRUNT.clone(true), clips: CACHED_GRUNT_CLIPS };
+  if (LOADING_PROMISE) return LOADING_PROMISE;
+  
+  LOADING_PROMISE = new Promise((resolve) => {
+    loader.load('./assets/models/enemy/grunt.fbx', (fbx) => {
+      CACHED_GRUNT = fbx;
+      CACHED_GRUNT_CLIPS = {};
+      
+      // Load anims
+      const base = './assets/models/enemy/';
+      const anims = {
+        idle:  base + 'Idle.fbx',
+        walk:  base + 'Mutant Walking.fbx',
+        punch: base + 'Mutant_Punch.fbx',
+        hit:   base + 'Reaction.fbx',
+        die:   base + 'Dying.fbx'
+      };
+      
+      let pending = Object.keys(anims).length;
+      for (const [key, path] of Object.entries(anims)) {
+        loader.load(path, (animFbx) => {
+          if (animFbx.animations?.[0]) {
+            CACHED_GRUNT_CLIPS[key] = stripRootMotion(animFbx.animations[0]);
+          }
+          if (--pending === 0) resolve({ model: CACHED_GRUNT.clone(true), clips: CACHED_GRUNT_CLIPS });
+        }, undefined, () => { if (--pending === 0) resolve({ model: CACHED_GRUNT.clone(true), clips: CACHED_GRUNT_CLIPS }); });
+      }
+    }, undefined, (e) => {
+      console.error('Grunt load failed:', e);
+      resolve(null);
+    });
+  });
+  
+  return LOADING_PROMISE;
+}
+
 // Root motion stripper
 function stripRootMotion(clip) {
   if (!clip || !clip.tracks) return clip;
@@ -59,11 +101,12 @@ export class Grunt {
 
   _loadModel() {
     const loader = new FBXLoader();
-    loader.load('./assets/models/enemy/X_Bot.fbx', (fbx) => {
+    loader.load('./assets/models/enemy/grunt.fbx', (fbx) => {
       fbx.scale.setScalar(this.SCALE);
       fbx.position.y = -0.13 * 0.8;
 
       // Tint: dark grey body, faint red eyes/accents
+            // Tint: alien purple body, green glowing accents
       fbx.traverse((o) => {
         if (o.isMesh) {
           o.castShadow = true;
@@ -71,10 +114,10 @@ export class Grunt {
           if (o.material) {
             const mats = Array.isArray(o.material) ? o.material : [o.material];
             mats.forEach((mat) => {
-              if (mat.color) mat.color.setHex(0x333338);
+              if (mat.color) mat.color.setHex(0x4a2a6b);      // deep purple
               if (mat.emissive) {
-                mat.emissive.setHex(0x330000);
-                mat.emissiveIntensity = 0.2;
+                mat.emissive.setHex(0x2a4400);                  // dark green base
+                mat.emissiveIntensity = 0.4;
               }
             });
           }
@@ -220,8 +263,8 @@ export class Grunt {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         mats.forEach((mat) => {
           if (mat.emissive) {
-            mat.emissive.setHex(0x330000);
-            mat.emissiveIntensity = 0.2;
+            mat.emissive.setHex(0x2a4400);       // <- update to match new base
+            mat.emissiveIntensity = 0.4;
           }
         });
       }
@@ -234,21 +277,38 @@ export class Grunt {
     setTimeout(() => this.dispose(), 1200);
   }
 
-  dispose() {
-    if (this.model) {
-      this.model.traverse((o) => {
-        if (o.isMesh) {
-          o.geometry?.dispose();
-          if (Array.isArray(o.material)) o.material.forEach(m => m.dispose());
-          else o.material?.dispose();
+dispose() {
+  if (this.model) {
+    this.model.traverse((o) => {
+      if (o.isMesh) {
+        o.geometry?.dispose();
+        if (Array.isArray(o.material)) {
+          o.material.forEach(m => {
+            // Dispose textures
+            if (m.map) m.map.dispose();
+            if (m.normalMap) m.normalMap.dispose();
+            if (m.emissiveMap) m.emissiveMap.dispose();
+            if (m.roughnessMap) m.roughnessMap.dispose();
+            if (m.metalnessMap) m.metalnessMap.dispose();
+            m.dispose();
+          });
+        } else if (o.material) {
+          const m = o.material;
+          if (m.map) m.map.dispose();
+          if (m.normalMap) m.normalMap.dispose();
+          if (m.emissiveMap) m.emissiveMap.dispose();
+          if (m.roughnessMap) m.roughnessMap.dispose();
+          if (m.metalnessMap) m.metalnessMap.dispose();
+          m.dispose();
         }
-      });
-    }
-    this.scene.remove(this._group);
-    this.mixer = null;
-    this.actions = {};
-    this.clips = {};
+      }
+    });
   }
+  this.scene.remove(this._group);
+  this.mixer = null;
+  this.actions = {};
+  this.clips = {};
+}
 
   getPosition() {
     return this.position.clone();

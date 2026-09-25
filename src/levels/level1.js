@@ -220,7 +220,7 @@ export class StreetLevel {
     this.commander = null;
     this.grunts = new GruntManager(this.level);
     this.bossHealthBar = new BossHealthBar();
-    this.minionHealthBar = new MinionHealthBar(this._camera || null);
+    this.minionHealthBar = new MinionHealthBar(window.__camera || null);
     this.commanderSpawned = false;
     this.keySpawned = false;
 

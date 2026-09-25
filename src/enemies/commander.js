@@ -62,11 +62,11 @@ export class Commander {
     this.hitFlashTimer = 0;
 
     // Minion spawn thresholds (HP percentages)
-    this.spawnThresholds = [
-      { pct: 0.75, spawned: false, count: 3 },
-      { pct: 0.50, spawned: false, count: 4 },
-      { pct: 0.25, spawned: false, count: 5 }
-    ];
+   this.spawnThresholds = [
+  { pct: 0.75, spawned: false, count: 2 },
+  { pct: 0.50, spawned: false, count: 2 },
+  { pct: 0.25, spawned: false, count: 3 }
+];
 
     this._group = new THREE.Group();
     this._group.position.copy(this.position);

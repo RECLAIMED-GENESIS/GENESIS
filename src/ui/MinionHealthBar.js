@@ -64,6 +64,7 @@ export class MinionHealthBar {
 
   /** Call every frame */
   update() {
+    if (!this.camera) return;
     const v = new THREE.Vector3();
 
     for (const [entity, bar] of this.bars) {
