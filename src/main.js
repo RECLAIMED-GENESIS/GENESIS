@@ -114,8 +114,13 @@ function loadSoriniAnim(path, key, onDone) {
 // Load Y_Bot model
 new FBXLoader().load('./assets/models/player/Y_Bot.fbx', (fbx) => {
   fbx.scale.setScalar(0.013);
+  // FIX: Offset model so feet align with player.pos.y (ground level)
+  // The FBX pivot is at the hips, so we shift the model DOWN so feet
+  // sit at y=0 of the group. Tweak the Y value until feet touch ground.
+  fbx.position.y = -0.13;
   fbx.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   soriniGroup.add(fbx);
+
   soriniMixer = new THREE.AnimationMixer(fbx);
   // bind every clip that arrived before the model did
   for (const k of Object.keys(soriniClips)) _bindSoriniClip(k);
@@ -130,7 +135,8 @@ new FBXLoader().load('./assets/models/player/Y_Bot.fbx', (fbx) => {
   loadSoriniAnim(base + 'Idle.fbx',           'fightIdle',null);
   loadSoriniAnim(base + 'Dying.fbx',          'die',      null);
   // Dwarf Idle = relaxed idle (not fighting stance)
-  new FBXLoader().load(base + 'Dwarf Idle.fbx', (fbx) => {
+  // Dwarf Idle = relaxed idle (not fighting stance) — file is in enemy folder
+new FBXLoader().load('./assets/models/enemy/Dwarf Idle.fbx', (fbx) => {
     if (fbx.animations?.[0]) {
       soriniClips['idle'] = stripRootMotion(fbx.animations[0]);
       _bindSoriniClip('idle');
@@ -291,7 +297,7 @@ marker.layers.set(2);
 scene.add(marker);
 
 // ---------- physics ----------
-const GRAV = 30, SPEED = 8, SPRINT = 16;
+const GRAV = 30, SPEED = 4.5, SPRINT = 9;
 const TURN_SPEED = 2.2; // radians/sec for A/D turning
 
 function stepPlayer(dt) {
@@ -310,7 +316,11 @@ function stepPlayer(dt) {
   player.vel.x = sin * f * sp;
   player.vel.z = cos * f * sp;
   player.vel.y -= GRAV * dt;
-  if (player.grounded && keys.Space) player.vel.y = 12;
+  if (player.grounded && keys.Space && !keys._spaceConsumed) {
+    player.vel.y = 12;
+    keys._spaceConsumed = true;  // prevent repeat until Space released
+  }
+  if (!keys.Space) keys._spaceConsumed = false;  // reset when released
 
   player.pos.addScaledVector(player.vel, dt);
 

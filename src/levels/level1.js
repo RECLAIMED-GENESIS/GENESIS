@@ -246,7 +246,9 @@ export class StreetLevel {
       }
     }
     // koi pond — keep Sorini out of the water
-    this._addBoxCollider(14, 18, 9.5, 9.5, 1.2, -1.0);
+    // koi pond — only block the deepest center (smaller collider)
+// so player can walk to the water's edge
+    this._addBoxCollider(14, 18, 5.5, 5.5, 1.2, -1.0);
     // Japanese house
     const hx = this.pathX(40) - 9;
     this._addBoxCollider(hx, 40, 3.7, 3.2, 4, this._h(hx, 40));
@@ -340,14 +342,14 @@ export class StreetLevel {
     const curve = new THREE.CatmullRomCurve3(pts);
     const stoneMat = new THREE.MeshStandardMaterial({ color: 0x9a94a8, roughness: 0.7, metalness: 0.05 });
     const glowMat = new THREE.MeshStandardMaterial({ color: 0x332200, emissive: 0xffc46a, emissiveIntensity: 2 });
-    const stoneGeo = new THREE.CylinderGeometry(0.75, 0.85, 0.22, 7);
+    const stoneGeo = new THREE.CylinderGeometry(0.75, 0.85, 0.11, 7);
     const count = Math.floor(curve.getLength() / 1.7);
     for (let i = 0; i <= count; i++) {
       const t = i / count;
       const p = curve.getPointAt(t);
       const tan = curve.getTangentAt(t);
       const stone = new THREE.Mesh(stoneGeo, stoneMat);
-      stone.position.set(p.x + Math.sin(i * 7.3) * 0.25, this._h(p.x, p.z) + 0.08, p.z);
+      stone.position.set(p.x + Math.sin(i * 7.3) * 0.25, this._h(p.x, p.z) - 0.03, p.z);
       stone.rotation.y = Math.atan2(tan.x, tan.z) + Math.sin(i * 3.1) * 0.3;
       this.level.add(stone);
       if (i % 5 === 2) {
