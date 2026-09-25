@@ -197,7 +197,7 @@ export function createLevelViewer(renderer, { onEnter, onExit } = {}) {
             // Use normal 3D camera
             camera = perspectiveCamera;
 
-            camera.position.set(110, 1.8, 73);
+            camera.position.set(150, 1.8, 103);
 
             yaw = Math.PI / 2.5;
             pitch = 0;
