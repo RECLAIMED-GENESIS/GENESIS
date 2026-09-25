@@ -8,6 +8,7 @@ import { UIManager } from './ui/UIManager.js';
 import { createMainMenu } from './ui/MainMenu.js';
 import { createHUD, updateHUD } from './ui/HUD.js';
 import { createLoadingScreen, updateLoadingScreen } from './ui/LoadingScreen.js';
+import { createLevelViewer } from './levels/LevelViewer.js';
 
 // ============================================
 // AUDIO SYSTEM
@@ -191,6 +192,20 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
+
+// ============================================
+// LEVEL VIEWER (press 1, 2, 3 to view a level, Escape to return)
+// ============================================
+const levelViewer = createLevelViewer(renderer, {
+    onEnter: () => {
+        uiManager.hideAllScreens();
+        uiManager.hideHUD();
+    },
+    onExit: () => {
+        clock.getDelta();
+        uiManager.showScreen('main-menu');
+    }
+});
 
 // ============================================
 // LIGHTS
@@ -830,6 +845,7 @@ const keys = {};
 
 window.addEventListener('keydown', (e) => {
     keys[e.code] = true;
+    if (levelViewer.isActive()) return;
 
     if (e.code === 'KeyZ' && !isAttacking) {
         isAttacking = true;
@@ -855,6 +871,7 @@ window.addEventListener('keyup', (e) => {
 });
 
 window.addEventListener('click', () => {
+    if (levelViewer.isActive()) return;
     if (!isAttacking) {
         isAttacking = true;
         attackType = 'punch';
@@ -894,6 +911,7 @@ const clock = new THREE.Clock();
 function animate() {
     requestAnimationFrame(animate);
     if (gameOver) return;
+    if (levelViewer.isActive()) return;
 
     const delta = clock.getDelta();
 
