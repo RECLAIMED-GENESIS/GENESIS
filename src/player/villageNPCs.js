@@ -375,8 +375,9 @@ export class VillageNPCs {
   _build() {
     this._buildHouse();
     this._buildStalls();
-    this._buildNPCs();
+    // this._buildNPCs();   // NPCs removed — aliens are the only characters
     this._buildFragments();
+    this._buildPortal();    // Portal exists from start
   }
 
   _buildHouse() {
@@ -517,7 +518,8 @@ export class VillageNPCs {
   }
 
   // ── portal ────────────────────────────────────────────────
-  openPortal()  {
+  _buildPortal()  {
+    if (this.portalActive) return;
     this.portalActive = true;
     this.portalTimer  = 0;
 
@@ -552,7 +554,11 @@ export class VillageNPCs {
     this.portalMesh.rotation.y = Math.PI / 6;
     this.group.add(this.portalMesh);
 
-    showDialogue('"Sorini... we see you. Step through."', 5000);
+        // Portal exists from start — no dialogue needed
+  }
+    openPortal() {
+    // Kept for compatibility — portal already visible from start
+    this.portalActive = true;
   }
 
   // ── HUD ───────────────────────────────────────────────────

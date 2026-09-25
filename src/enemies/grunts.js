@@ -1,6 +1,5 @@
 // src/enemies/grunts.js
-// Level 1 Minions — "Grunts"
-// Small X_Bot variants spawned by the Commander
+// Level 1 Minions — "Grunts" (Alien Soldier)
 
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
@@ -13,13 +12,12 @@ let LOADING_PROMISE = null;
 async function loadGruntModel(loader) {
   if (CACHED_GRUNT) return { model: CACHED_GRUNT.clone(true), clips: CACHED_GRUNT_CLIPS };
   if (LOADING_PROMISE) return LOADING_PROMISE;
-  
+
   LOADING_PROMISE = new Promise((resolve) => {
     loader.load('./assets/models/enemy/grunt.fbx', (fbx) => {
       CACHED_GRUNT = fbx;
       CACHED_GRUNT_CLIPS = {};
-      
-      // Load anims
+
       const base = './assets/models/enemy/';
       const anims = {
         idle:  base + 'Idle.fbx',
@@ -28,7 +26,7 @@ async function loadGruntModel(loader) {
         hit:   base + 'Reaction.fbx',
         die:   base + 'Dying.fbx'
       };
-      
+
       let pending = Object.keys(anims).length;
       for (const [key, path] of Object.entries(anims)) {
         loader.load(path, (animFbx) => {
@@ -43,11 +41,10 @@ async function loadGruntModel(loader) {
       resolve(null);
     });
   });
-  
+
   return LOADING_PROMISE;
 }
 
-// Root motion stripper
 function stripRootMotion(clip) {
   if (!clip || !clip.tracks) return clip;
   for (const track of clip.tracks) {
@@ -63,26 +60,21 @@ function stripRootMotion(clip) {
   return clip;
 }
 
-// ─────────────────────────────────────────
-// SINGLE GRUNT
-// ─────────────────────────────────────────
 export class Grunt {
   constructor(scene, position) {
     this.scene = scene;
     this.position = position.clone();
 
-    // Config
     this.MAX_HEALTH = 15;
     this.health = this.MAX_HEALTH;
-    this.SCALE = 0.013 * 0.8;       // smaller than player
-    this.SPEED = 2.5;
+    this.SCALE = 0.013 * 0.8;
+    this.SPEED = 3.5;
     this.ATTACK_RANGE = 1.8;
     this.ATTACK_DAMAGE = 1;
     this.ATTACK_COOLDOWN = 1.5;
 
-    // State
     this.alive = true;
-    this.attackTimer = Math.random() * 1.5;  // stagger initial attacks
+    this.attackTimer = Math.random() * 1.5;
     this.isAttacking = false;
     this.mixer = null;
     this.actions = {};
@@ -91,7 +83,6 @@ export class Grunt {
     this.currentAction = null;
     this.hitFlashTimer = 0;
 
-    // Group
     this._group = new THREE.Group();
     this._group.position.copy(this.position);
     this.scene.add(this._group);
@@ -99,58 +90,42 @@ export class Grunt {
     this._loadModel();
   }
 
-  _loadModel() {
+  async _loadModel() {
     const loader = new FBXLoader();
-    loader.load('./assets/models/enemy/grunt.fbx', (fbx) => {
-      fbx.scale.setScalar(this.SCALE);
-      fbx.position.y = -0.13 * 0.8;
+    const result = await loadGruntModel(loader);
+    if (!result) return;
 
-      // Tint: dark grey body, faint red eyes/accents
-            // Tint: alien purple body, green glowing accents
-      fbx.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true;
-          o.receiveShadow = true;
-          if (o.material) {
-            const mats = Array.isArray(o.material) ? o.material : [o.material];
-            mats.forEach((mat) => {
-              if (mat.color) mat.color.setHex(0x4a2a6b);      // deep purple
-              if (mat.emissive) {
-                mat.emissive.setHex(0x2a4400);                  // dark green base
-                mat.emissiveIntensity = 0.4;
-              }
-            });
-          }
+    const fbx = result.model;
+    fbx.scale.setScalar(this.SCALE);
+    fbx.position.y = -0.13 * 0.8;
+
+    // Tint: alien purple body, green glowing accents
+    fbx.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+        if (o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((mat) => {
+            if (mat.color) mat.color.setHex(0x4a2a6b);
+            if (mat.emissive) {
+              mat.emissive.setHex(0x2a4400);
+              mat.emissiveIntensity = 0.4;
+            }
+          });
         }
-      });
-
-      this._group.add(fbx);
-      this.model = fbx;
-
-      // Mixer
-      this.mixer = new THREE.AnimationMixer(fbx);
-
-      // Load animations
-      const base = './assets/models/enemy/';
-      const anims = {
-        idle:  base + 'Idle.fbx',
-        walk:  base + 'Mutant Walking.fbx',
-        punch: base + 'Mutant_Punch.fbx',
-        hit:   base + 'Reaction.fbx',
-        die:   base + 'Dying.fbx'
-      };
-
-      for (const [key, path] of Object.entries(anims)) {
-        loader.load(path, (animFbx) => {
-          if (animFbx.animations?.[0]) {
-            this.clips[key] = stripRootMotion(animFbx.animations[0]);
-            this.actions[key] = this.mixer.clipAction(this.clips[key]);
-          }
-        }, undefined, () => {});
       }
+    });
 
-      setTimeout(() => this._playAction('idle'), 300);
-    }, undefined, (e) => console.warn('Grunt load failed:', e));
+    this._group.add(fbx);
+    this.model = fbx;
+
+    this.mixer = new THREE.AnimationMixer(fbx);
+    for (const [key, clip] of Object.entries(result.clips)) {
+      this.actions[key] = this.mixer.clipAction(clip);
+    }
+
+    setTimeout(() => this._playAction('idle'), 200);
   }
 
   _playAction(name, loop = true) {
@@ -166,21 +141,16 @@ export class Grunt {
     this.currentAction = next;
   }
 
-  // ─────────────────────────────────────────
-  // UPDATE
-  // ─────────────────────────────────────────
   update(delta, playerPos, onDamagePlayer) {
     if (!this.alive) return;
 
     this.mixer?.update(delta);
 
-    // Hit flash
     if (this.hitFlashTimer > 0) {
       this.hitFlashTimer -= delta;
       if (this.hitFlashTimer <= 0) this._restoreColor();
     }
 
-    // Face player
     const toPlayer = new THREE.Vector3(
       playerPos.x - this.position.x,
       0,
@@ -193,14 +163,12 @@ export class Grunt {
       this._group.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
     }
 
-    // Attack check
     this.attackTimer -= delta;
     if (distance < this.ATTACK_RANGE && this.attackTimer <= 0) {
       this._attack(onDamagePlayer);
       return;
     }
 
-    // Chase
     if (distance > this.ATTACK_RANGE - 0.3) {
       this.position.x += toPlayer.x * this.SPEED * delta;
       this.position.z += toPlayer.z * this.SPEED * delta;
@@ -209,7 +177,6 @@ export class Grunt {
       this._playAction('idle');
     }
 
-    // Sync
     this._group.position.copy(this.position);
   }
 
@@ -219,7 +186,6 @@ export class Grunt {
     this._playAction('punch', false);
 
     setTimeout(() => {
-      // Damage check mid-swing
       if (onDamagePlayer) onDamagePlayer(this.ATTACK_DAMAGE);
       this.isAttacking = false;
       this._playAction('idle');
@@ -232,9 +198,6 @@ export class Grunt {
     this.health -= amount;
     this.hitFlashTimer = 0.12;
     this._flashColor();
-
-    // Knock back slightly
-    // (skipping for simplicity — Grunt is fragile)
 
     if (this.health <= 0) {
       this._die();
@@ -263,7 +226,7 @@ export class Grunt {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         mats.forEach((mat) => {
           if (mat.emissive) {
-            mat.emissive.setHex(0x2a4400);       // <- update to match new base
+            mat.emissive.setHex(0x2a4400);
             mat.emissiveIntensity = 0.4;
           }
         });
@@ -277,56 +240,49 @@ export class Grunt {
     setTimeout(() => this.dispose(), 1200);
   }
 
-dispose() {
-  if (this.model) {
-    this.model.traverse((o) => {
-      if (o.isMesh) {
-        o.geometry?.dispose();
-        if (Array.isArray(o.material)) {
-          o.material.forEach(m => {
-            // Dispose textures
+  dispose() {
+    if (this.model) {
+      this.model.traverse((o) => {
+        if (o.isMesh) {
+          o.geometry?.dispose();
+          if (Array.isArray(o.material)) {
+            o.material.forEach(m => {
+              if (m.map) m.map.dispose();
+              if (m.normalMap) m.normalMap.dispose();
+              if (m.emissiveMap) m.emissiveMap.dispose();
+              if (m.roughnessMap) m.roughnessMap.dispose();
+              if (m.metalnessMap) m.metalnessMap.dispose();
+              m.dispose();
+            });
+          } else if (o.material) {
+            const m = o.material;
             if (m.map) m.map.dispose();
             if (m.normalMap) m.normalMap.dispose();
             if (m.emissiveMap) m.emissiveMap.dispose();
             if (m.roughnessMap) m.roughnessMap.dispose();
             if (m.metalnessMap) m.metalnessMap.dispose();
             m.dispose();
-          });
-        } else if (o.material) {
-          const m = o.material;
-          if (m.map) m.map.dispose();
-          if (m.normalMap) m.normalMap.dispose();
-          if (m.emissiveMap) m.emissiveMap.dispose();
-          if (m.roughnessMap) m.roughnessMap.dispose();
-          if (m.metalnessMap) m.metalnessMap.dispose();
-          m.dispose();
+          }
         }
-      }
-    });
+      });
+    }
+    this.scene.remove(this._group);
+    this.mixer = null;
+    this.actions = {};
+    this.clips = {};
   }
-  this.scene.remove(this._group);
-  this.mixer = null;
-  this.actions = {};
-  this.clips = {};
-}
 
   getPosition() {
     return this.position.clone();
   }
 }
 
-// ─────────────────────────────────────────
-// GRUNT MANAGER — spawns and updates a group
-// ─────────────────────────────────────────
 export class GruntManager {
   constructor(scene) {
     this.scene = scene;
     this.grunts = [];
   }
 
-  /**
-   * Spawn `count` grunts around a center position.
-   */
   spawnWave(centerPos, count) {
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2;
@@ -345,11 +301,9 @@ export class GruntManager {
     for (const g of this.grunts) {
       g.update(delta, playerPos, onDamagePlayer);
     }
-    // Clean up dead grunts
     this.grunts = this.grunts.filter(g => g.alive);
   }
 
-  /** Called when the boss dies — grunts collapse */
   killAll() {
     for (const g of this.grunts) {
       g._die();
@@ -357,12 +311,10 @@ export class GruntManager {
     this.grunts = [];
   }
 
-  /** Returns living grunts (for hit detection) */
   getAlive() {
     return this.grunts.filter(g => g.alive);
   }
 
-  /** Check if player attack hits any grunt — returns hit grunt or null */
   checkHit(attackerPos, range, damage) {
     for (const g of this.grunts) {
       if (!g.alive) continue;
