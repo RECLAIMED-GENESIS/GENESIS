@@ -365,9 +365,9 @@ class Citizen {
 // ─────────────────────────────────────────────────────────────
 // ENEMY CLASS
 // ─────────────────────────────────────────────────────────────
-const STATE = { IDLE: 0, ALERTED: 1, WALKING: 2, ATTACKING: 3, HIT: 4, DEAD: 5 };
+export const STATE = { IDLE: 0, ALERTED: 1, WALKING: 2, ATTACKING: 3, HIT: 4, DEAD: 5 };
 
-class Enemy {
+export class Enemy {
   constructor(parent, position, type = 'human', attackGate = null) {
     this.type        = type;
     this.health      = type === 'mutant' ? 8 : 5;

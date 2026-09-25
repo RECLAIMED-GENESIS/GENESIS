@@ -6,17 +6,30 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { StreetLevel } from './levels/level1.js';
 import { AlienLevel } from './levels/level2.js';
 import { ArchitectLevel } from './levels/level3.js';
+import { Dialogue } from './ui/Dialogue.js';
+import { endingAttack, endingLearn, endingSilence } from './player/endings.js';
 
 // ---------- renderer ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// NOTE: PCFSoftShadowMap was removed in recent three.js versions.
+// PCFShadowMap is the modern equivalent.
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 renderer.autoClear = false;
 document.body.appendChild(renderer.domElement);
+
+// Surface context-lost events so we can see them in the console
+renderer.domElement.addEventListener('webglcontextlost', (event) => {
+  event.preventDefault();
+  console.error('[GENESIS] WebGL context lost. Refresh the tab.');
+});
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+  console.log('[GENESIS] WebGL context restored.');
+});
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1200);
@@ -58,7 +71,6 @@ const player = {
   R: 0.4, H: 1.8,
 };
 
-
 // ---------- Sorini avatar (third-person Y_Bot) ----------
 const soriniGroup = new THREE.Group();
 scene.add(soriniGroup);
@@ -75,8 +87,9 @@ function playSoriniAction(name, loop = true) {
   if (!next && name === 'walk') next = soriniActions['run'] || soriniActions['fightIdle'];
   if (!next) { _soriniPending = { name, loop }; return; }  // retried when the clip lands
   if (next === soriniCurrentAction) {
-    // allow re-triggering a finished one-shot (punch/kick/hook/jump)
-    if (loop || next.isRunning()) return;
+    // Already playing. For loops, do nothing. For one-shots that have
+    // finished, restart them so the punch/kick/hook can be re-triggered.
+    if (next.isRunning()) return;
     next.reset().setLoop(THREE.LoopOnce, 1).fadeIn(0.05).play();
     return;
   }
@@ -115,9 +128,7 @@ function loadSoriniAnim(path, key, onDone) {
 // Load Y_Bot model
 new FBXLoader().load('./assets/models/player/sorini.fbx', (fbx) => {
   fbx.scale.setScalar(0.013);
-  // FIX: Offset model so feet align with player.pos.y (ground level)
-  // The FBX pivot is at the hips, so we shift the model DOWN so feet
-  // sit at y=0 of the group. Tweak the Y value until feet touch ground.
+  // Offset the model so feet align with player.pos.y (ground level).
   fbx.position.y = -0.13;
   fbx.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   soriniGroup.add(fbx);
@@ -133,30 +144,31 @@ new FBXLoader().load('./assets/models/player/sorini.fbx', (fbx) => {
   }, 8000);
 
   const base = './assets/models/player/';
-  loadSoriniAnim(base + 'Idle.fbx',           'fightIdle',null);
-  loadSoriniAnim(base + 'Dying.fbx',          'die',      null);
-  // Dwarf Idle = relaxed idle (not fighting stance)
+  loadSoriniAnim(base + 'Idle.fbx',           'fightIdle', null);
+  loadSoriniAnim(base + 'Dying.fbx',          'die',       null);
   // Dwarf Idle = relaxed idle (not fighting stance) — file is in enemy folder
-new FBXLoader().load('./assets/models/enemy/Dwarf Idle.fbx', (fbx) => {
-    if (fbx.animations?.[0]) {
-      soriniClips['idle'] = stripRootMotion(fbx.animations[0]);
+  new FBXLoader().load('./assets/models/enemy/Dwarf Idle.fbx', (fbx2) => {
+    if (fbx2.animations?.[0]) {
+      soriniClips['idle'] = stripRootMotion(fbx2.animations[0]);
       _bindSoriniClip('idle');
       playSoriniAction('idle');
     }
   }, undefined, (e) => {
     // fallback to fight idle if Dwarf Idle missing
-    if (soriniActions['fightIdle']) { soriniActions['idle'] = soriniActions['fightIdle']; playSoriniAction('idle'); }
+    if (soriniActions['fightIdle']) {
+      soriniActions['idle'] = soriniActions['fightIdle'];
+      playSoriniAction('idle');
+    }
   });
-  loadSoriniAnim(base + 'Swagger_Walk.fbx',   'walk',     null);
-  loadSoriniAnim(base + 'Running.fbx',        'run',      null);
-  loadSoriniAnim(base + 'Punching.fbx',       'punch',    null);
-  loadSoriniAnim(base + 'Kicking.fbx',        'kick',     null);
-  loadSoriniAnim(base + 'Hook.fbx',           'hook',     null);
-  loadSoriniAnim(base + 'Jump.fbx',           'jump',     null);
-  loadSoriniAnim(base + 'Left Turn.fbx',      'turnLeft', null);
-  loadSoriniAnim(base + 'Right Turn.fbx',     'turnRight',null);
+  loadSoriniAnim(base + 'Swagger_Walk.fbx',   'walk',      null);
+  loadSoriniAnim(base + 'Running.fbx',        'run',       null);
+  loadSoriniAnim(base + 'Punching.fbx',       'punch',     null);
+  loadSoriniAnim(base + 'Kicking.fbx',        'kick',      null);
+  loadSoriniAnim(base + 'Hook.fbx',           'hook',      null);
+  loadSoriniAnim(base + 'Jump.fbx',           'jump',      null);
+  loadSoriniAnim(base + 'Left Turn.fbx',      'turnLeft',  null);
+  loadSoriniAnim(base + 'Right Turn.fbx',     'turnRight', null);
 }, undefined, (e) => console.warn('Y_Bot load failed:', e));
-
 
 // ---------- input ----------
 const keys = {};
@@ -166,6 +178,13 @@ const attackCooldown = { f: 0, g: 0, h: 0 };
 let attackLock = false;   // true while a punch/kick/hook swing plays — roots Sorini
 
 addEventListener('keydown', e => {
+
+  // If dialogue is active, route keys to the dialogue system
+  if (window.__dialogue && window.__dialogue.active) {
+    window.__dialogue.handleKey(e.code);
+    return;
+  }
+
   keys[e.code] = true;
   if (e.code === 'Space') e.preventDefault();
   if (e.code === 'KeyR') switchLevel(current);
@@ -174,11 +193,15 @@ addEventListener('keydown', e => {
   if (e.code === 'Digit3') switchLevel(3);
   if (e.code === 'KeyP' && level && level.setPhase) {
     phase = phase % 3 + 1;
-    level.setPhase(phase, clock.elapsedTime);
+    level.setPhase(phase, timer.getElapsed());
+  }
+
+  // ── Jump ── handled here so it fires once per press (not per frame)
+  if (e.code === 'Space' && player.grounded && !attackLock) {
+    player.vel.y = 12;
   }
 
   // ── F = Punch ──
-    // â”€â”€ F = Punch â”€â”€
   if (e.code === 'KeyF' && attackCooldown.f <= 0) {
     attackCooldown.f = 0.7;
     playSoriniAction('punch', false);
@@ -186,14 +209,13 @@ addEventListener('keydown', e => {
     _damageCommanderIfClose(1);
   }
   // ── G = Kick ──
-   // â”€â”€ G = Kick â”€â”€
   if (e.code === 'KeyG' && attackCooldown.g <= 0) {
     attackCooldown.g = 0.8;
     playSoriniAction('kick', false);
     _triggerAttack();
     _damageCommanderIfClose(2);
   }
-  // â”€â”€ H = Hook â”€â”€
+  // ── H = Hook ──
   if (e.code === 'KeyH' && attackCooldown.h <= 0) {
     attackCooldown.h = 0.7;
     playSoriniAction('hook', false);
@@ -212,25 +234,26 @@ function _triggerAttack() {
 
 function _damageCommanderIfClose(damage) {
   if (!level) return;
-  // Commander
+  // Commander (Level 1)
   if (level.commander && level.commander.alive) {
     const dist = level.commander.getPosition().distanceTo(player.pos);
     if (dist < 2.5) {
       level.commander.takeDamage(damage);
     }
   }
-  // Grunts
+  // Grunts (Level 1)
   if (level.grunts) {
     level.grunts.checkHit(player.pos, 2.2, damage);
   }
 }
+
 addEventListener('keyup', e => keys[e.code] = false);
 renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
-  document.getElementById('msg').style.display = locked ? 'none' : 'block';
+  const msg = document.getElementById('msg');
+  if (msg) msg.style.display = locked ? 'none' : 'block';
 });
-
 
 addEventListener('mousemove', e => {
   if (!locked) return;
@@ -257,13 +280,61 @@ function switchLevel(n) {
     if (level.sky && scene.children.includes(level.sky)) scene.remove(level.sky);
     if (level.stars && scene.children.includes(level.stars)) scene.remove(level.stars);
   }
+
+  // Clean up dialogue from a previous Level 3 session
+  if (window.__dialogue) {
+    try { window.__dialogue.dispose(); } catch (e) {}
+    window.__dialogue = null;
+  }
+
+  // ── Flush renderer caches ──
+  // Three.js keeps an internal cache of GPU objects. Even after
+  // .dispose(), the cache holds references. Clearing it forces the
+  // renderer to release texture/buffer memory back to the GPU driver.
+  try {
+    if (renderer.renderLists) renderer.renderLists.dispose();
+    if (renderer.info) renderer.info.reset();
+  } catch (e) { console.warn('renderer cache flush failed:', e); }
+
   current = n; phase = 1;
+
   try {
     level = new LEVELS[n](scene, renderer);
+
+    // If this is Level 3, wire up the dialogue + endings
+    if (n === 3 && level instanceof ArchitectLevel) {
+      const dialogue = new Dialogue();
+      window.__dialogue = dialogue;
+      level.dialogue = dialogue;
+
+      level.onDamagePlayer = (dmg) => {
+        console.log(`Player took ${dmg} damage from a guardian.`);
+      };
+
+      level.onEndingChosen = (choice) => {
+        if (choice === 'attack') {
+          dialogue.dispose();
+          window.__dialogue = null;
+          endingAttack();
+        } else if (choice === 'learn') {
+          // The learn ending needs the dialogue for the final choice,
+          // so pass it in and let it dispose itself.
+          endingLearn(dialogue).then(() => {
+            window.__dialogue = null;
+          });
+        } else {
+          dialogue.dispose();
+          window.__dialogue = null;
+          endingSilence();
+        }
+      };
+    }
   } catch (e) {
+    console.warn(`Level ${n} primary constructor failed:`, e);
     try { level = new LEVELS[n](scene); } catch (e2) { level = new LEVELS[n](); }
   }
 
+  // If the level used its own scene, hoist things onto the main scene.
   if (level.scene && level.scene !== scene) {
     if (level.scene.background) scene.background = level.scene.background;
     scene.fog = level.scene.fog !== undefined ? level.scene.fog : null;
@@ -285,6 +356,12 @@ function switchLevel(n) {
     }
   }
 
+  // ── Spawn resolution ──
+  // Some levels provide getSpawn() instead of a fixed spawn vector.
+  if (typeof level.getSpawn === 'function') {
+    try { level.spawn = level.getSpawn(); } catch (e) { console.warn('getSpawn failed:', e); }
+  }
+
   if (!level.spawn || !level.spawn.isVector3) {
     console.warn(`Level ${n} missing spawn, using fallback`);
     let fallbackY = 0;
@@ -295,8 +372,10 @@ function switchLevel(n) {
     } catch (e) { fallbackY = 0; }
     level.spawn = new THREE.Vector3(0, fallbackY + 0.1, 55);
   }
+
   if (!Array.isArray(level.colliders)) level.colliders = [];
   if (!level.name) level.name = `LEVEL ${n}`;
+
   player.pos.copy(level.spawn);
   player.vel.set(0, 0, 0);
   player.yaw   = (typeof level.spawnYaw === 'number') ? level.spawnYaw : Math.PI;
@@ -331,17 +410,14 @@ function stepPlayer(dt) {
     if (keys.KeyD) player.yaw -= TURN_SPEED * dt;
   }
 
-  // W/S move in the direction Sorini faces (camera-relative)
+  // W/S move in the direction Sorini faces
   const f = attackLock ? 0 : (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
   player.vel.x = sin * f * sp;
   player.vel.z = cos * f * sp;
+
+  // Gravity — jump velocity is set from the keydown handler
   player.vel.y -= GRAV * dt;
-  if (player.grounded && keys.Space && !keys._spaceConsumed) {
-    player.vel.y = 12;
-    keys._spaceConsumed = true;  // prevent repeat until Space released
-  }
-  if (!keys.Space) keys._spaceConsumed = false;  // reset when released
 
   player.pos.addScaledVector(player.vel, dt);
 
@@ -364,7 +440,7 @@ function stepPlayer(dt) {
     const ox = Math.min(pMax.x - c.min.x, c.max.x - pMin.x);
     const oz = Math.min(pMax.z - c.min.z, c.max.z - pMin.z);
     if (ox < oz) player.pos.x += (pMax.x - c.min.x < c.max.x - pMin.x) ? -ox : ox;
-    else player.pos.z += (pMax.z - c.min.z < c.max.z - pMin.z) ? -oz : oz;
+    else         player.pos.z += (pMax.z - c.min.z < c.max.z - pMin.z) ? -oz : oz;
     pMin.set(player.pos.x - player.R, player.pos.y, player.pos.z - player.R);
     pMax.set(player.pos.x + player.R, player.pos.y + player.H, player.pos.z + player.R);
   }
@@ -377,13 +453,21 @@ function stepPlayer(dt) {
 }
 
 // ---------- loop ----------
-const clock = new THREE.Clock();
+// three.js deprecates Clock in favour of Timer.
+const timer = new THREE.Timer();
+let _rafId = 0;
+
+// HUD caching — innerHTML writes every frame are expensive.
+let _lastHudString = '';
+
 function tick() {
-  requestAnimationFrame(tick);
-  const dt = Math.min(clock.getDelta(), 0.05);
-  const t = clock.elapsedTime;
+  _rafId = requestAnimationFrame(tick);
+  timer.update();
+  const dt = Math.min(timer.getDelta(), 0.05);
+  const t  = timer.getElapsed();
 
   if (!level) return;
+
   stepPlayer(dt);
   if (soriniMixer) soriniMixer.update(dt);
   if (typeof level.update === 'function') {
@@ -391,7 +475,7 @@ function tick() {
     catch (e) { console.warn('level.update error', e); }
   }
 
-  // ── Third-person camera — centered directly behind Sorini (God of War style) ──
+  // ── Third-person camera — centered directly behind Sorini ──
   const CAM_DIST   = 5.5;
   const CAM_HEIGHT = 2.8;
   const CAM_LOOK_UP = 1.2;
@@ -402,7 +486,6 @@ function tick() {
     player.pos.y + CAM_HEIGHT,
     player.pos.z + camOffZ
   );
-  // keep the camera above the terrain so hills never swallow it
   if (level && typeof level.getSurfaceHeight === 'function') {
     const camGround = level.getSurfaceHeight(camera.position.x, camera.position.z) + 0.5;
     if (camera.position.y < camGround) camera.position.y = camGround;
@@ -413,21 +496,13 @@ function tick() {
   soriniGroup.position.set(player.pos.x, player.pos.y, player.pos.z);
   soriniGroup.rotation.y = player.yaw;
 
-  // ── Sorini animation state (attack keys override movement) ──
-  const isSprint  = keys.ShiftLeft || keys.ShiftRight;
-  const isMovingW = keys.KeyW || keys.KeyS;
-  const isTurning = (keys.KeyA || keys.KeyD) && !isMovingW;
-  const isAttacking = soriniCurrentAction && (
-    soriniCurrentAction === soriniActions['punch'] ||
-    soriniCurrentAction === soriniActions['kick']  ||
-    soriniCurrentAction === soriniActions['hook']
-  );
-
-  // tick attack cooldowns
+  // ── tick attack cooldowns ──
   for (const k of ['f','g','h']) if (attackCooldown[k] > 0) attackCooldown[k] -= dt;
 
-  // ── Sorini animation priority ──
-  // Attacks play to completion before movement overrides
+  // ── Sorini animation state ──
+  const isSprint  = keys.ShiftLeft || keys.ShiftRight;
+  const isMovingW = keys.KeyW || keys.KeyS;
+
   const attackNames = ['punch','kick','hook','jump'];
   const currentIsAttack = soriniCurrentAction && attackNames.some(
     n => soriniActions[n] && soriniActions[n] === soriniCurrentAction
@@ -435,32 +510,38 @@ function tick() {
   const attackStillPlaying = currentIsAttack &&
     soriniCurrentAction.isRunning() &&
     soriniCurrentAction.loop === THREE.LoopOnce;
-  attackLock = attackStillPlaying;   // stepPlayer reads this to root Sorini mid-swing
+  attackLock = attackStillPlaying;
 
   if (soriniMixer && !attackStillPlaying) {
-    if (!player.grounded && !attackStillPlaying)
-                                playSoriniAction('jump');
-    else if (isSprint && isMovingW) playSoriniAction('run');
-    else if (isMovingW)         playSoriniAction('walk');
+    if (!player.grounded)             playSoriniAction('jump');
+    else if (isSprint && isMovingW)   playSoriniAction('run');
+    else if (isMovingW)               playSoriniAction('walk');
     else if (keys.KeyA && !isMovingW) playSoriniAction('turnLeft');
     else if (keys.KeyD && !isMovingW) playSoriniAction('turnRight');
-    else                        playSoriniAction('idle');
+    else                              playSoriniAction('idle');
   }
 
   marker.position.set(player.pos.x, player.pos.y + 2, player.pos.z);
   marker.rotation.set(Math.PI / 2, player.yaw, 0);
 
+  // ── HUD (cached — only written when the string changes) ──
   const levelName = (level && level.name) ? level.name : `LEVEL ${current}`;
-  hud.innerHTML =
+  const hudStr =
     `<b>GENESIS — THE DEVICE</b><br>` +
     `${levelName}${level && level.setPhase ? ' · phase ' + phase : ''}<br>` +
     `1/2/3 levels · R restart | F punch · G kick · H hook | Shift sprint`;
+  if (hudStr !== _lastHudString) {
+    hud.innerHTML = hudStr;
+    _lastHudString = hudStr;
+  }
 
+  // ── Main render ──
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   renderer.clear();
   renderer.render(scene, camera);
 
+  // ── Minimap render ──
   const S = 200;
   renderer.setScissorTest(true);
   renderer.setViewport(innerWidth - S - 12, 12, S, S);
@@ -482,3 +563,26 @@ addEventListener('resize', () => {
 
 switchLevel(1);
 tick();
+
+// ---------- Vite HMR cleanup ----------
+// Without this, every hot reload leaks a WebGL context. Browsers cap
+// a tab at ~16 contexts, so after a dozen saves WebGL stops working
+// until you close the tab.
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    cancelAnimationFrame(_rafId);
+    try {
+      renderer.dispose();
+      renderer.forceContextLoss();
+      if (renderer.domElement?.parentNode) {
+        renderer.domElement.parentNode.removeChild(renderer.domElement);
+      }
+    } catch (e) { console.warn('HMR renderer dispose failed:', e); }
+    try {
+      if (level && typeof level.dispose === 'function') level.dispose(scene);
+    } catch (e) { console.warn('HMR level dispose failed:', e); }
+    try {
+      if (window.__dialogue) window.__dialogue.dispose();
+    } catch (e) {}
+  });
+}

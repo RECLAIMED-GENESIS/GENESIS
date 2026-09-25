@@ -1,2984 +1,1032 @@
+// ============================================================
+// level3.js — The Architect's Monument
+// A monolithic black slab on the moon. Three interior floors:
+// Entrance Hall → Guardians' Chamber → Throne Room.
+// ============================================================
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-// NOTE: moon.js's per-pixel procedural crater shader used to be applied here.
-// It recomputed ~116 craters (acos + noise, ×3 for normals) on every pixel,
-// every frame — for a surface whose craters are already carved into the
-// geometry below. That was the main source of lag on this level, and since
-// it hardcoded its own light direction it also ignored the real sun/shadows,
-// which is why the ground looked disconnected from everything else.
-// Colors are now baked once into the geometry instead (see createMoonSurface).
+import { Guardian } from '../player/guardians.js';
+import { STATE } from '../player/streetEnemies.js';
 
 export class ArchitectLevel {
 
-    constructor(sceneOrRenderer = null, rendererMaybe = null) {
+  constructor(sceneOrRenderer = null, rendererMaybe = null) {
 
-        // =====================================================
-        // SCENE — flexible so main.js can call `new ArchitectLevel(scene, renderer)`
-        // while standalone code can still call `new ArchitectLevel(renderer)`
-        // =====================================================
-        let outerScene = null;
-        let renderer = null;
-        if (sceneOrRenderer && sceneOrRenderer.isScene) {
-            outerScene = sceneOrRenderer;
-            renderer = rendererMaybe;
-        } else if (sceneOrRenderer && sceneOrRenderer.isWebGLRenderer) {
-            renderer = sceneOrRenderer;
-        }
-        // also support (null, renderer) / (scene) etc.
-        if (!renderer && rendererMaybe && rendererMaybe.isWebGLRenderer) renderer = rendererMaybe;
+    // ── SCENE ────────────────────────────────────────────
+    let outerScene = null;
+    if (sceneOrRenderer && sceneOrRenderer.isScene) outerScene = sceneOrRenderer;
 
-        if (outerScene) {
-            this.scene = outerScene;
-            this.scene.background = new THREE.Color(0x010204);
-            this.scene.fog = null;
-        } else {
-            this.scene = new THREE.Scene();
-            this.scene.background = new THREE.Color(0x010204);
-            this.scene.fog = null;
-        }
-
-        // =====================================================
-        // INTERIOR IMAGE-BASED LIGHTING
-        // =====================================================
-        //
-        // Parts of the corridor use metallic PBR materials
-        // that render pure black without an environment
-        // map. A small neutral PMREM room is generated once
-        // here and attached ONLY to the corridor's materials
-        // further below, so the lunar surface keeps its hard
-        // sunlight-only look.
-
-        this.pmremGenerator = null;
-
-        this.envTexture = null;
-
-        if (renderer) {
-
-            this.pmremGenerator =
-                new THREE.PMREMGenerator(
-                    renderer
-                );
-
-            this.envTexture =
-                this.pmremGenerator
-                    .fromScene(
-                        new RoomEnvironment(),
-                        0.04
-                    )
-                    .texture;
-        }
-
-        // contract expected by main.js
-        this.name = "LEVEL 3 — THE ARCHITECT'S REALM";
-        this.colliders = [];
-        this.root = null; // alias filled after group creation
-
-        this.level =
-            new THREE.Group();
-
-        this.scene.add(
-            this.level
-        );
-        this.root = this.level;
-
-        // Environment references.
-        this.rocks = [];
-        this.stars = null;
-        this.sky = null;
-        this.moonSurface = null;
-        this.regolithParticles = null;
-        this.earth = null;
-        this.earthLight = null;
-
-        // GENESIS branding references.
-        this.logoCanvas = null;
-        this.logoTexture = null;
-        this.flagTexture = null;
-        this.flagCloth = null;
-        this.flagClothBase = null;
-        this.flagTime = 0;
-
-        // Landing path reference.
-        this.pathGroup = null;
-
-        // =====================================================
-        // BUILD MOON ENVIRONMENT
-        // =====================================================
-
-        this.createLighting();
-
-        this.createMoonSurface();
-
-        this.createDistantLunarTerrain();
-
-
-        this.createStars();
-
-        this.createEarth();
-
-
-        this.createSpaceship();
-
-        this.createFlag();
-
-        this.createPath();
-
-        // =====================================================
-        // PLAYER SPAWN — on the landing path just in front of
-        // the corridor mouth, on the actual regolith surface.
-        // =====================================================
-        try {
-            const sx = 20.1, sz = 57.5;
-            const sy = this.getSurfaceHeight ? this.getSurfaceHeight(sx, sz) : -2;
-            this.spawn = new THREE.Vector3(sx, sy + 0.2, sz + 2);
-        } catch (e) {
-            this.spawn = new THREE.Vector3(20, 0.5, 60);
-        }
-
-        // =====================================================
-        // COLLIDERS — minimal, keeps main.js happy and prevents
-        // phasing through the spaceship hull. The moon is mostly
-        // open, so colliders are intentionally sparse.
-        // =====================================================
-        try { this._buildColliders(); } catch (e) { console.warn('ArchitectLevel collider build failed', e); }
+    if (outerScene) {
+      this.scene = outerScene;
+      this.scene.background = new THREE.Color(0x010204);
+      this.scene.fog = null;
+    } else {
+      this.scene = new THREE.Scene();
+      this.scene.background = new THREE.Color(0x010204);
+      this.scene.fog = null;
     }
 
-    _buildColliders() {
-        // Spaceship hull as a single large AABB standing on the regolith
-        // around x 0, z 5 — conservative bounds.
-        this.colliders = [];
-        const hullMin = new THREE.Vector3(-26, -2, -28);
-        const hullMax = new THREE.Vector3(26, 18, 38);
-        // offset by spaceship group position (0,0,5)
-        hullMin.z += 5; hullMax.z += 5;
-        this.colliders.push(new THREE.Box3(hullMin, hullMax));
-        // Optional: flag pole
-        const poleMin = new THREE.Vector3(94.5, -2, 72);
-        const poleMax = new THREE.Vector3(95.5, 8, 73);
-        this.colliders.push(new THREE.Box3(poleMin, poleMax));
-    }
+    this.name = "LEVEL 3 — THE ARCHITECT'S MONUMENT";
+    this.colliders = [];
+    this.root = null;
 
+    this.level = new THREE.Group();
+    this.scene.add(this.level);
+    this.root = this.level;
 
-    // =========================================================
-    // LIGHTING
-    // =========================================================
+    // References used by update() and other levels
+    this.stars = null;
+    this.sky = null;
+    this.moonSurface = null;
+    this.sun = null;
+    this.sunGlow = null;
 
-    createLighting() {
+    // Dungeon tracking
+    this.guardians = [];
+    this.architect = null;
+    this.throneDoor = null;
+    this.throneDoorOpen = false;
+    this.guardiansDefeated = false;
+    this.dialogueStarted = false;
+    this.architectDialogueActive = false;
 
-        // -----------------------------------------------------
-        // HARD SUNLIGHT
-        // -----------------------------------------------------
-        //
-        // The Moon receives extremely hard direct sunlight.
-        // This produces the strong shadows visible in the
-        // reference image.
+    // Dialogue system — created by main.js, attached here
+    this.dialogue = null;
+    this.onEndingChosen = null;
 
-        const sun =
-            new THREE.DirectionalLight(
-                0xffffff,
-                4.2
-            );
+    // ── BUILD ─────────────────────────────────────────────
+    this.createLighting();
+    this.createMoonSurface();
+    this.createStars();
+    this.createEarth();
+    this.createSpaceship();      // keep the landing ship as the arrival point
+    this.createFlag();
+    this.createLandingPath();
 
-        sun.position.set(
-            120,
-            150,
-            80
-        );
+    this.createMonument();
+    this.createMonumentInterior();
+    this.createGuardianSpawns();
+    this.createArchitect();
 
-        sun.castShadow = true;
+    this._buildColliders();
+  }
 
-        sun.shadow.mapSize.width =
-            4096;
+  // ─────────────────────────────────────────────────────────
+  // LIGHTING
+  // ─────────────────────────────────────────────────────────
+  createLighting() {
+    const sun = new THREE.DirectionalLight(0xffffff, 3.2);
+    sun.position.set(120, 150, 80);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);   // reduced from 4096
+    Object.assign(sun.shadow.camera, {
+      left: -120, right: 120,
+      top: 120, bottom: -120,
+      near: 1, far: 400,
+    });
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.shadow.bias = -0.0004;
+    this.level.add(sun);
+    this.sun = sun;
 
-        sun.shadow.mapSize.height =
-            4096;
+    // Sun glow sprite
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.3, 'rgba(255,244,214,0.85)');
+    grad.addColorStop(1, 'rgba(255,220,150,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 256, 256);
 
-        sun.shadow.camera.left =
-            -180;
+    const sunGlow = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: new THREE.CanvasTexture(canvas),
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    sunGlow.position.copy(sun.position).multiplyScalar(2.2);
+    sunGlow.scale.set(60, 60, 1);
+    this.level.add(sunGlow);
+    this.sunGlow = sunGlow;
 
-        sun.shadow.camera.right =
-            180;
+    // Fill light
+    this.level.add(new THREE.HemisphereLight(0x20252c, 0x08090b, 0.25));
+  }
 
-        sun.shadow.camera.top =
-            180;
+  // ─────────────────────────────────────────────────────────
+  // MOON SURFACE — reduced segments for memory
+  // ─────────────────────────────────────────────────────────
+  createMoonSurface() {
+    const size = 500;
+    const segments = 200;                 // was 300
 
-        sun.shadow.camera.bottom =
-            -180;
-
-        sun.shadow.camera.near =
-            1;
-
-        sun.shadow.camera.far =
-            500;
-
-        sun.shadow.bias =
-            -0.0002;
-
-        this.level.add(
-            sun
-        );
-
-        this.sun = sun;
-
-
-        // -----------------------------------------------------
-        // VISIBLE SUN GLOW
-        // -----------------------------------------------------
-        //
-        // A directional light has no visible origin point on its
-        // own - without this the "sun" never actually appears
-        // anywhere in the sky, just its effect on lit surfaces.
-
-        const glowCanvas = document.createElement('canvas');
-        glowCanvas.width = glowCanvas.height = 256;
-        const gctx = glowCanvas.getContext('2d');
-        const grad = gctx.createRadialGradient(128, 128, 0, 128, 128, 128);
-        grad.addColorStop(0, 'rgba(255,255,255,1)');
-        grad.addColorStop(0.25, 'rgba(255,244,214,0.9)');
-        grad.addColorStop(0.6, 'rgba(255,220,150,0.25)');
-        grad.addColorStop(1, 'rgba(255,220,150,0)');
-        gctx.fillStyle = grad;
-        gctx.fillRect(0, 0, 256, 256);
-
-        const sunGlow = new THREE.Sprite(
-            new THREE.SpriteMaterial({
-                map: new THREE.CanvasTexture(glowCanvas),
-                transparent: true,
-                depthWrite: false,
-                blending: THREE.AdditiveBlending,
-            })
-        );
-
-        sunGlow.position.copy(sun.position).multiplyScalar(2.4);
-        sunGlow.scale.set(70, 70, 1);
-
-        this.level.add(sunGlow);
-        this.sunGlow = sunGlow;
-
-
-        // -----------------------------------------------------
-        // VERY LOW FILL LIGHT
-        // -----------------------------------------------------
-        //
-        // Keeps completely shadowed areas visible without
-        // destroying the high-contrast lunar appearance.
-
-        const fill =
-            new THREE.HemisphereLight(
-                0x20252c,
-                0x08090b,
-                0.22
-            );
-
-        this.level.add(
-            fill
-        );
-    }
-
-
-    // =========================================================
-    // REALISTIC LUNAR SURFACE
-    // =========================================================
-
-    
-createMoonSurface() {
-
-    const size = 700;
-
-    // More geometry gives the terrain enough resolution
-    // for smoother crater walls and natural surface breakup.
-    const segments = 300;
-
-    const geometry =
-        new THREE.PlaneGeometry(
-            size,
-            size,
-            segments,
-            segments
-        );
-
-    const positions =
-        geometry.attributes.position;
-
-    // One-time color bake (replaces the per-pixel shader) —
-    // filled in during the same loop that displaces height below.
-    const colors =
-        new Float32Array(positions.count * 3);
-
-
-    // =====================================================
-    // DETERMINISTIC NOISE
-    // =====================================================
+    const geo = new THREE.PlaneGeometry(size, size, segments, segments);
+    const positions = geo.attributes.position;
+    const colors = new Float32Array(positions.count * 3);
 
     function hash(x, y) {
-
-        const value =
-            Math.sin(
-                x * 127.1 +
-                y * 311.7
-            ) *
-            43758.5453123;
-
-        return (
-            value -
-            Math.floor(value)
-        );
+      const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
+      return v - Math.floor(v);
     }
-
-
     function noise(x, y) {
-
-        const ix =
-            Math.floor(x);
-
-        const iy =
-            Math.floor(y);
-
-        const fx =
-            x - ix;
-
-        const fy =
-            y - iy;
-
-
-        const a =
-            hash(ix, iy);
-
-        const b =
-            hash(ix + 1, iy);
-
-        const c =
-            hash(ix, iy + 1);
-
-        const d =
-            hash(ix + 1, iy + 1);
-
-
-        const ux =
-            fx * fx *
-            (3 - 2 * fx);
-
-        const uy =
-            fy * fy *
-            (3 - 2 * fy);
-
-
-        return (
-            a * (1 - ux) * (1 - uy) +
-            b * ux * (1 - uy) +
-            c * (1 - ux) * uy +
-            d * ux * uy
-        );
+      const ix = Math.floor(x), iy = Math.floor(y);
+      const fx = x - ix, fy = y - iy;
+      const a = hash(ix, iy), b = hash(ix + 1, iy);
+      const c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1);
+      const ux = fx * fx * (3 - 2 * fx);
+      const uy = fy * fy * (3 - 2 * fy);
+      return a * (1 - ux) * (1 - uy) + b * ux * (1 - uy) + c * (1 - ux) * uy + d * ux * uy;
     }
-
-
     function fbm(x, y) {
-
-        let value = 0;
-
-        let amplitude = 0.5;
-
-        let frequency = 1.0;
-
-
-        for (
-            let i = 0;
-            i < 6;
-            i++
-        ) {
-
-            value +=
-                noise(
-                    x * frequency,
-                    y * frequency
-                ) *
-                amplitude;
-
-            frequency *= 2.0;
-
-            amplitude *= 0.5;
-        }
-
-
-        return value;
+      let v = 0, amp = 0.5, f = 1;
+      for (let i = 0; i < 5; i++) { v += noise(x * f, y * f) * amp; f *= 2; amp *= 0.5; }
+      return v;
     }
-
-
-    // =====================================================
-    // LARGE LUNAR CRATERS
-    // =====================================================
-    //
-    // Larger and more irregular than the previous version.
-    // The different sizes help prevent the terrain from
-    // looking like repeated procedural circles.
 
     const craters = [
-
-        {
-            x: -125,
-            z: -65,
-            radius: 31,
-            depth: 4.8
-        },
-
-        {
-            x: 115,
-            z: -95,
-            radius: 37,
-            depth: 5.5
-        },
-
-        {
-            x: 80,
-            z: 40,
-            radius: 23,
-            depth: 3.8
-        },
-
-        {
-            x: -155,
-            z: 75,
-            radius: 21,
-            depth: 3.4
-        },
-
-        {
-            x: 160,
-            z: 105,
-            radius: 28,
-            depth: 4.2
-        },
-
-        {
-            x: -35,
-            z: -145,
-            radius: 21,
-            depth: 3.5
-        },
-
-        {
-            x: 15,
-            z: 125,
-            radius: 15,
-            depth: 2.5
-        },
-
-        {
-            x: -205,
-            z: -110,
-            radius: 13,
-            depth: 2.2
-        },
-
-        {
-            x: 205,
-            z: -10,
-            radius: 17,
-            depth: 2.8
-        },
-
-        {
-            x: -85,
-            z: 145,
-            radius: 12,
-            depth: 2.0
-        },
-
-        {
-            x: 145,
-            z: 155,
-            radius: 10,
-            depth: 1.7
-        }
+      { x: -120, z: -60, r: 30, d: 4.5 },
+      { x: 110, z: -90, r: 35, d: 5 },
+      { x: 75, z: 40, r: 22, d: 3.5 },
+      { x: -140, z: 70, r: 20, d: 3 },
+      { x: 150, z: 100, r: 26, d: 4 },
+      { x: -30, z: -140, r: 20, d: 3.2 },
+      { x: 10, z: 120, r: 14, d: 2.4 },
     ];
 
+    for (let i = 0; i < positions.count; i++) {
+      const x = positions.getX(i);
+      const z = positions.getY(i);
 
-    // =====================================================
-    // TERRAIN
-    // =====================================================
+      let height =
+        (fbm(x * 0.006, z * 0.006) - 0.5) * 6.5 +
+        (fbm(x * 0.018, z * 0.018) - 0.5) * 2.8 +
+        (fbm(x * 0.075, z * 0.075) - 0.5) * 0.85 +
+        (noise(x * 0.38, z * 0.38) - 0.5) * 0.2;
 
-    for (
-        let i = 0;
-        i < positions.count;
-        i++
-    ) {
-
-        const x =
-            positions.getX(i);
-
-        const z =
-            positions.getY(i);
-
-
-        // -------------------------------------------------
-        // BROAD LUNAR TOPOGRAPHY
-        // -------------------------------------------------
-
-        const broad =
-            (
-                fbm(
-                    x * 0.006,
-                    z * 0.006
-                ) -
-                0.5
-            ) *
-            7.0;
-
-
-        // -------------------------------------------------
-        // MEDIUM REGOLITH
-        // -------------------------------------------------
-
-        const medium =
-            (
-                fbm(
-                    x * 0.018,
-                    z * 0.018
-                ) -
-                0.5
-            ) *
-            3.2;
-
-
-        // -------------------------------------------------
-        // SMALL ROCKY TERRAIN
-        // -------------------------------------------------
-
-        const fine =
-            (
-                fbm(
-                    x * 0.075,
-                    z * 0.075
-                ) -
-                0.5
-            ) *
-            0.95;
-
-
-        // -------------------------------------------------
-        // VERY FINE REGOLITH
-        // -------------------------------------------------
-
-        const micro =
-            (
-                noise(
-                    x * 0.38,
-                    z * 0.38
-                ) -
-                0.5
-            ) *
-            0.22;
-
-
-        let height =
-            broad +
-            medium +
-            fine +
-            micro;
-
-
-        // =================================================
-        // CRATER FORMATION
-        // =================================================
-
-        for (
-            const crater of craters
-        ) {
-
-            const dx =
-                x -
-                crater.x;
-
-            const dz =
-                z -
-                crater.z;
-
-
-            const distance =
-                Math.sqrt(
-                    dx * dx +
-                    dz * dz
-                );
-
-
-            if (
-                distance <
-                crater.radius
-            ) {
-
-                const normalized =
-                    distance /
-                    crater.radius;
-
-
-                // -----------------------------------------
-                // MAIN BOWL
-                // -----------------------------------------
-
-                const bowl =
-                    Math.pow(
-                        1.0 -
-                        normalized,
-                        2.2
-                    );
-
-
-                height -=
-                    crater.depth *
-                    bowl;
-
-
-                // -----------------------------------------
-                // RAISED CRATER RIM
-                // -----------------------------------------
-
-                const rimStart =
-                    0.68;
-
-                if (
-                    normalized >
-                    rimStart
-                ) {
-
-                    const rimT =
-                        (
-                            normalized -
-                            rimStart
-                        ) /
-                        (
-                            1.0 -
-                            rimStart
-                        );
-
-
-                    const rim =
-                        Math.sin(
-                            rimT *
-                            Math.PI
-                        );
-
-
-                    height +=
-                        crater.depth *
-                        0.32 *
-                        rim;
-                }
-
-
-                // -----------------------------------------
-                // IRREGULAR CRATER FLOOR
-                // -----------------------------------------
-                //
-                // Prevents the crater from looking like a
-                // mathematically perfect bowl.
-
-                const floorNoise =
-                    (
-                        noise(
-                            x * 0.12,
-                            z * 0.12
-                        ) -
-                        0.5
-                    ) *
-                    0.8 *
-                    (
-                        1.0 -
-                        normalized
-                    );
-
-
-                height +=
-                    floorNoise;
-            }
+      for (const c of craters) {
+        const dx = x - c.x, dz = z - c.z;
+        const d = Math.sqrt(dx * dx + dz * dz);
+        if (d < c.r) {
+          const n = d / c.r;
+          height -= c.d * Math.pow(1 - n, 2.2);
+          if (n > 0.68) {
+            const rimT = (n - 0.68) / 0.32;
+            height += c.d * 0.3 * Math.sin(rimT * Math.PI);
+          }
         }
+      }
 
+      height *= 0.6;
+      positions.setZ(i, height);
 
-        // =================================================
-        // SECONDARY SMALL IMPACTS
-        // =================================================
-        //
-        // Small deterministic depressions scattered around
-        // the surface.
-
-        const secondary =
-            noise(
-                x * 0.055 + 17.0,
-                z * 0.055 + 41.0
-            );
-
-
-        if (
-            secondary > 0.82
-        ) {
-
-            const impact =
-                (
-                    secondary -
-                    0.82
-                ) *
-                4.0;
-
-
-            height -=
-                impact *
-                0.35;
-        }
-
-
-        // =================================================
-        // KEEP THE PLAYABLE AREA RELATIVELY STABLE
-        // =================================================
-
-        height *= 0.62;
-
-
-        positions.setZ(
-            i,
-            height
-        );
-
-
-        // =================================================
-        // BAKE SURFACE COLOR (one time, on the CPU)
-        // =================================================
-        //
-        // Dark "maria" patches vs. brighter regolith, plus a
-        // touch of AO in low/crater-carved spots — reusing the
-        // broad/medium noise already computed above instead of
-        // re-deriving craters in a fragment shader every frame.
-
-        const maria =
-            Math.min(
-                1,
-                Math.max(
-                    0,
-                    (broad + medium * 0.6) * 0.5 + 0.5
-                )
-            );
-
-        const ao =
-            Math.min(
-                0.3,
-                Math.max(
-                    -0.25,
-                    height * 0.02
-                )
-            );
-
-        const brightness =
-            0.66 + ao;
-
-        const rock =
-            0.72 - maria * 0.24;
-
-        colors[i * 3 + 0] = rock * brightness;
-        colors[i * 3 + 1] = rock * brightness * 0.985;
-        colors[i * 3 + 2] = rock * brightness * 0.95;
+      const maria = Math.min(1, Math.max(0, height * 0.06 + 0.5));
+      const rock = 0.68 - maria * 0.22;
+      colors[i * 3] = rock;
+      colors[i * 3 + 1] = rock * 0.985;
+      colors[i * 3 + 2] = rock * 0.95;
     }
-
 
     positions.needsUpdate = true;
+    geo.computeVertexNormals();
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-    geometry.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.96,
+      metalness: 0.0,
+    });
 
-    geometry.setAttribute(
-        'color',
-        new THREE.BufferAttribute(colors, 3)
-    );
-
-
-    // =====================================================
-    // LUNAR MATERIAL
-    // =====================================================
-    //
-    // MeshStandardMaterial + baked vertex colors: cheap (no
-    // per-pixel crater loop), and — unlike the old ShaderMaterial —
-    // it actually responds to the real sun (createLighting) and
-    // receives real shadows from the spaceship/flag/etc.
-
-    const material =
-        new THREE.MeshStandardMaterial({
-            vertexColors: true,
-            roughness: 0.96,
-            metalness: 0.0,
-            side: THREE.FrontSide,
-        });
-
-
-    const moon =
-        new THREE.Mesh(
-            geometry,
-            material
-        );
-
-
-    moon.rotation.x =
-        -Math.PI / 2;
-
-
-    moon.position.y =
-        -2;
-
-
+    const moon = new THREE.Mesh(geo, mat);
+    moon.rotation.x = -Math.PI / 2;
+    moon.position.y = -2;
     moon.receiveShadow = true;
+    moon.name = 'LunarRegolith';
+    this.level.add(moon);
+    this.moonSurface = moon;
+  }
 
-    moon.castShadow = true;
+  // ─────────────────────────────────────────────────────────
+  // STARS
+  // ─────────────────────────────────────────────────────────
+  createStars() {
+    const count = 1400;              // was 2800
+    const radius = 750;
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      const y = Math.random() * 2 - 1;
+      const theta = Math.random() * Math.PI * 2;
+      const rr = Math.sqrt(1 - y * y);
+      positions[i * 3] = Math.cos(theta) * rr * radius;
+      positions[i * 3 + 1] = y * radius;
+      positions[i * 3 + 2] = Math.sin(theta) * rr * radius;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.2, sizeAttenuation: false });
+    this.stars = new THREE.Points(geo, mat);
+    this.sky = this.stars;
+    this.level.add(this.stars);
+  }
 
+  // ─────────────────────────────────────────────────────────
+  // EARTH
+  // ─────────────────────────────────────────────────────────
+  createEarth() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    const ocean = ctx.createLinearGradient(0, 0, 0, 256);
+    ocean.addColorStop(0, '#0c2a4a');
+    ocean.addColorStop(0.5, '#1a4d78');
+    ocean.addColorStop(1, '#0c2a4a');
+    ctx.fillStyle = ocean;
+    ctx.fillRect(0, 0, 512, 256);
 
-    moon.name =
-        'RealisticLunarRegolith';
+    let seed = 91;
+    const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+    ctx.fillStyle = '#3f6b3a';
+    for (let c = 0; c < 8; c++) {
+      const cx = rnd() * 512, cy = 256 * (0.2 + rnd() * 0.6);
+      for (let b = 0; b < 6; b++) {
+        ctx.beginPath();
+        ctx.ellipse(cx + (rnd() - 0.5) * 70, cy + (rnd() - 0.5) * 40,
+                    10 + rnd() * 20, 8 + rnd() * 16, rnd() * Math.PI, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    for (let i = 0; i < 26; i++) {
+      ctx.beginPath();
+      ctx.ellipse(rnd() * 512, rnd() * 256, 8 + rnd() * 24, 4 + rnd() * 10, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
 
-
-    this.level.add(
-        moon
+    const earth = new THREE.Mesh(
+      new THREE.SphereGeometry(7, 32, 32),
+      new THREE.MeshStandardMaterial({
+        map: tex, roughness: 0.8, metalness: 0,
+        emissive: 0x0c1420, emissiveIntensity: 0.3,
+      })
     );
-
-
-    this.moonSurface =
-        moon;
-
-
-    // =====================================================
-    // REGOLITH PARTICLES
-    // =====================================================
-    //
-    // IMPORTANT:
-    // These now sit close to the actual terrain instead of
-    // floating at one completely flat height.
-
-    const particleCount = 4500;
-
-    const particlePositions =
-        new Float32Array(
-            particleCount * 3
-        );
-
-
-    for (
-        let i = 0;
-        i < particleCount;
-        i++
-    ) {
-
-        const x =
-            (
-                Math.random() -
-                0.5
-            ) *
-            620;
-
-
-        const z =
-            (
-                Math.random() -
-                0.5
-            ) *
-            620;
-
-
-        // Approximate local terrain height.
-        const terrain =
-            (
-                fbm(
-                    x * 0.006,
-                    z * 0.006
-                ) -
-                0.5
-            ) *
-            7.0
-
-            +
-
-            (
-                fbm(
-                    x * 0.018,
-                    z * 0.018
-                ) -
-                0.5
-            ) *
-            3.2
-
-            +
-
-            (
-                fbm(
-                    x * 0.075,
-                    z * 0.075
-                ) -
-                0.5
-            ) *
-            0.95;
-
-
-        particlePositions[
-            i * 3
-        ] = x;
-
-
-        particlePositions[
-            i * 3 + 1
-        ] =
-            terrain *
-            0.62 -
-            1.88 +
-            Math.random() * 0.08;
-
-
-        particlePositions[
-            i * 3 + 2
-        ] = z;
-    }
-
-
-    const particleGeometry =
-        new THREE.BufferGeometry();
-
-
-    particleGeometry.setAttribute(
-        'position',
-        new THREE.BufferAttribute(
-            particlePositions,
-            3
-        )
-    );
-
-
-    const particleMaterial =
-        new THREE.PointsMaterial({
-
-            color: 0x555555,
-
-            size: 0.14,
-
-            transparent: true,
-
-            opacity: 0.32,
-
-            sizeAttenuation: true
-        });
-
-
-    const regolithParticles =
-        new THREE.Points(
-            particleGeometry,
-            particleMaterial
-        );
-
-
-    this.level.add(
-        regolithParticles
-    );
-
-
-    this.regolithParticles =
-        regolithParticles;
-}
-    // =========================================================
-    // DISTANT LUNAR HORIZON
-    // =========================================================
-
-    createDistantLunarTerrain() {
-
-        const material =
-            new THREE.MeshStandardMaterial({
-
-                color: 0x777777,
-
-                roughness: 1.0,
-
-                metalness: 0.0
-            });
-
-
-        // One long irregular lunar ridge instead of artificial
-        // cone-shaped mountains.
-
-        const segments = 80;
-
-
-        const geometry =
-            new THREE.PlaneGeometry(
-                760,
-                90,
-                segments,
-                10
-            );
-
-
-        const positions =
-            geometry.attributes.position;
-
-
-        for (
-            let i = 0;
-            i < positions.count;
-            i++
-        ) {
-
-            const x =
-                positions.getX(i);
-
-            const z =
-                positions.getY(i);
-
-
-            // Low, irregular lunar horizon.
-            const ridge =
-                Math.sin(
-                    x * 0.025
-                ) *
-                10
-
-                +
-
-                Math.sin(
-                    x * 0.061
-                ) *
-                5
-
-                +
-
-                Math.sin(
-                    x * 0.11
-                ) *
-                2;
-
-
-            const depth =
-                (
-                    z + 45
-                ) /
-                90;
-
-
-            positions.setZ(
-                i,
-                ridge *
-                depth
-            );
-        }
-
-
-        positions.needsUpdate =
-            true;
-
-        geometry.computeVertexNormals();
-
-
-        const ridge =
-            new THREE.Mesh(
-                geometry,
-                material
-            );
-
-
-        ridge.rotation.x =
-            -Math.PI / 2.5;
-
-
-        ridge.position.set(
-            -175,
-            -1.5,
-            -20
-        );
-
-
-        ridge.scale.y =
-            1.2;
-
-
-        ridge.receiveShadow =
-            true;
-
-        ridge.castShadow =
-            true;
-
-
-        this.level.add(
-            ridge
-        );
-
-
-        this.distantTerrain =
-            ridge;
-    }
-
-
-
-    // =========================================================
-    // BLACK SKY / SPARSE STARS
-    // =========================================================
-
-    createStars() {
-
-        // Stars wrap the whole battlefield: every look
-        // direction finds them, instead of one band
-        // swung toward the spawn view. The sky still
-        // reads as mostly empty.
-        const count = 2800;
-
-
-        // The shell rides beyond the distant Earth and
-        // the horizon ridge, and inside the camera far
-        // plane, because the render loop recentres it
-        // on the camera every frame (level.sky in
-        // main.js).
-        const radius = 750;
-
-
-        const positions =
-            new Float32Array(
-                count * 3
-            );
-
-
-        for (
-            let i = 0;
-            i < count;
-            i++
-        ) {
-
-            // Uniform spread over the full sphere: a
-            // random height on the Y axis plus a random
-            // angle around it.
-            const y =
-                Math.random() *
-                2 -
-                1;
-
-
-            const theta =
-                Math.random() *
-                Math.PI *
-                2;
-
-
-            const ringRadius =
-                Math.sqrt(
-                    1 -
-                    y * y
-                );
-
-
-            positions[
-                i * 3
-            ] =
-                Math.cos(theta) *
-                ringRadius *
-                radius;
-
-
-            positions[
-                i * 3 + 1
-            ] =
-                y *
-                radius;
-
-
-            positions[
-                i * 3 + 2
-            ] =
-                Math.sin(theta) *
-                ringRadius *
-                radius;
-        }
-
-
-        const geometry =
-            new THREE.BufferGeometry();
-
-
-        geometry.setAttribute(
-            'position',
-            new THREE.BufferAttribute(
-                positions,
-                3
-            )
-        );
-
-
-        // Per-star randomized values so every star twinkles on its
-        // own phase/speed/brightness instead of the whole field
-        // sitting dead-static.
-        const phases = new Float32Array(count);
-        const speeds = new Float32Array(count);
-        const sizes = new Float32Array(count);
-
-        for (let i = 0; i < count; i++) {
-            phases[i] = Math.random() * Math.PI * 2;
-            speeds[i] = 0.6 + Math.random() * 1.8;
-            sizes[i] = 0.6 + Math.random() * 1.6;
-        }
-
-        geometry.setAttribute(
-            'aPhase',
-            new THREE.BufferAttribute(phases, 1)
-        );
-
-        geometry.setAttribute(
-            'aSpeed',
-            new THREE.BufferAttribute(speeds, 1)
-        );
-
-        geometry.setAttribute(
-            'aSize',
-            new THREE.BufferAttribute(sizes, 1)
-        );
-
-        const material =
-            new THREE.ShaderMaterial({
-                uniforms: { uTime: { value: 0 } },
-                transparent: true,
-                depthWrite: false,
-                vertexShader: `
-                    attribute float aPhase;
-                    attribute float aSpeed;
-                    attribute float aSize;
-                    uniform float uTime;
-                    varying float vTwinkle;
-                    void main() {
-                        vTwinkle = 0.55 + 0.45 * sin(uTime * aSpeed + aPhase);
-                        vec4 mv = modelViewMatrix * vec4(position, 1.0);
-                        gl_PointSize = aSize * (300.0 / -mv.z);
-                        gl_Position = projectionMatrix * mv;
-                    }
-                `,
-                fragmentShader: `
-                    varying float vTwinkle;
-                    void main() {
-                        vec2 c = gl_PointCoord - 0.5;
-                        float d = length(c);
-                        if (d > 0.5) discard;
-                        float glow = smoothstep(0.5, 0.0, d);
-                        gl_FragColor = vec4(vec3(1.0), glow * vTwinkle * 0.85);
-                    }
-                `,
-            });
-
-
-        this.stars =
-            new THREE.Points(
-                geometry,
-                material
-            );
-
-        this.starMaterial = material;
-
-
-        // Exposing the shell as level.sky makes the
-        // render loop pin it to the camera, so the
-        // stars surround the player wherever they walk
-        // - no parallax, no far-plane clipping.
-        this.sky =
-            this.stars;
-
-
-        this.level.add(
-            this.stars
-        );
-    }
-
-
-    // =========================================================
-    // SMALL DISTANT EARTH
-    // =========================================================
-
-    createEarth() {
-
-        // Earth is deliberately very small.
-        // It should never compete with the lunar battlefield.
-
-        const earthTexture =
-            this._createEarthTexture();
-
-        const earth =
-            new THREE.Mesh(
-
-                new THREE.SphereGeometry(
-                    7,
-                    48,
-                    48
-                ),
-
-                new THREE.MeshStandardMaterial({
-
-                    map: earthTexture,
-
-                    roughness: 0.75,
-
-                    metalness: 0.0,
-
-                    emissive: 0x0c1420,
-
-                    emissiveIntensity: 0.25
-                })
-            );
-
-
-        // Place Earth high and very far away.
-        earth.position.set(
-            -260,
-            105,
-            -40
-        );
-
-
-        earth.name =
-            'DistantEarth';
-
-
-        this.level.add(
-            earth
-        );
-
-
-        this.earth =
-            earth;
-
-
-        // -----------------------------------------------------
-        // ATMOSPHERE GLOW
-        // A slightly larger additive shell with a Fresnel-style
-        // rim so Earth reads as a living, lit planet instead of
-        // a flat painted ball.
-        // -----------------------------------------------------
-
-        const atmosphere =
-            new THREE.Mesh(
-                new THREE.SphereGeometry(7.45, 48, 48),
-                new THREE.ShaderMaterial({
-                    transparent: true,
-                    depthWrite: false,
-                    blending: THREE.AdditiveBlending,
-                    side: THREE.BackSide,
-                    uniforms: {
-                        uColor: { value: new THREE.Color(0x6fb8ff) }
-                    },
-                    vertexShader: `
-                        varying vec3 vNormal;
-                        void main() {
-                            vNormal = normalize(normalMatrix * normal);
-                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                        }
-                    `,
-                    fragmentShader: `
-                        varying vec3 vNormal;
-                        uniform vec3 uColor;
-                        void main() {
-                            float rim = pow(1.0 - abs(vNormal.z), 3.0);
-                            gl_FragColor = vec4(uColor, rim * 0.55);
-                        }
-                    `,
-                })
-            );
-
-        atmosphere.position.copy(earth.position);
-        this.level.add(atmosphere);
-        this.earthAtmosphere = atmosphere;
-
-
-        // Extremely subtle illumination.
-        const rim =
-            new THREE.PointLight(
-                0xbfdfff,
-                3.0,
-                80
-            );
-
-
-        rim.position.copy(
-            earth.position
-        );
-
-
-        rim.position.add(
-            new THREE.Vector3(
-                -5,
-                5,
-                10
-            )
-        );
-
-
-        this.level.add(
-            rim
-        );
-
-
-        this.earthLight =
-            rim;
-    }
-
-
-    // =========================================================
-    // EARTH TEXTURE
-    // Procedural continents-on-ocean map painted on a canvas -
-    // no external asset needed. Blurry, small blobs read fine at
-    // Earth's tiny on-screen scale from this distance.
-    // =========================================================
-
-    _createEarthTexture() {
-
-        const size = 512;
-        const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size / 2;
-        const ctx = canvas.getContext('2d');
-
-        // Ocean base with a gentle vertical gradient (darker at poles)
-        const ocean = ctx.createLinearGradient(0, 0, 0, size / 2);
-        ocean.addColorStop(0, '#0c2a4a');
-        ocean.addColorStop(0.5, '#1a4d78');
-        ocean.addColorStop(1, '#0c2a4a');
-        ctx.fillStyle = ocean;
-        ctx.fillRect(0, 0, size, size / 2);
-
-        // Seeded pseudo-random so the texture is stable across reloads
-        let seed = 91;
-        const rnd = () => {
-            seed = (seed * 9301 + 49297) % 233280;
-            return seed / 233280;
-        };
-
-        // Landmasses: clusters of soft blobs
-        ctx.fillStyle = '#3f6b3a';
-        for (let c = 0; c < 9; c++) {
-            const cx = rnd() * size;
-            const cy = (size / 2) * (0.2 + rnd() * 0.6);
-            const blobs = 5 + Math.floor(rnd() * 6);
-            for (let b = 0; b < blobs; b++) {
-                const bx = cx + (rnd() - 0.5) * 70;
-                const by = cy + (rnd() - 0.5) * 40;
-                const r = 10 + rnd() * 22;
-                ctx.beginPath();
-                ctx.ellipse(bx, by, r, r * 0.7, rnd() * Math.PI, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        }
-
-        // Faint cloud wisps
-        ctx.fillStyle = 'rgba(255,255,255,0.25)';
-        for (let i = 0; i < 30; i++) {
-            const x = rnd() * size, y = rnd() * (size / 2);
-            const r = 8 + rnd() * 26;
-            ctx.beginPath();
-            ctx.ellipse(x, y, r, r * 0.35, rnd() * Math.PI, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        // Polar ice caps
-        ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        ctx.fillRect(0, 0, size, size * 0.05);
-        ctx.fillRect(0, size / 2 - size * 0.05, size, size * 0.05);
-
-        const texture = new THREE.CanvasTexture(canvas);
-        texture.colorSpace = THREE.SRGBColorSpace;
-        return texture;
-    }
-
-
-    createSpaceship() {
-
-    const spaceship = new THREE.Group();
-
-    spaceship.name = 'GenesisSpaceship';
-
-    this.spaceship = spaceship;
-
-    this.level.add(spaceship);
-
-
-    // =====================================================
-    // LOAD EXTERIOR FBX
-    // =====================================================
+    earth.position.set(-260, 105, -40);
+    this.level.add(earth);
+    this.earth = earth;
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // SPACESHIP — kept as the arrival point (unchanged behaviour)
+  // ─────────────────────────────────────────────────────────
+  createSpaceship() {
+    const group = new THREE.Group();
+    group.name = 'GenesisSpaceship';
+    this.spaceship = group;
+    this.level.add(group);
 
     const fbxLoader = new FBXLoader();
-
-    fbxLoader.load(
-        './assets/models/Spaceship.fbx',
-
-        (fbx) => {
-
-            const exterior = fbx;
-
-            exterior.name = 'SpaceshipExterior';
-
-
-            // ---------------------------------------------
-            // SCALE
-            // ---------------------------------------------
-            //
-            // This FBX is already authored in meters
-            // (measured hull: roughly 52 x 20 x 68 units),
-            // so no centimeter conversion is applied.
-
-            exterior.scale.set(
-                1,
-                1,
-                1
-            );
-
-
-            // ---------------------------------------------
-            // POSITION
-            // ---------------------------------------------
-            //
-            // The FBX pivot is offset from the hull, so
-            // re-center the model on the ship group and
-            // rest its belly just above the regolith
-            // (terrain under the footprint sits near -2).
-
-            exterior.updateMatrixWorld(true);
-
-            const hullBox =
-                new THREE.Box3().setFromObject(exterior);
-
-            const hullCenter =
-                hullBox.getCenter(
-                    new THREE.Vector3()
-                );
-
-            exterior.position.set(
-                -hullCenter.x +20,
-                -hullBox.min.y-5 ,
-                -hullCenter.z +15
-            );
-
-
-            // ---------------------------------------------
-            // ROTATION
-            // ---------------------------------------------
-
-            exterior.rotation.set(
-                0,
-                0,
-                0
-            );
-
-
-            // ---------------------------------------------
-            // SHADOWS + WHITE PLACEHOLDER MATERIAL
-            // ---------------------------------------------
-            //
-            // The source FBX renders nearly black in this
-            // scene, so every mesh is swapped to a plain
-            // white placeholder material in the meantime.
-            // DoubleSide guards against flipped mesh
-            // winding, which Maya exports often carry.
-
-            const hullMaterial =
-                new THREE.MeshStandardMaterial({
-
-                    // Cool gunmetal silver, not flat white -
-                    // reads as an actual metal hull.
-                    color: 0xb8bec4,
-
-                    roughness: 0.35,
-
-                    metalness: 0.85,
-
-                    envMap: this.envTexture || null,
-
-                    envMapIntensity: 1.1,
-
-                    side: THREE.DoubleSide
-                });
-
-
-            exterior.traverse((object) => {
-
-                if (object.isMesh) {
-
-                    object.castShadow = true;
-                    object.receiveShadow = true;
-
-                    if (
-                        Array.isArray(
-                            object.material
-                        )
-                    ) {
-                        object.material.forEach(
-                            (material) => {
-                                material.dispose();
-                            }
-                        );
-
-                    } else {
-                        object.material.dispose();
-                    }
-
-                    object.material = hullMaterial;
-
-                }
-
-            });
-
-
-            // ---------------------------------------------
-            // ADD EXTERIOR
-            // ---------------------------------------------
-
-            spaceship.add(exterior);
-
-
-            // ---------------------------------------------
-            // ENGINE GLOW + STROBE LIGHT
-            // ---------------------------------------------
-            //
-            // The hull sat completely dark and lifeless with
-            // no lights of its own. Two engine emitters at
-            // one end of the hull (using the loaded model's
-            // own bounds, not a guessed offset) plus a single
-            // aviation-style strobe on top give it presence.
-
-            const worldMin =
-                hullBox.min.clone().add(exterior.position);
-
-            const worldMax =
-                hullBox.max.clone().add(exterior.position);
-
-            const hullSizeX =
-                worldMax.x - worldMin.x;
-
-            const engineY =
-                worldMin.y + (worldMax.y - worldMin.y) * 0.35;
-
-            const engineMaterial =
-                new THREE.MeshStandardMaterial({
-                    color: 0xff8a3a,
-                    emissive: 0xff6a1a,
-                    emissiveIntensity: 2.2,
-                    roughness: 0.4,
-                    metalness: 0.2,
-                });
-
-            this.engineGlows = [];
-
-            [-0.22, 0.22].forEach((offset, i) => {
-
-                const glow =
-                    new THREE.Mesh(
-                        new THREE.CircleGeometry(1.1, 20),
-                        engineMaterial.clone()
-                    );
-
-                glow.position.set(
-                    worldMin.x + hullSizeX * (0.5 + offset),
-                    engineY,
-                    worldMin.z - 0.2
-                );
-
-                glow.userData.baseEmissive = 2.2;
-
-                spaceship.add(glow);
-
-
-                const glowLight =
-                    new THREE.PointLight(0xff6a1a, 8, 18, 2);
-
-                glowLight.position.copy(glow.position);
-
-                glowLight.userData.baseIntensity = 8;
-
-                spaceship.add(glowLight);
-
-                glow.userData.light = glowLight;
-
-                this.engineGlows.push(glow);
-            });
-
-
-            const strobeMesh =
-                new THREE.Mesh(
-                    new THREE.SphereGeometry(0.35, 10, 10),
-                    new THREE.MeshStandardMaterial({
-                        color: 0xff2020,
-                        emissive: 0xff2020,
-                        emissiveIntensity: 3,
-                    })
-                );
-
-            strobeMesh.position.set(
-                worldMin.x + hullSizeX * 0.5,
-                worldMax.y + 0.3,
-                (worldMin.z + worldMax.z) / 2
-            );
-
-            spaceship.add(strobeMesh);
-
-            this.strobeMesh = strobeMesh;
-
-            const strobeLight =
-                new THREE.PointLight(0xff2020, 6, 24, 2);
-
-            strobeLight.position.copy(strobeMesh.position);
-
-            strobeLight.userData.baseIntensity = 6;
-
-            spaceship.add(strobeLight);
-
-            this.strobeLight = strobeLight;
-
-
-            console.log(
-                'GENESIS: Spaceship FBX loaded.'
-            );
-
-        },
-
-        undefined,
-
-        (error) => {
-
-            console.error(
-                'GENESIS: Could not load Spaceship.fbx',
-                error
-            );
-
+    fbxLoader.load('./assets/models/Spaceship.fbx', (fbx) => {
+      fbx.name = 'SpaceshipExterior';
+      fbx.scale.set(1, 1, 1);
+      fbx.updateMatrixWorld(true);
+      const hullBox = new THREE.Box3().setFromObject(fbx);
+      const hullCenter = hullBox.getCenter(new THREE.Vector3());
+      fbx.position.set(-hullCenter.x + 20, -hullBox.min.y - 5, -hullCenter.z + 15);
+
+      const hullMaterial = new THREE.MeshStandardMaterial({
+        color: 0xb8bec4,
+        roughness: 0.55,
+        metalness: 0.3,
+        side: THREE.DoubleSide,
+      });
+
+      fbx.traverse((o) => {
+        if (o.isMesh) {
+          o.castShadow = true;
+          o.receiveShadow = true;
+          if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
+          else o.material.dispose();
+          o.material = hullMaterial;
         }
-    );
+      });
 
+      group.add(fbx);
+    }, undefined, (e) => console.warn('Spaceship load failed:', e));
 
-    // =====================================================
-    // LOAD INTERIOR CORRIDOR
-    // =====================================================
-
+    // Interior corridor GLB
     const gltfLoader = new GLTFLoader();
-
-    gltfLoader.load(
-        './assets/models/space_ship_hallway.glb',
-
-        (gltf) => {
-
-            const corridor = gltf.scene;
-
-            corridor.name = 'SpaceshipCorridor';
-
-
-            // ---------------------------------------------
-            // SCALE
-            // ---------------------------------------------
-
-            corridor.scale.set(
-                1,
-                2,
-                1.5
-            );
-
-
-            // ---------------------------------------------
-            // POSITION
-            // ---------------------------------------------
-
-            corridor.position.set(
-                0,
-                0,
-                45
-            );
-
-
-            // ---------------------------------------------
-            // ROTATION
-            // ---------------------------------------------
-
-            corridor.rotation.set(
-                0,
-                0,
-                0
-            );
-
-
-            // ---------------------------------------------
-            // SHADOWS + INTERIOR IMAGE-BASED LIGHTING
-            // ---------------------------------------------
-            //
-            // The corridor keeps its ORIGINAL materials so
-            // the authored look (black walls, cyan light
-            // strips, vent lights, glass) is preserved.
-            // The PMREM room environment is attached per
-            // material so metallic surfaces get reflections
-            // instead of rendering black inside the hull.
-
-            corridor.traverse((object) => {
-
-                if (object.isMesh) {
-
-                    object.castShadow = true;
-                    object.receiveShadow = true;
-
-                    if (this.envTexture) {
-
-                        const materials =
-                            Array.isArray(
-                                object.material
-                            )
-                                ? object.material
-                                : [object.material];
-
-                        materials.forEach(
-                            (material) => {
-
-                                material.envMap =
-                                    this.envTexture;
-
-                                material.envMapIntensity =
-                                    0.5;
-
-                                material.needsUpdate =
-                                    true;
-                            }
-                        );
-
-                    }
-
-                }
-
-            });
-
-
-            // ---------------------------------------------
-            // ADD CORRIDOR
-            // ---------------------------------------------
-
-            spaceship.add(corridor);
-
-
-            // ---------------------------------------------
-            // DOOR EMBLEM
-            // ---------------------------------------------
-            //
-            // A GENESIS emblem floating in the entrance
-            // mouth of the corridor. Parented to the
-            // corridor so it follows position tweaks, and
-            // counter-scaled against the corridor stretch
-            // (scale 1 / 2 / 1.5) so it keeps its true
-            // size. The corridor opening spans local
-            // x 15.9 - 24.4, y up to 3.9, z up to 3.6.
-
-            const doorLogo =
-                this.createGenesisLogo(6, 3);
-
-            doorLogo.scale.set(
-                1,
-                0.5,
-                1
-            );
-
-            doorLogo.position.set(
-                20.1,
-                2.25,
-                3.75
-            );
-
-            corridor.add(doorLogo);
-
-
-            console.log(
-                'GENESIS: Spaceship corridor loaded.'
-            );
-
-        },
-
-        undefined,
-
-        (error) => {
-
-            console.error(
-                'GENESIS: Could not load space_ship_hallway.glb',
-                error
-            );
-
+    gltfLoader.load('./assets/models/space_ship_hallway.glb', (gltf) => {
+      const corridor = gltf.scene;
+      corridor.scale.set(1, 2, 1.5);
+      corridor.position.set(0, 0, 45);
+      corridor.traverse((o) => {
+        if (o.isMesh) {
+          o.castShadow = true;
+          o.receiveShadow = true;
         }
+      });
+      group.add(corridor);
+    }, undefined, (e) => console.warn('Corridor load failed:', e));
+
+    group.position.set(0, 0, 5);
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // FLAG
+  // ─────────────────────────────────────────────────────────
+  createFlag() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 640;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#0a0d12';
+    ctx.fillRect(0, 0, 512, 640);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 60px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('GENESIS', 256, 320);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+
+    const flag = new THREE.Group();
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.06, 0.09, 6.5, 12),
+      new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.4, metalness: 0.6 })
+    );
+    pole.position.y = 3.25;
+    flag.add(pole);
+    const cloth = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.8, 3.5),
+      new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide })
+    );
+    cloth.position.set(1.5, 4.15, 0);
+    flag.add(cloth);
+    flag.position.set(96, -2.6, 76);
+    flag.rotation.y = 1.78;
+    this.level.add(flag);
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // LANDING PATH (kept, simplified)
+  // ─────────────────────────────────────────────────────────
+  createLandingPath() {
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(20.1, 0, 57.5),
+      new THREE.Vector3(20.1, 0, 63.5),
+      new THREE.Vector3(20.1, 0, 69.5),
+      new THREE.Vector3(46, 0, 72.5),
+      new THREE.Vector3(94, 0, 72.5),
+      new THREE.Vector3(110, 0, 73),
+    ]);
+    const slabGeo = new THREE.BoxGeometry(2.6, 0.18, 1.7);
+    const slabMat = new THREE.MeshStandardMaterial({ color: 0x3d4249, roughness: 0.15, metalness: 0.7 });
+    const pathGroup = new THREE.Group();
+    const spacing = 2.15;
+    const count = Math.floor(curve.getLength() / spacing);
+    for (let i = 0; i <= count; i++) {
+      const t = i / count;
+      const p = curve.getPointAt(t);
+      const tan = curve.getTangentAt(t);
+      const angle = Math.atan2(tan.x, tan.z);
+      const y = this.getSurfaceHeight(p.x, p.z);
+      const slab = new THREE.Mesh(slabGeo, slabMat);
+      slab.position.set(p.x, y + 0.04, p.z);
+      slab.rotation.y = angle;
+      slab.receiveShadow = true;
+      pathGroup.add(slab);
+    }
+    this.level.add(pathGroup);
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // MONUMENT — the big black slab
+  // ─────────────────────────────────────────────────────────
+  createMonument() {
+    const monument = new THREE.Group();
+    monument.position.set(0, 0, -60);
+    monument.name = 'Monument';
+    this.level.add(monument);
+
+    const surfaceY = this.getSurfaceHeight(0, -60);
+
+    // Base plaza — a large black disc
+    const plazaMat = new THREE.MeshStandardMaterial({
+      color: 0x0a0a12,
+      roughness: 0.35,
+      metalness: 0.7,
+    });
+    const plaza = new THREE.Mesh(
+      new THREE.CylinderGeometry(60, 60, 1.2, 48),
+      plazaMat
+    );
+    plaza.position.set(0, surfaceY + 0.6, 0);
+    plaza.receiveShadow = true;
+    monument.add(plaza);
+
+    // Steps up from moon to plaza — 8 steps
+    const stepMat = new THREE.MeshStandardMaterial({
+      color: 0x14141c,
+      roughness: 0.5,
+      metalness: 0.6,
+    });
+    for (let i = 0; i < 8; i++) {
+      const step = new THREE.Mesh(
+        new THREE.BoxGeometry(70 - i * 2, 0.25, 3),
+        stepMat
+      );
+      step.position.set(0, surfaceY - 1 + i * 0.25 + 0.125, 55 - i * 2.8);
+      step.receiveShadow = true;
+      monument.add(step);
+    }
+
+    // Main slab — the monument body
+    const slabMat = new THREE.MeshStandardMaterial({
+      color: 0x0a0a12,
+      roughness: 0.4,
+      metalness: 0.65,
+    });
+    const slab = new THREE.Mesh(
+      new THREE.BoxGeometry(80, 200, 60),
+      slabMat
+    );
+    slab.position.set(0, surfaceY + 1.2 + 100, -35);
+    slab.castShadow = true;
+    slab.receiveShadow = true;
+    monument.add(slab);
+
+    // Cyan emissive seams on the sides
+    const seamMat = new THREE.MeshStandardMaterial({
+      color: 0x00d9ff,
+      emissive: 0x00d9ff,
+      emissiveIntensity: 2.4,
+    });
+    for (const side of [-1, 1]) {
+      const seam = new THREE.Mesh(
+        new THREE.BoxGeometry(0.4, 195, 0.4),
+        seamMat
+      );
+      seam.position.set(side * 40.5, surfaceY + 1.2 + 100, 0.5);
+      monument.add(seam);
+    }
+
+    // ── K SYMBOL on the front face ──
+    // Three cyan rectangles arranged as a K
+    const kMat = new THREE.MeshStandardMaterial({
+      color: 0x00d9ff,
+      emissive: 0x00d9ff,
+      emissiveIntensity: 2.5,
+    });
+    const frontZ = -35 + 30 + 0.3;
+    const kY = surfaceY + 1.2 + 130;
+    // Vertical stem
+    const stem = new THREE.Mesh(new THREE.BoxGeometry(4, 40, 0.5), kMat);
+    stem.position.set(-8, kY, frontZ);
+    monument.add(stem);
+    // Upper arm
+    const upperArm = new THREE.Mesh(new THREE.BoxGeometry(4, 20, 0.5), kMat);
+    upperArm.position.set(2, kY + 8, frontZ);
+    upperArm.rotation.z = -Math.PI / 5;
+    monument.add(upperArm);
+    // Lower arm
+    const lowerArm = new THREE.Mesh(new THREE.BoxGeometry(4, 20, 0.5), kMat);
+    lowerArm.position.set(2, kY - 8, frontZ);
+    lowerArm.rotation.z = Math.PI / 5;
+    monument.add(lowerArm);
+
+    // ── ENTRANCE ARCH at the base ──
+    const archMat = new THREE.MeshStandardMaterial({
+      color: 0x05050a,
+      roughness: 0.6,
+    });
+    // The arch is a "hole" — we build the wall around it. The
+    // interior room is physically separate below.
+    const archFrame = new THREE.Mesh(
+      new THREE.BoxGeometry(34, 50, 2),
+      archMat
+    );
+    archFrame.position.set(0, surfaceY + 1.2 + 25, -35 + 30 + 0.2);
+    // We don't add archFrame — it would block the entrance.
+    // Instead we add a decorative frame around it.
+    const frameMat = new THREE.MeshStandardMaterial({
+      color: 0x14141c,
+      emissive: 0x00d9ff,
+      emissiveIntensity: 0.6,
+      roughness: 0.5,
+    });
+    // Top of arch
+    const archTop = new THREE.Mesh(new THREE.BoxGeometry(36, 2, 2), frameMat);
+    archTop.position.set(0, surfaceY + 1.2 + 50, -35 + 30 + 0.2);
+    monument.add(archTop);
+    // Sides of arch
+    for (const side of [-1, 1]) {
+      const sideFrame = new THREE.Mesh(new THREE.BoxGeometry(2, 50, 2), frameMat);
+      sideFrame.position.set(side * 17, surfaceY + 1.2 + 25, -35 + 30 + 0.2);
+      monument.add(sideFrame);
+    }
+
+    this.monument = monument;
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // MONUMENT INTERIOR — 3 floors
+  // ─────────────────────────────────────────────────────────
+  createMonumentInterior() {
+    const surfaceY = this.getSurfaceHeight(0, -60);
+    const interior = new THREE.Group();
+    interior.name = 'MonumentInterior';
+    this.level.add(interior);
+
+    const wallMat = new THREE.MeshStandardMaterial({
+      color: 0x0a0a12,
+      roughness: 0.7,
+      metalness: 0.2,
+      side: THREE.BackSide,     // visible from inside
+    });
+    const floorMat = new THREE.MeshStandardMaterial({
+      color: 0x14141c,
+      roughness: 0.6,
+      metalness: 0.4,
+    });
+    const trimMat = new THREE.MeshStandardMaterial({
+      color: 0x00d9ff,
+      emissive: 0x00d9ff,
+      emissiveIntensity: 1.6,
+    });
+
+    // Interior volume sits inside the slab. Slab center is at
+    // (0, surfaceY+1.2+100, -35), size 80 × 200 × 60.
+    // We carve 3 hollow rooms inside.
+    const slabCenterY = surfaceY + 1.2 + 100;
+    const slabCenterZ = -35;
+
+    // ── FLOOR 1: Entrance Hall (y=0 to 40) ──
+    this._addRoom(interior, {
+      center: new THREE.Vector3(0, slabCenterY - 80, slabCenterZ),
+      size:   new THREE.Vector3(60, 40, 50),
+      wallMat, floorMat, trimMat,
+    });
+
+    // ── FLOOR 2: Guardians' Chamber (y=40 to 80) ──
+    this._addRoom(interior, {
+      center: new THREE.Vector3(0, slabCenterY - 20, slabCenterZ),
+      size:   new THREE.Vector3(60, 40, 50),
+      wallMat, floorMat, trimMat,
+    });
+
+    // ── FLOOR 3: Throne Room (y=80 to 110) ──
+    this._addRoom(interior, {
+      center: new THREE.Vector3(0, slabCenterY + 55, slabCenterZ),
+      size:   new THREE.Vector3(40, 30, 40),
+      wallMat, floorMat, trimMat,
+    });
+
+    // ── Staircases connecting the floors ──
+    // Floor 1 → Floor 2
+    this._addStairs(
+      interior,
+      new THREE.Vector3(15, slabCenterY - 80, slabCenterZ - 15),
+      new THREE.Vector3(15, slabCenterY - 40, slabCenterZ - 15),
+      floorMat
+    );
+    // Floor 2 → Floor 3
+    this._addStairs(
+      interior,
+      new THREE.Vector3(-15, slabCenterY - 20, slabCenterZ + 15),
+      new THREE.Vector3(-15, slabCenterY + 20, slabCenterZ + 15),
+      floorMat
     );
 
+    // ── Sealed throne door (Floor 2 → Floor 3 exit) ──
+    const doorMat = new THREE.MeshStandardMaterial({
+      color: 0x02020a,
+      emissive: 0xff2244,
+      emissiveIntensity: 1.2,
+      roughness: 0.3,
+      metalness: 0.6,
+    });
+    const door = new THREE.Mesh(
+      new THREE.BoxGeometry(10, 12, 0.5),
+      doorMat
+    );
+    door.position.set(-15, slabCenterY - 20 + 6, slabCenterZ + 15 - 0.4);
+    interior.add(door);
+    this.throneDoor = door;
+    this.throneDoorOriginalPos = door.position.clone();
+  }
 
-    // =====================================================
-    // WHOLE SHIP POSITION
-    // =====================================================
+  _addRoom(parent, { center, size, wallMat, floorMat, trimMat }) {
+    // Floor
+    const floor = new THREE.Mesh(
+      new THREE.BoxGeometry(size.x, 0.5, size.z),
+      floorMat
+    );
+    floor.position.set(center.x, center.y - size.y / 2, center.z);
+    floor.receiveShadow = true;
+    parent.add(floor);
 
-    spaceship.position.set(
-        0,
-        0,
-        5
+    // Ceiling (visible from below)
+    const ceiling = new THREE.Mesh(
+      new THREE.BoxGeometry(size.x, 0.5, size.z),
+      floorMat
+    );
+    ceiling.position.set(center.x, center.y + size.y / 2, center.z);
+    parent.add(ceiling);
+
+    // Walls (using back-side material so they're visible from inside)
+    // Front wall (has doorway — we skip the full front)
+    // Back wall
+    const backWall = new THREE.Mesh(
+      new THREE.BoxGeometry(size.x, size.y, 0.5),
+      wallMat
+    );
+    backWall.position.set(center.x, center.y, center.z - size.z / 2);
+    parent.add(backWall);
+
+    // Left wall
+    const leftWall = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, size.y, size.z),
+      wallMat
+    );
+    leftWall.position.set(center.x - size.x / 2, center.y, center.z);
+    parent.add(leftWall);
+
+    // Right wall
+    const rightWall = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, size.y, size.z),
+      wallMat
+    );
+    rightWall.position.set(center.x + size.x / 2, center.y, center.z);
+    parent.add(rightWall);
+
+    // Cyan trim strips along the floor-wall junction
+    for (const side of [-1, 1]) {
+      const trim = new THREE.Mesh(
+        new THREE.BoxGeometry(0.15, 0.3, size.z),
+        trimMat
+      );
+      trim.position.set(
+        center.x + side * (size.x / 2 - 0.3),
+        center.y - size.y / 2 + 0.4,
+        center.z
+      );
+      parent.add(trim);
+    }
+
+    // Point light in the room
+    const light = new THREE.PointLight(0x80c8ff, 8, Math.max(size.x, size.z) * 1.2, 1.5);
+    light.position.set(center.x, center.y + size.y / 2 - 2, center.z);
+    parent.add(light);
+  }
+
+  _addStairs(parent, from, to, mat) {
+    // Simple ramp of thin boxes
+    const dir = new THREE.Vector3().subVectors(to, from);
+    const length = dir.length();
+    const steps = 24;
+    const stepHeight = dir.y / steps;
+    const stepDepth = length / steps;
+
+    // Angle of stair
+    const angle = Math.atan2(dir.x, dir.z);
+    const rot = new THREE.Euler(0, angle, 0);
+
+    for (let i = 0; i < steps; i++) {
+      const t = i / steps;
+      const pos = new THREE.Vector3().lerpVectors(from, to, t);
+      const step = new THREE.Mesh(
+        new THREE.BoxGeometry(6, 0.3, stepDepth * 1.1),
+        mat
+      );
+      step.position.copy(pos);
+      step.rotation.copy(rot);
+      step.receiveShadow = true;
+      parent.add(step);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // GUARDIAN SPAWNS
+  // ─────────────────────────────────────────────────────────
+  createGuardianSpawns() {
+    const surfaceY = this.getSurfaceHeight(0, -60);
+    const chamberY = surfaceY + 1.2 + 60;  // middle of Floor 2
+
+    // Attack gate — max 1 guardian attacking at once
+    this.guardianGate = { current: 0, max: 1 };
+
+    // Blade — left of the chamber
+    const blade = new Guardian(
+      this.level,
+      new THREE.Vector3(-10, chamberY, -60),
+      'blade',
+      this.guardianGate
+    );
+    // Fist — right of the chamber
+    const fist = new Guardian(
+      this.level,
+      new THREE.Vector3(10, chamberY, -60),
+      'fist',
+      this.guardianGate
     );
 
+    // Guardians start dormant — they wake when the player enters
+    blade.state = STATE.IDLE;
+    fist.state = STATE.IDLE;
 
-    // =====================================================
-    // WHOLE SHIP ROTATION
-    // =====================================================
+    this.guardians.push(blade, fist);
+  }
 
-    spaceship.rotation.set(
-        0,
-        0,
-        0
+  // ─────────────────────────────────────────────────────────
+  // ARCHITECT — seated on the throne
+  // ─────────────────────────────────────────────────────────
+  createArchitect() {
+    const surfaceY = this.getSurfaceHeight(0, -60);
+    const throneY = surfaceY + 1.2 + 120;
+
+    const group = new THREE.Group();
+    group.position.set(0, throneY, -60 - 10);
+    this.level.add(group);
+
+    // Throne — simple black box
+    const throne = new THREE.Mesh(
+      new THREE.BoxGeometry(4, 6, 3),
+      new THREE.MeshStandardMaterial({ color: 0x05050a, roughness: 0.4, metalness: 0.6 })
     );
-}
+    throne.position.set(0, 3, 0);
+    group.add(throne);
 
-    // =========================================================
-    // GENESIS LOGO
-    // =========================================================
+    // Seat back
+    const back = new THREE.Mesh(
+      new THREE.BoxGeometry(4, 4, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0x05050a, roughness: 0.4, metalness: 0.6 })
+    );
+    back.position.set(0, 5.5, -1.2);
+    group.add(back);
 
-    // Draws the GENESIS "K" symbol: a stem built from two
-    // vertical bars split by a negative-space gap, with two
-    // diagonal bars overlapping the stem to form the arms.
+    // Architect — reuse Commander model. Placeholder figure
+    // until we swap for a Mixamo character.
+    const placeholder = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.5, 1.6, 4, 8),
+      new THREE.MeshStandardMaterial({
+        color: 0x2a2a3a,
+        emissive: 0x88aaff,
+        emissiveIntensity: 0.3,
+        roughness: 0.6,
+      })
+    );
+    placeholder.position.set(0, 4.5, 0);
+    group.add(placeholder);
 
-    drawGenesisSymbol(ctx, centerX, centerY, height) {
+    // Spotlight on the throne
+    const spot = new THREE.PointLight(0xaaccff, 12, 30, 1.5);
+    spot.position.set(0, 12, 2);
+    group.add(spot);
 
-        // The mark is designed on a 218 x 300 grid and
-        // scaled to the requested height.
+    this.architect = group;
+  }
 
-        const scale =
-            height / 300;
+  // ─────────────────────────────────────────────────────────
+  // SURFACE HEIGHT
+  // ─────────────────────────────────────────────────────────
+  getSurfaceHeight(worldX, worldZ) {
+    if (!this.moonSurface) return -2;
+    const geo = this.moonSurface.geometry;
+    const pos = geo.attributes.position;
+    const size = geo.parameters.width;
+    const segments = geo.parameters.widthSegments;
 
-        const barWidth =
-            30 * scale;
+    const gridX = (worldX + size / 2) / size * segments;
+    const gridY = (worldZ + size / 2) / size * segments;
 
-        ctx.fillStyle = '#ffffff';
+    const ix = Math.min(segments - 1, Math.max(0, Math.floor(gridX)));
+    const iy = Math.min(segments - 1, Math.max(0, Math.floor(gridY)));
 
+    const fx = gridX - ix;
+    const fy = gridY - iy;
 
-        // -------------------------------------------------
-        // STEM: TWO VERTICAL BARS
-        // -------------------------------------------------
+    const stride = segments + 1;
+    const h00 = pos.getZ(iy * stride + ix);
+    const h10 = pos.getZ(iy * stride + ix + 1);
+    const h01 = pos.getZ((iy + 1) * stride + ix);
+    const h11 = pos.getZ((iy + 1) * stride + ix + 1);
 
-        ctx.fillRect(
-            centerX - 109 * scale,
-            centerY - 150 * scale,
-            barWidth,
-            height
-        );
+    return ((h00 * (1 - fx) + h10 * fx) * (1 - fy) +
+            (h01 * (1 - fx) + h11 * fx) * fy) - 2;
+  }
 
-        ctx.fillRect(
-            centerX - 59 * scale,
-            centerY - 150 * scale,
-            barWidth,
-            height
-        );
+  groundHeight(x, z, feetY = 0) { return this.getSurfaceHeight(x, z); }
+  terrainHeight(x, z) { return this.getSurfaceHeight(x, z); }
 
+  // ─────────────────────────────────────────────────────────
+  // COLLIDERS
+  // ─────────────────────────────────────────────────────────
+  _buildColliders() {
+    this.colliders = [];
 
-        // -------------------------------------------------
-        // UPPER ARM
-        // -------------------------------------------------
+    const surfaceY = this.getSurfaceHeight(0, -60);
 
-        ctx.save();
+    // The monument slab — one big AABB
+    const slabCenterY = surfaceY + 1.2 + 100;
+    this.colliders.push(new THREE.Box3(
+      new THREE.Vector3(-40, slabCenterY - 100, -35 - 30),
+      new THREE.Vector3( 40, slabCenterY + 100, -35 + 30)
+    ));
 
-        ctx.translate(
-            centerX + 8.5 * scale,
-            centerY - 68.5 * scale
-        );
+    // Interior walls (implicit — the outer slab is enough)
+  }
 
-        ctx.rotate(
-            -0.6981
-        );
+  // ─────────────────────────────────────────────────────────
+  // SPAWN
+  // ─────────────────────────────────────────────────────────
+  getSpawn() {
+    const sx = 20.1, sz = 57.5;
+    const sy = this.getSurfaceHeight(sx, sz);
+    return new THREE.Vector3(sx, sy + 0.2, sz + 2);
+  }
 
-        ctx.fillRect(
-            -114.3 * scale,
-            -barWidth / 2,
-            228.5 * scale,
-            barWidth
-        );
+  // ─────────────────────────────────────────────────────────
+  // UPDATE
+  // ─────────────────────────────────────────────────────────
+  update(dt, t, player) {
+    this._time = (this._time || 0) + dt;
 
-        ctx.restore();
+    // Earth rotation
+    if (this.earth) this.earth.rotation.y += dt * 0.015;
 
-
-        // -------------------------------------------------
-        // LOWER ARM
-        // -------------------------------------------------
-
-        ctx.save();
-
-        ctx.translate(
-            centerX + 8.5 * scale,
-            centerY + 68.5 * scale
-        );
-
-        ctx.rotate(
-            0.6981
-        );
-
-        ctx.fillRect(
-            -114.3 * scale,
-            -barWidth / 2,
-            228.5 * scale,
-            barWidth
-        );
-
-        ctx.restore();
+    // Sun glow pulse
+    if (this.sunGlow) {
+      const pulse = 1 + Math.sin(this._time * 0.6) * 0.04;
+      this.sunGlow.scale.set(60 * pulse, 60 * pulse, 1);
     }
 
+    // Update guardians
+    for (const g of this.guardians) {
+      if (g._disposed) continue;
 
-    createGenesisLogoTexture() {
+      // Wake guardians when player enters the chamber
+      const surfaceY = this.getSurfaceHeight(0, -60);
+      const chamberY = surfaceY + 1.2 + 60;
+      const dy = Math.abs(player.pos.y - chamberY);
+      const distToChamber = player.pos.distanceTo(new THREE.Vector3(0, chamberY, -60));
 
-        // The emblem is drawn once onto a single canvas so
-        // the corridor door sign and the hull marking share
-        // the same artwork.
+      if (g.state === STATE.IDLE && distToChamber < 25 && dy < 15) {
+        g.alert();
+      }
 
-        if (this.logoTexture) {
+      // Update the guardian (uses parent Enemy.update)
+      try {
+        g.update(dt, player.pos);
 
-            return this.logoTexture;
+        // Guardian attacks — roll damage when a swing lands
+        if (g.swingLanded) {
+          g.swingLanded = false;
+          const reach = g.kind === 'fist' ? 3.2 : 2.8;
+          if (g.group.position.distanceTo(player.pos) < reach) {
+            if (this.onDamagePlayer) this.onDamagePlayer(g.guardianDamage || 10);
+          }
         }
-
-
-        const canvas =
-            document.createElement('canvas');
-
-        canvas.width = 1024;
-
-        canvas.height = 512;
-
-        const ctx =
-            canvas.getContext('2d');
-
-        // Transparent background.
-        ctx.clearRect(
-            0,
-            0,
-            canvas.width,
-            canvas.height
-        );
-
-
-        // -------------------------------------------------
-        // GENESIS SYMBOL
-        // -------------------------------------------------
-
-        this.drawGenesisSymbol(
-            ctx,
-            220,
-            256,
-            300
-        );
-
-
-        // -------------------------------------------------
-        // GENESIS TEXT
-        // -------------------------------------------------
-
-        ctx.fillStyle = '#ffffff';
-
-        ctx.font = 'bold 96px Arial';
-
-        ctx.textAlign = 'center';
-
-        ctx.textBaseline = 'middle';
-
-        ctx.letterSpacing = '8px';
-
-        ctx.fillText(
-            'GENESIS',
-            670,
-            256
-        );
-
-
-        // -------------------------------------------------
-        // TEXTURE
-        // -------------------------------------------------
-
-        const texture =
-            new THREE.CanvasTexture(canvas);
-
-        texture.colorSpace =
-            THREE.SRGBColorSpace;
-
-        this.logoCanvas = canvas;
-
-        this.logoTexture = texture;
-
-        return texture;
+      } catch (e) {
+        console.warn('Guardian update error:', e);
+      }
     }
 
-
-    createGenesisLogo(width = 5, height = 2.5) {
-
-        const material =
-            new THREE.MeshBasicMaterial({
-                map: this.createGenesisLogoTexture(),
-                transparent: true,
-                side: THREE.DoubleSide
-            });
-
-
-        const geometry =
-            new THREE.PlaneGeometry(
-                width,
-                height
-            );
-
-
-        const logo =
-            new THREE.Mesh(
-                geometry,
-                material
-            );
-
-
-        return logo;
+    // Check if both guardians are dead → open throne door
+    if (!this.guardiansDefeated && this.guardians.length === 2) {
+      const bothDead = this.guardians.every((g) => g.state === STATE.DEAD || g.dead);
+      if (bothDead) {
+        this.guardiansDefeated = true;
+        this._openThroneDoor();
+      }
     }
 
-    // =========================================================
-    // ANIMATED GENESIS FLAG
-    // =========================================================
+    // Architect dialogue — trigger when player enters throne room
+    if (
+      this.guardiansDefeated &&
+      !this.dialogueStarted &&
+      !this.architectDialogueActive &&
+      this.dialogue &&
+      player.pos.y > this.getSurfaceHeight(0, -60) + 1.2 + 90
+    ) {
+      this.dialogueStarted = true;
+      this.architectDialogueActive = true;
+      this._runArchitectSequence();
+    }
+  }
 
-    createFlag() {
+  _openThroneDoor() {
+    if (!this.throneDoor) return;
+    // Slide the door up out of the way
+    this.throneDoor.position.y += 15;
+    console.log('⚔️ GUARDIANS DEFEATED — The Architect awaits.');
+  }
 
-        // -----------------------------------------------------
-        // FLAG CLOTH TEXTURE
-        // -----------------------------------------------------
-        //
-        // A black banner with the GENESIS symbol on top,
-        // the name below it and the tagline at the bottom.
+  async _runArchitectSequence() {
+    const d = this.dialogue;
+    if (!d) return;
 
-        const flagCanvas =
-            document.createElement('canvas');
+    try {
+      await d.say('Sorini. You made it. I knew you would.', 4200);
+      await d.say('I have watched you cross the village, tear through my street soldiers. Every step was exactly as I projected.', 5200);
+      await d.say('You are what GENESIS was always meant to create. Come. Sit beside me.', 5000);
 
-        flagCanvas.width = 512;
+      const choice = await d.ask('What do you say?', [
+        "I'm here to end this.",
+        'What is GENESIS?',
+        '(Say nothing.)',
+      ]);
 
-        flagCanvas.height = 640;
+      d.hide();
 
-        const ctx =
-            flagCanvas.getContext('2d');
+      // Hand off to the endings module
+      if (this.onEndingChosen) {
+        if (choice === 0) this.onEndingChosen('attack');
+        else if (choice === 1) this.onEndingChosen('learn');
+        else this.onEndingChosen('silence');
+      }
+    } catch (e) {
+      console.warn('Dialogue error:', e);
+    }
+  }
 
-        ctx.fillStyle = '#0a0d12';
+  // ─────────────────────────────────────────────────────────
+  // PUNCH — called from main.js when F/G/H pressed
+  // ─────────────────────────────────────────────────────────
+  onMouseClick(camera, playerPos) {
+    for (const g of this.guardians) {
+      if (!g || g.state === STATE.DEAD || g._disposed) continue;
+      const dist = g.group.position.distanceTo(playerPos);
+      if (dist < 3.0) {
+        const killed = g.takeDamage();
+        if (killed) console.log(`💀 Guardian (${g.kind}) defeated`);
+      }
+    }
+  }
 
-        ctx.fillRect(
-            0,
-            0,
-            512,
-            640
-        );
+  // ─────────────────────────────────────────────────────────
+  // DISPOSE
+  // ─────────────────────────────────────────────────────────
+  dispose(outerScene = null) {
+    // Detach from scene
+    if (this.level && this.level.parent) this.level.parent.remove(this.level);
+    if (this.stars && this.stars.parent) this.stars.parent.remove(this.stars);
+    if (this.sky && this.sky.parent) this.sky.parent.remove(this.sky);
+    if (this.moonSurface && this.moonSurface.parent) this.moonSurface.parent.remove(this.moonSurface);
 
-
-        // -------------------------------------------------
-        // SYMBOL
-        // -------------------------------------------------
-
-        this.drawGenesisSymbol(
-            ctx,
-            256,
-            220,
-            240
-        );
-
-
-        // -------------------------------------------------
-        // NAME
-        // -------------------------------------------------
-
-        ctx.fillStyle = '#ffffff';
-
-        ctx.font = 'bold 60px Arial';
-
-        ctx.textAlign = 'center';
-
-        ctx.textBaseline = 'middle';
-
-        ctx.letterSpacing = '6px';
-
-        ctx.fillText(
-            'GENESIS',
-            256,
-            425
-        );
-
-
-        // -------------------------------------------------
-        // TAGLINE
-        // -------------------------------------------------
-
-        ctx.font = '26px Arial';
-
-        ctx.letterSpacing = '4px';
-
-        ctx.fillText(
-            'THE FUTURE BEGINS HERE',
-            256,
-            515
-        );
-
-
-        const flagTexture =
-            new THREE.CanvasTexture(flagCanvas);
-
-        flagTexture.colorSpace =
-            THREE.SRGBColorSpace;
-
-        this.flagTexture = flagTexture;
-
-
-        // -----------------------------------------------------
-        // FLAG GROUP
-        // -----------------------------------------------------
-
-        const flag =
-            new THREE.Group();
-
-        flag.name = 'GenesisFlag';
-
-
-        // -----------------------------------------------------
-        // POLE
-        // -----------------------------------------------------
-
-        const pole =
-            new THREE.Mesh(
-
-                new THREE.CylinderGeometry(
-                    0.06,
-                    0.09,
-                    6.5,
-                    12
-                ),
-
-                new THREE.MeshStandardMaterial({
-                    color: 0x2a2d33,
-                    roughness: 0.4,
-                    metalness: 0.6
-                })
-            );
-
-        pole.position.set(
-            0,
-            3.25,
-            0
-        );
-
-        pole.castShadow = true;
-
-        flag.add(pole);
-
-
-        // -----------------------------------------------------
-        // WAVING CLOTH
-        // -----------------------------------------------------
-        //
-        // The extra segments give the cloth enough
-        // geometry to bend in the wind animation.
-
-        const clothGeometry =
-            new THREE.PlaneGeometry(
-                2.8,
-                3.5,
-                14,
-                18
-            );
-
-        const cloth =
-            new THREE.Mesh(
-                clothGeometry,
-                new THREE.MeshBasicMaterial({
-                    map: flagTexture,
-                    side: THREE.DoubleSide
-                })
-            );
-
-        cloth.position.set(
-            1.5,
-            4.15,
-            0
-        );
-
-        cloth.castShadow = true;
-
-        flag.add(cloth);
-
-
-        // -----------------------------------------------------
-        // POSITION NEXT TO THE SPAWN
-        // -----------------------------------------------------
-        //
-        // The camera starts at (110, 1.8, 73) looking at
-        // the ship, so the flag stands just off to the
-        // side of that view. The ground here sits near
-        // -2.3, so the pole base is buried slightly.
-
-        flag.position.set(
-            96,
-            -2.6,
-            76
-        );
-
-        flag.rotation.y =
-            1.78;
-
-        this.level.add(flag);
-
-
-        // -----------------------------------------------------
-        // ANIMATION REFERENCES
-        // -----------------------------------------------------
-
-        this.flagCloth = cloth;
-
-        this.flagClothBase =
-            clothGeometry.attributes.position.array.slice();
-
-        this.flagTime = 0;
+    // Dispose sun shadow
+    if (this.sun && this.sun.shadow) {
+      if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; }
+      if (this.sun.shadow.mapPass) { this.sun.shadow.mapPass.dispose(); this.sun.shadow.mapPass = null; }
     }
 
-    // =========================================================
-    // SURFACE HEIGHT SAMPLING
-    // =========================================================
-
-    getSurfaceHeight(worldX, worldZ) {
-
-        // Reads the height straight off the lunar regolith
-        // vertex grid, so anything laid on the ground always
-        // follows the real terrain, craters included.
-        //
-        // The surface is a PlaneGeometry rotated flat onto
-        // its back, which maps the grid like this:
-        //
-        // grid X = world X
-        // grid Y = -world Z
-
-        const geometry =
-            this.moonSurface.geometry;
-
-        const positions =
-            geometry.attributes.position;
-
-        const size =
-            geometry.parameters.width;
-
-        const segments =
-            geometry.parameters.widthSegments;
-
-
-        const gridX =
-            (worldX + size / 2) /
-            size *
-            segments;
-
-        const gridY =
-            (worldZ + size / 2) /
-            size *
-            segments;
-
-
-        // Clamp so samples near the mesh edge stay on
-        // valid vertices.
-
-        const ix =
-            Math.min(
-                segments - 1,
-                Math.max(
-                    0,
-                    Math.floor(gridX)
-                )
-            );
-
-        const iy =
-            Math.min(
-                segments - 1,
-                Math.max(
-                    0,
-                    Math.floor(gridY)
-                )
-            );
-
-
-        const fx =
-            gridX - ix;
-
-        const fy =
-            gridY - iy;
-
-
-        // Bilinear blend across the four vertices
-        // surrounding the sample point.
-
-        const stride =
-            segments + 1;
-
-        const h00 =
-            positions.getZ(
-                iy * stride + ix
-            );
-
-        const h10 =
-            positions.getZ(
-                iy * stride + ix + 1
-            );
-
-        const h01 =
-            positions.getZ(
-                (iy + 1) * stride + ix
-            );
-
-        const h11 =
-            positions.getZ(
-                (iy + 1) * stride + ix + 1
-            );
-
-
-        const height =
-
-            (h00 * (1 - fx) + h10 * fx) * (1 - fy) +
-
-            (h01 * (1 - fx) + h11 * fx) * fy;
-
-
-        // The regolith mesh itself is sunk 2 units below
-        // the origin.
-
-        return height - 2;
+    // Dispose guardians
+    for (const g of this.guardians) {
+      try { g.dispose(); } catch (e) {}
     }
-    // aliases for main.js compatibility
-    groundHeight(x, z, feetY = 0) { return this.getSurfaceHeight(x, z); }
-    terrainHeight(x, z) { return this.getSurfaceHeight(x, z); }
+    this.guardians = [];
 
-    // =========================================================
-    // LANDING PATH
-    // =========================================================
-
-    createPath() {
-
-        // -----------------------------------------------------
-        // ROUTE
-        // -----------------------------------------------------
-        //
-        // A walkway leading out of the corridor mouth,
-        // curving wide across the plain past the GENESIS
-        // flag, under the camera spawn and onward over the
-        // regolith. The stretch in front of the door runs
-        // straight along the corridor axis so the final
-        // slabs meet the entrance face-on.
-
-        const curve =
-            new THREE.CatmullRomCurve3([
-
-                // Corridor door mouth.
-                new THREE.Vector3(
-                    20.1,
-                    0,
-                    57.5
-                ),
-
-                // Dead in front of the entrance, pinning
-                // the first slabs into a straight aisle
-                // aimed at the door (the corridor mouth
-                // faces +Z).
-                new THREE.Vector3(
-                    20.1,
-                    0,
-                    63.5
-                ),
-
-                new THREE.Vector3(
-                    20.1,
-                    0,
-                    69.5
-                ),
-
-                // Curve wide by the door and swing across
-                // the plain toward the flag.
-                new THREE.Vector3(
-                    46,
-                    0,
-                    72.5
-                ),
-
-                // Past the flag, just under the flying
-                // cloth so the slabs clear the pole.
-                new THREE.Vector3(
-                    94,
-                    0,
-                    72.5
-                ),
-
-                // Camera spawn.
-                new THREE.Vector3(
-                    110,
-                    0,
-                    73
-                ),
-
-                // Beyond the camera, into the distance.
-                new THREE.Vector3(
-                    153,
-                    0,
-                    61
-                )
-            ]);
-
-
-        // -----------------------------------------------------
-        // SHARED SLAB + LIGHT STUD PARTS
-        // -----------------------------------------------------
-
-        const pathGroup =
-            new THREE.Group();
-
-        pathGroup.name =
-            'LandingPath';
-
-
-        const slabGeometry =
-            new THREE.BoxGeometry(
-                2.6,
-                0.18,
-                1.7
-            );
-
-        const slabMaterial =
-            new THREE.MeshStandardMaterial({
-
-                // Dark basalt plates, clearly darker than
-                // the grey regolith around them.
-                color: 0x3d4249,
-
-                roughness: 0.15,
-
-                metalness: 0.7
-            });
-
-
-        const studGeometry =
-            new THREE.BoxGeometry(
-                0.55,
-                0.1,
-                0.55
-            );
-
-        const studMaterial =
-            new THREE.MeshBasicMaterial({
-
-                // Cyan matches the corridor light strips
-                // and stays bright no matter the lighting.
-                color: 0xffffff
-            });
-
-
-        // -----------------------------------------------------
-        // LAY THE SLABS
-        // -----------------------------------------------------
-
-        const spacing =
-            2.15;
-
-        const slabCount =
-            Math.floor(
-                curve.getLength() /
-                spacing
-            );
-
-
-        for (
-            let i = 0;
-            i <= slabCount;
-            i++
-        ) {
-
-            const t =
-                i / slabCount;
-
-            const point =
-                curve.getPointAt(t);
-
-            const tangent =
-                curve.getTangentAt(t);
-
-
-            // Turn the slab to face the walking direction.
-            const angle =
-                Math.atan2(
-                    tangent.x,
-                    tangent.z
-                );
-
-            // Tiny deterministic jitter so the plates read
-            // as laid by hand rather than stamped out.
-            const jitter =
-                Math.sin(
-                    i * 12.9898
-                ) *
-                0.04;
-
-
-            const surfaceY =
-                this.getSurfaceHeight(
-                    point.x,
-                    point.z
-                );
-
-
-            const slab =
-                new THREE.Mesh(
-                    slabGeometry,
-                    slabMaterial
-                );
-
-            slab.position.set(
-                point.x,
-                surfaceY + 0.04,
-                point.z
-            );
-
-            slab.rotation.y =
-                angle + jitter;
-
-            slab.receiveShadow =
-                true;
-
-            pathGroup.add(slab);
-
-
-            // A glowing stud every few slabs marks the way
-            // like runway lights.
-
-            if (
-                i % 4 === 0
-            ) {
-
-                const stud =
-                    new THREE.Mesh(
-                        studGeometry,
-                        studMaterial
-                    );
-
-                stud.position.set(
-                    point.x,
-                    surfaceY + 0.16,
-                    point.z
-                );
-
-                stud.rotation.y =
-                    angle;
-
-                pathGroup.add(stud);
+    // Traverse and dispose everything
+    if (this.level) {
+      this.level.traverse((object) => {
+        if (!object.isMesh && !object.isPoints && !object.isLine && !object.isSprite) return;
+        if (object.geometry) object.geometry.dispose();
+        if (object.material) {
+          const mats = Array.isArray(object.material) ? object.material : [object.material];
+          mats.forEach((m) => {
+            for (const k in m) {
+              const v = m[k];
+              if (v && v.isTexture) v.dispose();
             }
+            m.dispose();
+          });
         }
-
-
-        this.level.add(
-            pathGroup
-        );
-
-        this.pathGroup =
-            pathGroup;
+      });
     }
 
-    // =========================================================
-    // UPDATE
-    // =========================================================
-
-    update(deltaTime) {
-
-        this._time =
-            (this._time || 0) + deltaTime;
-
-
-        // =================================================
-        // TWINKLING STARS
-        // =================================================
-
-        if (this.starMaterial) {
-
-            this.starMaterial.uniforms.uTime.value =
-                this._time;
-        }
-
-
-        // Very slow Earth rotation so it feels like a real
-        // distant celestial body rather than a gameplay object.
-
-        if (
-            this.earth
-        ) {
-
-            this.earth.rotation.y +=
-                deltaTime *
-                0.015;
-        }
-
-        // The atmosphere shell rides along with Earth (it never
-        // rotates itself - only the surface texture underneath
-        // does - so no extra work needed beyond keeping position
-        // in sync, which it already is since both are static).
-
-
-        // =================================================
-        // SUN GLOW BREATHES
-        // A barely-there pulse so the sun disc doesn't look like
-        // a static painted decal.
-        // =================================================
-
-        if (this.sunGlow) {
-
-            const pulse =
-                1 + Math.sin(this._time * 0.6) * 0.04;
-
-            this.sunGlow.scale.set(
-                70 * pulse,
-                70 * pulse,
-                1
-            );
-        }
-
-
-        // =================================================
-        // SPACESHIP ENGINE GLOW + STROBE
-        // =================================================
-
-        if (this.engineGlows) {
-
-            this.engineGlows.forEach((glow, i) => {
-
-                const flicker =
-                    0.75 + 0.25 * Math.sin(this._time * 6 + i * 2.1);
-
-                glow.material.emissiveIntensity =
-                    glow.userData.baseEmissive * flicker;
-
-                if (glow.userData.light) {
-
-                    glow.userData.light.intensity =
-                        glow.userData.light.userData.baseIntensity * flicker;
-                }
-            });
-        }
-
-        if (this.strobeLight) {
-
-            // Real aviation-style strobe: sharp double-pulse,
-            // long dark gap, not a smooth sine.
-            const cycle =
-                this._time % 2.2;
-
-            const on =
-                (cycle < 0.08) ||
-                (cycle > 0.22 && cycle < 0.30);
-
-            this.strobeLight.intensity =
-                on ? this.strobeLight.userData.baseIntensity : 0;
-
-            if (this.strobeMesh) {
-
-                this.strobeMesh.material.emissiveIntensity =
-                    on ? 3 : 0.15;
-            }
-        }
-
-
-        // =================================================
-        // REGOLITH GLINT
-        // Tiny mineral flecks in the dust catch the hard
-        // sunlight and glint - a slow global shimmer on the
-        // whole field reads as sparkle without per-particle
-        // shader complexity.
-        // =================================================
-
-        if (this.regolithParticles) {
-
-            this.regolithParticles.material.opacity =
-                0.26 + Math.sin(this._time * 1.4) * 0.06;
-        }
-
-
-        // =================================================
-        // GENESIS FLAG WAVE
-        // =================================================
-
-        if (
-            this.flagCloth
-        ) {
-
-            this.flagTime +=
-                deltaTime;
-
-
-            const clothPositions =
-                this.flagCloth.geometry.attributes.position;
-
-
-            for (
-                let i = 0;
-                i < clothPositions.count;
-                i++
-            ) {
-
-                const x =
-                    this.flagClothBase[i * 3];
-
-                const y =
-                    this.flagClothBase[i * 3 + 1];
-
-
-                // Zero at the pole, fully loose at the
-                // flying edge of the cloth.
-                const looseness =
-                    (x + 1.4) / 2.8;
-
-
-                const wave =
-
-                    Math.sin(
-                        x * 1.8 -
-                        this.flagTime * 5
-                    ) *
-                    0.32 *
-                    looseness
-
-                    +
-
-                    Math.sin(
-                        y * 1.6 +
-                        this.flagTime * 3
-                    ) *
-                    0.12 *
-                    looseness;
-
-
-                clothPositions.setZ(
-                    i,
-                    wave
-                );
-            }
-
-
-            clothPositions.needsUpdate =
-                true;
-        }
+    // Sun glow
+    if (this.sunGlow) {
+      if (this.sunGlow.material) {
+        if (this.sunGlow.material.map) this.sunGlow.material.map.dispose();
+        this.sunGlow.material.dispose();
+      }
+      this.sunGlow = null;
     }
 
-
-    // =========================================================
-    // DISPOSE
-    // =========================================================
-
-    dispose(outerScene = null) {
-        const sceneToClean = outerScene && outerScene.isScene ? outerScene : this.scene;
-        // detach from main scene (or own scene if standalone)
-        if (this.level && this.level.parent) this.level.parent.remove(this.level);
-        if (this.stars && this.stars.parent) this.stars.parent.remove(this.stars);
-        if (this.sky && this.sky.parent) this.sky.parent.remove(this.sky);
-        if (this.moonSurface && this.moonSurface.parent) this.moonSurface.parent.remove(this.moonSurface);
-
-        if (this.level) this.level.traverse(
-            (object) => {
-
-                if (
-                    !object.isMesh &&
-                    !object.isPoints
-                ) {
-                    return;
-                }
-
-
-                if (
-                    object.geometry
-                ) {
-
-                    object.geometry.dispose();
-                }
-
-
-                if (
-                    object.material
-                ) {
-
-                    if (
-                        Array.isArray(
-                            object.material
-                        )
-                    ) {
-
-                        object.material.forEach(
-                            (material) => {
-
-                                material.dispose();
-                            }
-                        );
-
-                    } else {
-
-                        object.material.dispose();
-                    }
-                }
-            }
-        );
-
-
-        this.rocks = [];
-
-        this.stars = null;
-
-        this.sky = null;
-
-        this.earth = null;
-
-        this.earthLight = null;
-
-        this.moonSurface = null;
-
-        this.regolithParticles = null;
-
-        this.distantTerrain = null;
-
-        this.pathGroup = null;
-
-        this.flagCloth = null;
-
-        this.flagClothBase = null;
-
-        this.logoCanvas = null;
-
-        this.starMaterial = null;
-
-        this.earthAtmosphere = null;
-
-        this.engineGlows = null;
-
-        this.strobeLight = null;
-
-        this.strobeMesh = null;
-        this.colliders = [];
-
-
-        if (this.sunGlow) {
-
-            if (this.sunGlow.material.map) {
-
-                this.sunGlow.material.map.dispose();
-            }
-
-            this.sunGlow.material.dispose();
-
-            this.sunGlow = null;
-        }
-
-
-        if (this.logoTexture) {
-
-            this.logoTexture.dispose();
-
-            this.logoTexture = null;
-        }
-
-
-        if (this.flagTexture) {
-
-            this.flagTexture.dispose();
-
-            this.flagTexture = null;
-        }
-
-
-        if (this.envTexture) {
-
-            this.envTexture.dispose();
-
-            this.envTexture = null;
-        }
-
-
-        if (this.pmremGenerator) {
-
-            this.pmremGenerator.dispose();
-
-            this.pmremGenerator = null;
-        }
-    }
+    // Null references
+    this.stars = null;
+    this.sky = null;
+    this.earth = null;
+    this.moonSurface = null;
+    this.sun = null;
+    this.spaceship = null;
+    this.monument = null;
+    this.throneDoor = null;
+    this.architect = null;
+    this.colliders = [];
+  }
 }
