@@ -64,6 +64,9 @@ const mainMenuElement = createMainMenu(
                 const continueBtn = document.getElementById('continueBtn');
                 if (continueBtn) {
                     continueBtn.onclick = () => {
+                      if (gameOver) {
+                        resetGame();
+                      }
                         uiManager.hideAllScreens();
                         uiManager.showHUD();
                         if (!gameStarted) {
@@ -86,7 +89,8 @@ const mainMenuElement = createMainMenu(
             }
         }, 200);
     },
-    // onCreditsClick
+  
+          // onCreditsClick
     () => {
         console.log('📋 Credits clicked');
         const creditsDiv = document.createElement('div');
@@ -94,7 +98,7 @@ const mainMenuElement = createMainMenu(
             position: fixed;
             top: 0; left: 0;
             width: 100%; height: 100%;
-            background: rgba(0,0,0,0.92);
+            background: rgba(0,0,0,0.95);
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -102,16 +106,33 @@ const mainMenuElement = createMainMenu(
             color: white;
             font-family: 'Courier New', monospace;
             z-index: 200;
+            overflow-y: auto;
+            padding: 20px;
         `;
         creditsDiv.innerHTML = `
             <h1 style="color: #00ffff; font-size: 36px; margin-bottom: 30px;">CREDITS</h1>
-            <div style="font-size: 18px; line-height: 2; color: #aaa;">
-                <p><span style="color: #00ffff;">●</span> Three.js</p>
-                <p><span style="color: #00ffff;">●</span> Cannon-es</p>
-                <p><span style="color: #00ffff;">●</span> Howler.js</p>
-                <p><span style="color: #00ffff;">●</span> Vite</p>
-                <p style="margin-top: 30px; color: #666;">Team Members Coming Soon</p>
+            
+            <div style="text-align: left; font-size: 16px; line-height: 2; color: #aaa; max-width: 600px;">
+                <h2 style="color: #ffffff; font-size: 20px; margin-bottom: 10px;">LIBRARIES</h2>
+                <p>● Three.js (MIT) - <a href="https://threejs.org" style="color: #00ffff;">threejs.org</a></p>
+                <p>● Cannon-es (MIT) - <a href="https://github.com/pmndrs/cannon-es" style="color: #00ffff;">pmndrs/cannon-es</a></p>
+                <p>● Howler.js (MIT) - <a href="https://howlerjs.com" style="color: #00ffff;">howlerjs.com</a></p>
+                <p>● Vite (MIT) - <a href="https://vitejs.dev" style="color: #00ffff;">vitejs.dev</a></p>
+
+                <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">SOUND EFFECTS & MUSIC (OpenGameArt)</h2>
+                <p>● Punch SFX by DavidW (CC-BY 3.0) - <a href="https://opengameart.org/content/punch-sfx" style="color: #00ffff;">Link</a></p>
+                <p>● Spell Sounds Starter Pack by p0ss (CC-BY-SA 3.0) - <a href="https://opengameart.org/content/spell-sounds-starter-pack" style="color: #00ffff;">Link</a></p>
+                <p>● A Kinda Cool Sound Effect by Spring Spring (CC0) - <a href="https://opengameart.org/content/a-kinda-cool-sound-effect" style="color: #00ffff;">Link</a></p>
+                <p>● Tactical Weapons and Tactics Sound Pack by XCVG (CC-BY 3.0) - <a href="https://opengameart.org/content/tactical-weapons-and-tactics-sound-pack" style="color: #00ffff;">Link</a></p>
+                <p>● 37 hits/punches by independent.nu (CC-BY 3.0) - <a href="https://opengameart.org/content/37-hitspunches" style="color: #00ffff;">Link</a></p>
+
+                <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">TEAM MEMBERS</h2>
+                <p>● Banele - UI, Audio, Deployment</p>
+                <p>● Busisiwe - Shaders</p>
+                <p>● Pumelela - Environment, Art</p>
+                <p>● Sibusiso - Player, Controls, Physics</p>
             </div>
+            
             <button onclick="this.parentElement.remove()" style="
                 margin-top: 40px;
                 background: #00ffff;
@@ -126,6 +147,7 @@ const mainMenuElement = createMainMenu(
         `;
         document.body.appendChild(creditsDiv);
     }
+    
 );
 uiManager.registerScreen('main-menu', mainMenuElement);
 uiManager.showScreen('main-menu');
@@ -294,7 +316,7 @@ gameOverDiv.innerHTML = `
 document.body.appendChild(gameOverDiv);
 
 document.getElementById('restartBtn').addEventListener('click', () => {
-    location.reload(); // TEMPORARY - will be replaced with state reset later
+    resetGame(); // 
 });
 
 function flashPlayer() {
@@ -1075,3 +1097,90 @@ function animate() {
 
 // NOTE: spawnWave() and animate() are now called from the PLAY button callback
 // Do NOT call them here anymore.
+function resetGame() {
+    // Reset game state flags
+    gameStarted = false;
+    gameOver = false;
+    currentWave = 0;
+    waveInProgress = false;
+    playerHealth = PLAYER_MAX_HEALTH;
+    fragmentsCollected = 0;
+    playerInvincible = false;
+    playerInvincibleTimer = 0;
+    playerFlashing = false;
+    isAttacking = false;
+    attackType = null;
+    commanderAlive = false;
+    commanderDefeated = false;
+    commander = null;
+    terminalVisible = false;
+    terminalActive = false;
+    portalActive = false;
+    
+    // Reset player body
+    playerBody.position.set(0, 3, 0);
+    playerBody.velocity.set(0, 0, 0);
+    playerMesh.material.color.set(0x00ffff);
+    playerMesh.material.emissive.set(0x000000);
+    playerMesh.material.emissiveIntensity = 0;
+
+    // Remove all enemies from scene and physics world
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        scene.remove(enemy.mesh);
+        physicsWorld.removeBody(enemy.body);
+        enemy.mesh.geometry.dispose();
+        enemy.mesh.material.dispose();
+        if (enemy.barContainer && enemy.barContainer.parentNode) {
+            enemy.barContainer.parentNode.removeChild(enemy.barContainer);
+        }
+    }
+    enemies.length = 0;
+
+    // Remove all fragments
+    for (let i = fragments.length - 1; i >= 0; i--) {
+        const fragment = fragments[i];
+        scene.remove(fragment);
+        fragment.geometry.dispose();
+        fragment.material.dispose();
+    }
+    fragments.length = 0;
+
+    // Remove commander mesh if it exists
+    if (commander) {
+        scene.remove(commander.mesh);
+        physicsWorld.removeBody(commander.body);
+        commander.mesh.geometry.dispose();
+        commander.mesh.material.dispose();
+        commander = null;
+    }
+
+    // Hide specific objects
+    terminalMesh.visible = false;
+    screenMesh.visible = false;
+    portalMesh.visible = false;
+    attackIndicator.visible = false;
+
+    // Hide UI elements
+    gameOverDiv.style.display = 'none';
+
+    // Restart music
+    audioManager.stopMusic();
+    audioManager.playLevelMusic(1);
+
+    // Reset HUD
+    updateHUD(
+        playerHealth,
+        PLAYER_MAX_HEALTH,
+        fragmentsCollected,
+        FRAGMENTS_NEEDED,
+        currentWave,
+        TOTAL_WAVES
+    );
+
+    // Show main menu again
+    uiManager.hideAllScreens();
+    uiManager.showScreen('main-menu');
+
+    console.log('🔄 Game reset complete');
+}
