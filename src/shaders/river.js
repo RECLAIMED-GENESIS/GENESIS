@@ -6,6 +6,9 @@
 //   uTime        - seconds, advanced every frame in Level2.update()
 //   uSeaTexture  - sea.jpg (MirroredRepeatWrapping)
 //   uTileSize    - world size (x, z) of one texture tile
+//   uShoreDistance - R = distance to nearest rock (0..uShoreMax m)
+//   uShoreBounds - x0, z0, width, depth covered by uShoreDistance
+//   uShoreMax    - metres that R = 1.0 stands for
 //   + three.js fog uniforms (material.fog = true)
 // =============================================================
 
@@ -150,6 +153,9 @@ export const riverFragmentShader = `
 uniform float uTime;
 uniform sampler2D uSeaTexture;
 uniform vec2 uTileSize;
+uniform sampler2D uShoreDistance;
+uniform vec4 uShoreBounds;
+uniform float uShoreMax;
 
 varying vec2 vUv;
 varying vec3 vWorldPosition;
@@ -356,6 +362,71 @@ void main() {
             waterColor,
             skyReflection,
             fresnel * 0.6
+        );
+
+
+    // =========================================================
+    // SURF - WHITE FOAM WHERE THE WAVES HIT THE ROCKS
+    // =========================================================
+
+    // Distance to the nearest rock in metres
+    vec2 shoreUV =
+        (p - uShoreBounds.xy) / uShoreBounds.zw;
+
+    float shoreDistance = uShoreMax;
+
+    if (
+        shoreUV.x >= 0.0 && shoreUV.x <= 1.0 &&
+        shoreUV.y >= 0.0 && shoreUV.y <= 1.0
+    ) {
+        shoreDistance =
+            texture2D(uShoreDistance, shoreUV).r * uShoreMax;
+    }
+
+    // Foam breakup pattern, drifting with the water
+    float foamNoise =
+        noise(p * 1.7 + vec2(uTime * 0.5, -uTime * 0.35)) * 0.6 +
+        noise(p * 4.3 - vec2(uTime * 0.8, uTime * 0.6)) * 0.4;
+
+    // Always some churned water right against the rock
+    float contact =
+        1.0 - smoothstep(0.0, 1.4, shoreDistance);
+
+    // Bands of surf rolling in towards the rocks
+    float rolling =
+        sin(shoreDistance * 1.9 + uTime * 2.2 + foamNoise * 2.0);
+
+    rolling = smoothstep(0.35, 0.95, rolling);
+
+    // Sets of bigger surges arriving along the coast
+    float surge =
+        0.55 +
+        0.45 * sin(uTime * 0.7 + p.y * 0.045 + foamNoise);
+
+    // Surf is strongest when a wave crest arrives
+    float crestBoost =
+        0.7 + 0.6 * smoothstep(-0.5, 1.0, vWaveHeight);
+
+    float nearShore =
+        1.0 - smoothstep(0.5, 4.5, shoreDistance);
+
+    float surf =
+        contact * 0.85 +
+        nearShore * rolling * surge * crestBoost;
+
+    // Break the foam up into lacy patches
+    surf *=
+        smoothstep(0.3, 0.65, foamNoise + contact * 0.35);
+
+    surf = clamp(surf, 0.0, 1.0);
+
+    vec3 foamColor = vec3(0.78, 0.84, 0.90);
+
+    waterColor =
+        mix(
+            waterColor,
+            foamColor,
+            surf * 0.9
         );
 
 

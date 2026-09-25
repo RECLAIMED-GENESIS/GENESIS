@@ -232,8 +232,15 @@ export class Level2 {
         groundTexture.wrapT =
             THREE.RepeatWrapping;
 
+        // Ground stops at the road edge on the sea side (x 8)
+        // so the lowered sea and the cliffs are not covered.
+        // Repeat scaled to keep the same texture density.
+        const GROUND_X_MIN = -300;
+        const GROUND_X_MAX = 8;
+        const GROUND_WIDTH = GROUND_X_MAX - GROUND_X_MIN;
+
         groundTexture.repeat.set(
-            80,
+            80 * GROUND_WIDTH / 600,
             80
         );
 
@@ -243,7 +250,7 @@ export class Level2 {
         const ground =
             new THREE.Mesh(
                 new THREE.PlaneGeometry(
-                    600,
+                    GROUND_WIDTH,
                     600
                 ),
                 new THREE.MeshStandardMaterial({
@@ -258,7 +265,7 @@ export class Level2 {
             -Math.PI / 2;
 
         ground.position.set(
-            0,
+            (GROUND_X_MIN + GROUND_X_MAX) / 2,
             -0.01,
             0
         );
@@ -293,7 +300,7 @@ export class Level2 {
             roadNeon
         );
 
-        this.createRoadBoundaryWall();
+        this.createCoastline();
 
         this.createRiver();
 
@@ -468,96 +475,610 @@ export class Level2 {
     }
 
 // =============================================================
-// LEFT ROAD BOUNDARY WALL
+// SEA-SIDE COASTLINE
+// Rocky cliffs between the road edge (x 8) and the sea, loose
+// boulders in the water, a shore-distance map for the surf
+// foam, and an invisible barrier where the old wall stood.
 // =============================================================
 
-createRoadBoundaryWall() {
+createCoastline() {
 
-    const wallMaterial =
+    // ---------------------------------------------------------
+    // LAYOUT
+    // ---------------------------------------------------------
+    // Road top = y 0, road edge = x 8
+    // Cliff top sits just below road level, the sea is 6 lower.
+    // Land (cliff top) is:
+    //   - a strip from the road edge out to about x 12
+    //   - a headland under the Twin Spire Gateway plaza
+    //     (plaza x 11.5 to 36.5, z 4.5 to 95.5)
+    //   - a ledge under the poster (x 15, z -16 to 14)
+
+    const coast = {
+        seaLevel: -6,
+        topY: -0.05,          // cliff top, just under the road
+        floorY: -9.5,         // rock floor, under the water
+        cliffRun: 3.5,        // metres the face takes to drop
+        xMin: 8,              // never build over the road
+        xMax: 52,
+        zMin: -300,
+        zMax: 300
+    };
+
+    this.coast = coast;
+    this.seaLevel = coast.seaLevel;
+
+
+    // ---------------------------------------------------------
+    // SHARED ROCK MATERIAL
+    // Dark, rough, faceted. Colour comes from vertex colours:
+    // darker and wet near the water, lighter on top.
+    // ---------------------------------------------------------
+
+    const rockMaterial =
         new THREE.MeshStandardMaterial({
-            color: 0x252a32,
-            metalness: 0.75,
-            roughness: 0.35
+            vertexColors: true,
+            roughness: 0.96,
+            metalness: 0.0,
+            flatShading: true
         });
 
-    const neonMaterial =
-        new THREE.MeshStandardMaterial({
-            color: 0x00d9ff,
-            emissive: 0x00d9ff,
-            emissiveIntensity: 5,
-            metalness: 0.3,
-            roughness: 0.25
-        });
+    this.rockMaterial = rockMaterial;
 
 
-    // ---------------------------------------------------------
-    // MAIN LOW WALL
-    // ---------------------------------------------------------
+    this.createCliffs(coast, rockMaterial);
 
-    const wall =
-        new THREE.Mesh(
-            new THREE.BoxGeometry(
-                1.2,      // thickness
-                1.4,      // height
-                260       // length
-            ),
-            wallMaterial
-        );
+    const boulders =
+        this.createBoulders(coast, rockMaterial);
 
-    wall.position.set(
-        9.8,
-        0.7,
-        0
-    );
+    this.createShoreDistanceMap(coast, boulders);
 
-    this.level.add(wall);
-
-
-    // ---------------------------------------------------------
-    // GLOWING STRIP ALONG TOP
-    // ---------------------------------------------------------
-
-    const glow =
-        new THREE.Mesh(
-            new THREE.BoxGeometry(
-                0.12,
-                0.16,
-                260
-            ),
-            neonMaterial
-        );
-
-    glow.position.set(
-        10.45,
-        1.42,
-        0
-    );
-
-    this.level.add(glow);
-
-
-    // ---------------------------------------------------------
-    // SECOND DARK CAP
-    // ---------------------------------------------------------
-
-    const cap =
-        new THREE.Mesh(
-            new THREE.BoxGeometry(
-                1.35,
-                0.18,
-                260
-            ),
-            wallMaterial
-        );
-
-    cap.position.set(
-        9.8,
-        1.48,
-        0
-    );
-
-    this.level.add(cap);
+    this.createSeaBarrier();
 }
+
+
+// -------------------------------------------------------------
+// SMALL DETERMINISTIC NOISE (same rocks every time)
+// -------------------------------------------------------------
+
+coastHash(x, y) {
+
+    let h =
+        Math.imul(x | 0, 374761393) ^
+        Math.imul(y | 0, 668265263);
+
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    h ^= h >>> 16;
+
+    return (h >>> 0) / 4294967295;
+}
+
+coastNoise(x, y) {
+
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+
+    let fx = x - xi;
+    let fy = y - yi;
+
+    fx = fx * fx * (3 - 2 * fx);
+    fy = fy * fy * (3 - 2 * fy);
+
+    const a = this.coastHash(xi, yi);
+    const b = this.coastHash(xi + 1, yi);
+    const c = this.coastHash(xi, yi + 1);
+    const d = this.coastHash(xi + 1, yi + 1);
+
+    return (
+        a +
+        (b - a) * fx +
+        (c - a) * fy +
+        (a - b - c + d) * fx * fy
+    );
+}
+
+// 0..1 fractal noise
+coastFbm(x, y, octaves = 4) {
+
+    let total = 0;
+    let amplitude = 0.5;
+    let frequency = 1;
+    let norm = 0;
+
+    for (let i = 0; i < octaves; i++) {
+        total += this.coastNoise(x * frequency + i * 17.3, y * frequency - i * 9.1) * amplitude;
+        norm += amplitude;
+        amplitude *= 0.5;
+        frequency *= 2.03;
+    }
+
+    return total / norm;
+}
+
+// Seeded random for boulder placement
+coastRandom(seed) {
+
+    let s = seed >>> 0;
+
+    return () => {
+        s = (s + 0x6D2B79F5) >>> 0;
+        let t = s;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+
+// -------------------------------------------------------------
+// DISTANCE OUTSIDE THE LAND (<= 0 means on the cliff top)
+// -------------------------------------------------------------
+
+coastLandDistance(x, z) {
+
+    // Uneven cliff edge along the road
+    const edgeNoise =
+        (this.coastFbm(z * 0.06, 3.7, 3) - 0.5) * 2.4;
+
+    const strip =
+        x - (12 + edgeNoise);
+
+    // Box distance helper
+    const box = (x0, x1, z0, z1) => {
+        const dx = Math.max(x0 - x, 0, x - x1);
+        const dz = Math.max(z0 - z, 0, z - z1);
+        const outside = Math.hypot(dx, dz);
+        const inside = Math.min(0, Math.max(x0 - x, x - x1, z0 - z, z - z1));
+        return outside + inside;
+    };
+
+    const wobble =
+        (this.coastFbm(x * 0.09, z * 0.09, 3) - 0.5) * 2.0;
+
+    // Headland under the gateway plaza (always >= 1 m beyond it)
+    const headland =
+        box(8, 38.5, 2.5, 97.5) - wobble * 0.5;
+
+    // Ledge under the poster
+    const ledge =
+        box(8, 17.5, -18, 16) - wobble * 0.4;
+
+    return Math.min(strip, headland, ledge);
+}
+
+
+// -------------------------------------------------------------
+// ROCK HEIGHT AT (x, z)
+// -------------------------------------------------------------
+
+coastHeight(x, z) {
+
+    const c = this.coast;
+
+    const d = this.coastLandDistance(x, z);
+
+    // Cliff top: slightly rough, never above the road
+    if (d <= 0) {
+        return c.topY - this.coastFbm(x * 0.8, z * 0.8, 3) * 0.18;
+    }
+
+    // Cliff face: steep drop with jagged ledges
+    const t = Math.min(d / c.cliffRun, 1);
+    const s = t * t * (3 - 2 * t);
+
+    let h = c.topY + (c.floorY - c.topY) * s;
+
+    const faceNoise =
+        (this.coastFbm(x * 0.35, z * 0.35, 4) - 0.5) * 3.0;
+
+    h += faceNoise * Math.sin(Math.PI * t);
+
+    // Rocky shoals just beyond the cliff foot. Some break the
+    // surface so rocks stick out of the water.
+    const beyond = Math.max(d - c.cliffRun, 0);
+
+    const reef =
+        Math.max(this.coastFbm(x * 0.22 + 40, z * 0.22, 4) - 0.52, 0) *
+        18 *
+        Math.exp(-beyond / 7);
+
+    h += reef * (d > c.cliffRun * 0.6 ? 1 : 0.4);
+
+    return Math.min(h, c.topY);
+}
+
+
+// -------------------------------------------------------------
+// CLIFF SURFACE (one mesh)
+// -------------------------------------------------------------
+
+createCliffs(coast, rockMaterial) {
+
+    const step = 0.75;
+
+    const nx = Math.round((coast.xMax - coast.xMin) / step);
+    const nz = Math.round((coast.zMax - coast.zMin) / 0.8);
+
+    const vertexCount = (nx + 1) * (nz + 1);
+
+    const positions = new Float32Array(vertexCount * 3);
+    const colors = new Float32Array(vertexCount * 3);
+
+    const top = new THREE.Color(0x3b3733);
+    const mid = new THREE.Color(0x2a2724);
+    const wet = new THREE.Color(0x141618);
+    const tmp = new THREE.Color();
+
+    let i = 0;
+
+    for (let iz = 0; iz <= nz; iz++) {
+
+        const z = coast.zMin + (iz / nz) * (coast.zMax - coast.zMin);
+
+        for (let ix = 0; ix <= nx; ix++) {
+
+            let x = coast.xMin + (ix / nx) * (coast.xMax - coast.xMin);
+
+            const y = this.coastHeight(x, z);
+
+            // Push face vertices sideways a little so the cliff
+            // does not look like a regular grid. Face vertices stay
+            // at x >= 11 so the street lights' buried poles
+            // (x 7.4 to 10.6, down to y -5.1) stay inside the rock.
+            if (y < coast.topY - 0.3 && ix > 0) {
+                x += (this.coastFbm(x * 0.5, z * 0.5 + 11, 2) - 0.5) * 1.2;
+                x = Math.max(x, 11);
+            }
+
+            positions[i * 3] = x;
+            positions[i * 3 + 1] = y;
+            positions[i * 3 + 2] = z;
+
+            // Colour: wet near the waterline, lighter on top
+            const heightT =
+                THREE.MathUtils.clamp(
+                    (y - (coast.seaLevel + 0.8)) / (coast.topY - coast.seaLevel - 0.8),
+                    0,
+                    1
+                );
+
+            tmp.copy(wet).lerp(mid, THREE.MathUtils.smoothstep(heightT, 0, 0.25));
+            tmp.lerp(top, THREE.MathUtils.smoothstep(heightT, 0.6, 1.0));
+
+            const variation =
+                0.8 + this.coastFbm(x * 0.4 + 5, z * 0.4, 3) * 0.4;
+
+            colors[i * 3] = tmp.r * variation;
+            colors[i * 3 + 1] = tmp.g * variation;
+            colors[i * 3 + 2] = tmp.b * variation;
+
+            i++;
+        }
+    }
+
+    const indices = [];
+
+    for (let iz = 0; iz < nz; iz++) {
+        for (let ix = 0; ix < nx; ix++) {
+
+            const a = iz * (nx + 1) + ix;
+            const b = a + 1;
+            const c = a + (nx + 1);
+            const d = c + 1;
+
+            // Counter-clockwise seen from above
+            indices.push(a, c, b, b, c, d);
+        }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+
+    const cliffs = new THREE.Mesh(geometry, rockMaterial);
+
+    cliffs.receiveShadow = true;
+    cliffs.castShadow = true;
+
+    this.level.add(cliffs);
+
+    this.cliffs = cliffs;
+}
+
+
+// -------------------------------------------------------------
+// BOULDERS IN THE WATER (one InstancedMesh)
+// -------------------------------------------------------------
+
+createBoulders(coast, rockMaterial) {
+
+    // One lumpy rock shape shared by every boulder
+    const geometry =
+        new THREE.IcosahedronGeometry(1, 2);
+
+    const pos = geometry.attributes.position;
+    const v = new THREE.Vector3();
+    const colors = new Float32Array(pos.count * 3);
+    const base = new THREE.Color(0x2c2926);
+    const wet = new THREE.Color(0x151719);
+
+    for (let i = 0; i < pos.count; i++) {
+
+        v.fromBufferAttribute(pos, i).normalize();
+
+        const n =
+            this.coastFbm(v.x * 1.7 + v.z * 0.6 + 3, v.y * 1.7 - v.z * 0.9, 4);
+
+        const radius = 0.72 + n * 0.55;
+
+        pos.setXYZ(i, v.x * radius, v.y * radius * 0.8, v.z * radius);
+
+        // Darker underneath (wet), lighter on top
+        const c = wet.clone().lerp(base, THREE.MathUtils.smoothstep(v.y, -0.2, 0.5));
+        const variation = 0.85 + n * 0.3;
+
+        colors[i * 3] = c.r * variation;
+        colors[i * 3 + 1] = c.g * variation;
+        colors[i * 3 + 2] = c.b * variation;
+    }
+
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.computeVertexNormals();
+
+    const random = this.coastRandom(20260925);
+
+    const count = 70;
+    const boulders = [];
+
+    const matrix = new THREE.Matrix4();
+    const quaternion = new THREE.Quaternion();
+    const euler = new THREE.Euler();
+    const scale = new THREE.Vector3();
+    const position = new THREE.Vector3();
+
+    for (let tries = 0; boulders.length < count && tries < count * 20; tries++) {
+
+        // Most boulders near the playable road stretch
+        const z =
+            random() < 0.8
+                ? -160 + random() * 320
+                : coast.zMin + random() * (coast.zMax - coast.zMin);
+
+        // Find the foot of the cliff at this z
+        let foot = null;
+
+        for (let x = coast.xMin; x < coast.xMax; x += 0.5) {
+            if (this.coastHeight(x, z) < coast.seaLevel - 1.5) {
+                foot = x;
+                break;
+            }
+        }
+
+        if (foot === null) continue;
+
+        const size = 0.8 + Math.pow(random(), 2.2) * 3.2;
+
+        const x = foot - 1 + random() * 13;
+
+        // Keep well clear of the road and the cliff top
+        if (x - size * 1.3 < 13) continue;
+
+        const y =
+            coast.seaLevel - size * (0.1 + random() * 0.5);
+
+        boulders.push({
+            x,
+            y,
+            z,
+            sx: size * (0.8 + random() * 0.5),
+            sy: size * (0.7 + random() * 0.5),
+            sz: size * (0.8 + random() * 0.5),
+            yaw: random() * Math.PI * 2,
+            tilt: (random() - 0.5) * 0.5
+        });
+    }
+
+    const mesh =
+        new THREE.InstancedMesh(geometry, rockMaterial, boulders.length);
+
+    boulders.forEach((b, i) => {
+
+        position.set(b.x, b.y, b.z);
+        euler.set(b.tilt, b.yaw, b.tilt * 0.5);
+        quaternion.setFromEuler(euler);
+        scale.set(b.sx, b.sy, b.sz);
+
+        matrix.compose(position, quaternion, scale);
+        mesh.setMatrixAt(i, matrix);
+    });
+
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    this.level.add(mesh);
+
+    this.boulders = mesh;
+
+    return boulders;
+}
+
+
+// -------------------------------------------------------------
+// SHORE DISTANCE MAP (for the surf foam in river.js)
+// For each point of water near the coast: distance in metres
+// to the nearest rock at sea level, stored 0..10 m as 0..255.
+// -------------------------------------------------------------
+
+createShoreDistanceMap(coast, boulders) {
+
+    const res = 0.5;
+    const maxDistance = 10;
+
+    const x0 = coast.xMin;
+    const z0 = coast.zMin;
+    const width = 72 - x0;
+    const depth = coast.zMax - coast.zMin;
+
+    const W = Math.round(width / res);
+    const H = Math.round(depth / res);
+
+    const dist = new Float32Array(W * H);
+    const BIG = 1e6;
+
+    // 1. Mark rock cells (rock above the water surface)
+    for (let j = 0; j < H; j++) {
+
+        const z = z0 + (j + 0.5) * res;
+
+        for (let i = 0; i < W; i++) {
+
+            const x = x0 + (i + 0.5) * res;
+
+            dist[j * W + i] =
+                this.coastHeight(x, z) > coast.seaLevel ? 0 : BIG;
+        }
+    }
+
+    // Boulders: ellipse where each rock cuts the water surface
+    boulders.forEach((b) => {
+
+        const dy = (coast.seaLevel - b.y) / (b.sy * 0.8);
+
+        if (Math.abs(dy) >= 1) return;
+
+        const r = Math.sqrt(1 - dy * dy);
+        const rx = b.sx * r * 0.95;
+        const rz = b.sz * r * 0.95;
+        const reach = Math.max(rx, rz);
+
+        const cos = Math.cos(b.yaw);
+        const sin = Math.sin(b.yaw);
+
+        const iMin = Math.max(0, Math.floor((b.x - reach - x0) / res));
+        const iMax = Math.min(W - 1, Math.ceil((b.x + reach - x0) / res));
+        const jMin = Math.max(0, Math.floor((b.z - reach - z0) / res));
+        const jMax = Math.min(H - 1, Math.ceil((b.z + reach - z0) / res));
+
+        for (let j = jMin; j <= jMax; j++) {
+            for (let i = iMin; i <= iMax; i++) {
+
+                const px = x0 + (i + 0.5) * res - b.x;
+                const pz = z0 + (j + 0.5) * res - b.z;
+
+                // Into the rock's local frame (yaw only)
+                const lx = px * cos - pz * sin;
+                const lz = px * sin + pz * cos;
+
+                if ((lx * lx) / (rx * rx) + (lz * lz) / (rz * rz) <= 1) {
+                    dist[j * W + i] = 0;
+                }
+            }
+        }
+    });
+
+    // 2. Two-pass chamfer distance transform (in cells)
+    const D1 = 1;
+    const D2 = Math.SQRT2;
+
+    for (let j = 0; j < H; j++) {
+        for (let i = 0; i < W; i++) {
+            const k = j * W + i;
+            let d = dist[k];
+            if (i > 0) d = Math.min(d, dist[k - 1] + D1);
+            if (j > 0) {
+                d = Math.min(d, dist[k - W] + D1);
+                if (i > 0) d = Math.min(d, dist[k - W - 1] + D2);
+                if (i < W - 1) d = Math.min(d, dist[k - W + 1] + D2);
+            }
+            dist[k] = d;
+        }
+    }
+
+    for (let j = H - 1; j >= 0; j--) {
+        for (let i = W - 1; i >= 0; i--) {
+            const k = j * W + i;
+            let d = dist[k];
+            if (i < W - 1) d = Math.min(d, dist[k + 1] + D1);
+            if (j < H - 1) {
+                d = Math.min(d, dist[k + W] + D1);
+                if (i < W - 1) d = Math.min(d, dist[k + W + 1] + D2);
+                if (i > 0) d = Math.min(d, dist[k + W - 1] + D2);
+            }
+            dist[k] = d;
+        }
+    }
+
+    // 3. Pack into a texture
+    const data = new Uint8Array(W * H);
+
+    for (let k = 0; k < W * H; k++) {
+        data[k] = Math.min(255, Math.round((dist[k] * res / maxDistance) * 255));
+    }
+
+    const texture =
+        new THREE.DataTexture(data, W, H, THREE.RedFormat, THREE.UnsignedByteType);
+
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.needsUpdate = true;
+
+    this.shoreDistanceTexture = texture;
+
+    // x0, z0, width, depth of the area the map covers
+    this.shoreDistanceBounds =
+        new THREE.Vector4(x0, z0, width, depth);
+
+    this.shoreDistanceMax = maxDistance;
+}
+
+
+// -------------------------------------------------------------
+// INVISIBLE BARRIER WHERE THE OLD WALL WAS
+// Not rendered. For future player collision:
+//   this.colliders -> array of THREE.Box3
+// -------------------------------------------------------------
+
+createSeaBarrier() {
+
+    const barrier =
+        new THREE.Mesh(
+            new THREE.BoxGeometry(
+                1.2,      // thickness (same as the old wall)
+                3,        // height
+                260       // road length
+            ),
+            new THREE.MeshBasicMaterial()
+        );
+
+    barrier.position.set(
+        9.8,
+        1.5,
+        0
+    );
+
+    barrier.visible = false;
+    barrier.name = 'SeaBarrier';
+
+    this.level.add(barrier);
+
+    this.seaBarrier = barrier;
+
+    this.colliders = this.colliders || [];
+
+    this.colliders.push(
+        new THREE.Box3().setFromCenterAndSize(
+            barrier.position.clone(),
+            new THREE.Vector3(1.2, 3, 260)
+        )
+    );
+}
+
 // =============================================================
 // RIVER
 // =============================================================
@@ -604,6 +1125,20 @@ createRiver() {
                         // (same 3:2 shape as sea.jpg)
                         uTileSize: {
                             value: new THREE.Vector2(24, 16)
+                        },
+
+                        // Surf foam: distance to the rocks,
+                        // from createShoreDistanceMap()
+                        uShoreDistance: {
+                            value: null
+                        },
+
+                        uShoreBounds: {
+                            value: this.shoreDistanceBounds.clone()
+                        },
+
+                        uShoreMax: {
+                            value: this.shoreDistanceMax
                         }
                     }
                 ]),
@@ -622,14 +1157,17 @@ createRiver() {
     riverMaterial.uniforms.uSeaTexture.value =
         seaTexture;
 
+    riverMaterial.uniforms.uShoreDistance.value =
+        this.shoreDistanceTexture;
+
 
     // ---------------------------------------------------------
     // SEA SIZE
     // ---------------------------------------------------------
     // Road = x 0, width 16
-    // Boundary wall outer edge (neon strip) = x 10.51
-    // Sea = x 10.51 to 310.51, z -300 to 300 (same length as
-    // the ground), so its far edges sit beyond the fog (270)
+    // Sea = x 10.51 to 310.51, z -300 to 300, so its far edges
+    // sit beyond the fog (270). The part under the cliffs is
+    // hidden by the rock.
 
     const SEA_START_X = 10.51;
     const SEA_WIDTH = 300;
@@ -654,13 +1192,12 @@ createRiver() {
         -Math.PI / 2;
 
 
-    // Base height 0.5: waves move -0.17 to +0.39 around it, so troughs
-    // stay above the ground (y -0.01) and crests stay below
-    // the top of the wall (y 1.48)
+    // Sea level from createCoastline() (y -6, below the cliff
+    // top). Waves move -0.17 to +0.39 around it.
 
     river.position.set(
         SEA_START_X + SEA_WIDTH / 2,
-        0.5,
+        this.seaLevel,
         0
     );
 
