@@ -113,7 +113,7 @@ function loadSoriniAnim(path, key, onDone) {
 }
 
 // Load Y_Bot model
-new FBXLoader().load('./assets/models/player/Y_Bot.fbx', (fbx) => {
+new FBXLoader().load('./assets/models/player/sorini.fbx', (fbx) => {
   fbx.scale.setScalar(0.013);
   // FIX: Offset model so feet align with player.pos.y (ground level)
   // The FBX pivot is at the hips, so we shift the model DOWN so feet
