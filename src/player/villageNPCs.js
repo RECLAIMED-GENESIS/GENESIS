@@ -356,7 +356,7 @@ export class VillageNPCs {
     this.onAllFound = onAllFound;
 
     this.fragmentsFound = 0;
-    this.totalFragments = 5;
+    this.totalFragments = 3;
     this.npcs           = [];
     this.fragments      = [];   // { mesh, collected }
     this.portalMesh     = null;
@@ -439,37 +439,27 @@ export class VillageNPCs {
   }
 
   _buildFragments() {
-    // Fragment positions:
+    // Fragment positions (3 total):
     // 0 — Lotus in koi pond
-    // 1 — Blue lantern (wrong colour) on path
-    // 2 — Given by NPC 3 (merchant), not placed in world
-    // 3 — Frozen blossom petal above trees
-    // 4 — Shrine altar stone (activated last)
-
+    // 1 — Blue lantern on path
+    // 2 — Shrine altar
     const defs = [
-      { x: 14,                     z: 18,   y: 0.6,  color: 0x44ffcc },  // pond lotus
+     { x: this.pathX(40) - 9,     z: 40,   y: 1.2,  color: 0x44ffcc },  // near the Japanese house
       { x: this.pathX(-5) + 3,     z: -5,   y: 1.4,  color: 0x4466ff },  // blue lantern
-      // index 2 is given by NPC — skipped here, collected via _collectFragment(2)
-      { x: this.pathX(-15) - 6,    z: -15,  y: 3.2,  color: 0xff44aa },  // frozen petal
       { x: this.pathX(-58),        z: -58,  y: 2.2,  color: 0xffdd00 },  // shrine altar
+      { x: this.pathX(-30) + 4,    z: -30,  y: 1.4,  color: 0x44ffcc },
     ];
 
-    // sparse array — slot 2 is placeholder (undefined), handled separately
-    this.fragments = new Array(5).fill(null);
+    this.fragments = new Array(3).fill(null);
 
-    const worldIndices = [0, 1, 3, 4]; // fragment indices that exist in the world
     defs.forEach((def, i) => {
-      const fi = worldIndices[i];
       const mesh = makeFragment(def.color);
       const gy   = this._h(def.x, def.z);
       mesh.position.set(def.x, gy + def.y, def.z);
-      mesh.layers.enable(1);   // visible on minimap
+      mesh.layers.enable(1);
       this.group.add(mesh);
-      this.fragments[fi] = { mesh, collected: false };
+      this.fragments[i] = { mesh, collected: false };
     });
-
-    // fragment 2 (given by NPC) — no mesh, just mark slot as needing collection
-    this.fragments[2] = { mesh: null, collected: false };
   }
 
   // ── collect ───────────────────────────────────────────────
@@ -497,8 +487,16 @@ export class VillageNPCs {
       this.fragmentsFound < this.totalFragments ? 3000 : 6000
     );
 
-    if (this.fragmentsFound === this.totalFragments) {
-      setTimeout(() => this._openPortal(), 1800);
+ if (this.fragmentsFound === this.totalFragments) {
+      // Don't open portal yet — Commander must be defeated first
+      setTimeout(() => {
+        if (this.onAllFound) {
+          // Signal to level1.js: spawn the Commander
+          if (typeof window.__spawnCommander === 'function') {
+            window.__spawnCommander();
+          }
+        }
+      }, 1800);
     }
   }
 
@@ -519,7 +517,7 @@ export class VillageNPCs {
   }
 
   // ── portal ────────────────────────────────────────────────
-  _openPortal() {
+  openPortal()  {
     this.portalActive = true;
     this.portalTimer  = 0;
 

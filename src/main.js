@@ -21,6 +21,7 @@ document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1200);
 camera.rotation.order = 'YXZ';
+window.__camera = camera;
 
 // ---------- root motion fix ----------
 // Mixamo FBX animations exported without "In Place" bake the character's
@@ -177,22 +178,27 @@ addEventListener('keydown', e => {
   }
 
   // ── F = Punch ──
+    // â”€â”€ F = Punch â”€â”€
   if (e.code === 'KeyF' && attackCooldown.f <= 0) {
     attackCooldown.f = 0.7;
     playSoriniAction('punch', false);
     _triggerAttack();
+    _damageCommanderIfClose(1);
   }
   // ── G = Kick ──
+   // â”€â”€ G = Kick â”€â”€
   if (e.code === 'KeyG' && attackCooldown.g <= 0) {
     attackCooldown.g = 0.8;
     playSoriniAction('kick', false);
     _triggerAttack();
+    _damageCommanderIfClose(2);
   }
-  // ── H = Hook ──
+  // â”€â”€ H = Hook â”€â”€
   if (e.code === 'KeyH' && attackCooldown.h <= 0) {
     attackCooldown.h = 0.7;
     playSoriniAction('hook', false);
     _triggerAttack();
+    _damageCommanderIfClose(2);
   }
 });
 
@@ -201,6 +207,21 @@ function _triggerAttack() {
     level.onMouseClick(camera, player.pos);
   } else if (level && level.streetEnemies) {
     level.streetEnemies.onMouseClick(camera, player.pos);
+  }
+}
+
+function _damageCommanderIfClose(damage) {
+  if (!level) return;
+  // Commander
+  if (level.commander && level.commander.alive) {
+    const dist = level.commander.getPosition().distanceTo(player.pos);
+    if (dist < 2.5) {
+      level.commander.takeDamage(damage);
+    }
+  }
+  // Grunts
+  if (level.grunts) {
+    level.grunts.checkHit(player.pos, 2.2, damage);
   }
 }
 addEventListener('keyup', e => keys[e.code] = false);

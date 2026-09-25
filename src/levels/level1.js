@@ -21,6 +21,10 @@
 // ============================================================
 import * as THREE from 'three';
 import { VillageNPCs } from '../player/villageNPCs.js';
+import { Commander } from '../enemies/commander.js';
+import { GruntManager } from '../enemies/grunts.js';
+import { BossHealthBar } from '../ui/BossHealthBar.js';
+import { MinionHealthBar } from '../ui/MinionHealthBar.js';
 
 // ---------- noise ----------
 function hash2(x, y) {
@@ -146,6 +150,7 @@ void main(){
 
 export class StreetLevel {
   constructor(sceneOrRenderer = null, rendererMaybe = null) {
+    this.minionHealthBar = new MinionHealthBar(window.__camera);
     let outerScene = null;
     let renderer = null;
     if (sceneOrRenderer && sceneOrRenderer.isScene) {
@@ -199,17 +204,112 @@ export class StreetLevel {
     // ── Village NPCs, stalls, house, fragments, portal ──────
     // switchLevel is exposed on window by main.js so the portal
     // callback can trigger level 2 from inside villageNPCs.js
-    this.villageNPCs = new VillageNPCs(
+      this.villageNPCs = new VillageNPCs(
       this.level,
       this._h.bind(this),
       this.pathX.bind(this),
       () => {
-        // all 5 fragments collected → walk into portal → go to level 2
+        // Called when player walks into the portal
         setTimeout(() => {
           if (typeof window.__switchLevel === 'function') window.__switchLevel(2);
         }, 1200);
       }
     );
+
+    // ── Commander + Minions ──
+    this.commander = null;
+    this.grunts = new GruntManager(this.level);
+    this.bossHealthBar = new BossHealthBar();
+    this.minionHealthBar = new MinionHealthBar(this._camera || null);
+    this.commanderSpawned = false;
+    this.keySpawned = false;
+
+    // Expose spawnCommander so villageNPCs.js can trigger it
+    window.__spawnCommander = () => this._spawnCommander();
+  }
+
+  // the path wanders gently; everything aligns to it
+    // ── Commander spawn ──
+  _spawnCommander() {
+    if (this.commanderSpawned) return;
+    this.commanderSpawned = true;
+
+    const sx = this.pathX(-58);
+    const sz = -58;
+    const sy = this._h(sx, sz);
+
+    // Spawn opposite end of shrine
+    const spawnPos = new THREE.Vector3(sx, sy, sz + 5);
+
+    console.log('⚔️ THE WARDEN AWAKENS');
+
+    // Screen shake
+    this._screenShake = 0.8;
+
+    // Boss HP bar
+    this.bossHealthBar.show();
+
+    // Spawn Commander
+    this.commander = new Commander(this.level, spawnPos, {
+      onDamagePlayer: (dmg) => {
+        if (this._onDamagePlayer) this._onDamagePlayer(dmg);
+      },
+      onMinionSpawn: (count) => {
+        this.grunts.spawnWave(spawnPos, count);
+        // Register each new grunt with the minion HP bar
+        for (const g of this.grunts.grunts) {
+          this.minionHealthBar.register(g);
+        }
+      },
+      onDeath: () => {
+        this._onCommanderDeath();
+      }
+    });
+  }
+
+  _onCommanderDeath() {
+    console.log('💀 THE WARDEN HAS FALLEN');
+    this.bossHealthBar.hide();
+    this.grunts.killAll();
+
+    // Screen shake + slowmo feel
+    this._screenShake = 1.5;
+
+    // Drop key at commander's last position
+    const keyPos = this.commander.getPosition();
+    this._spawnKey(keyPos);
+  }
+
+  _spawnKey(pos) {
+    this.keySpawned = true;
+    const keyGroup = new THREE.Group();
+
+    // Simple key: golden box + ring
+    const goldMat = new THREE.MeshStandardMaterial({
+      color: 0xffcc44,
+      emissive: 0xffaa00,
+      emissiveIntensity: 1.2,
+      metalness: 0.9,
+      roughness: 0.2
+    });
+
+    const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, 0.15), goldMat);
+    const head  = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.06, 8, 16), goldMat);
+    head.rotation.x = Math.PI / 2;
+    head.position.y = 0.4;
+
+    keyGroup.add(shaft);
+    keyGroup.add(head);
+    keyGroup.position.set(pos.x, this._h(pos.x, pos.z) + 1.2, pos.z);
+
+    // Light
+    const light = new THREE.PointLight(0xffcc44, 5, 8, 2);
+    keyGroup.add(light);
+
+    this.level.add(keyGroup);
+    this.keyMesh = keyGroup;
+
+    console.log('🔑 KEY DROPPED');
   }
 
   // the path wanders gently; everything aligns to it
@@ -617,14 +717,58 @@ export class StreetLevel {
     if (this.villageNPCs && player) {
       this.villageNPCs.update(deltaTime, this.time, player);
     }
+
+    // ── Commander ──
+    if (this.commander) {
+      this.commander.update(deltaTime, player.pos);
+      this.bossHealthBar.setHealth(this.commander.health, this.commander.MAX_HEALTH);
+      this.bossHealthBar.setPhase(this.commander.phase);
+
+      // Player attack on Commander
+      if (this._playerAttackThisFrame) {
+        const dist = this.commander.getPosition().distanceTo(player.pos);
+        if (dist < 2.5) {
+          this.commander.takeDamage(this._playerAttackDamage || 1);
+        }
+      }
+    }
+
+    // ── Grunts ──
+    this.grunts.update(deltaTime, player.pos, (dmg) => {
+      if (this._onDamagePlayer) this._onDamagePlayer(dmg);
+    });
+
+    // ── Minion HP bars ──
+    this.minionHealthBar.update();
+
+    // ── Key pickup ──
+    if (this.keySpawned && this.keyMesh) {
+      this.keyMesh.rotation.y += deltaTime * 1.5;
+      const dist = this.keyMesh.position.distanceTo(player.pos);
+      if (dist < 2.0) {
+        console.log('🔑 KEY COLLECTED');
+        this.level.remove(this.keyMesh);
+        this.keyMesh = null;
+        // Open the portal!
+        if (this.villageNPCs) this.villageNPCs.openPortal();
+      }
+    }
   }
 
   // =========================================================
   // DISPOSE
   // =========================================================
-  dispose(outerScene = null) {
+    dispose(outerScene = null) {
     // clean up village system first (removes DOM elements too)
     if (this.villageNPCs) { this.villageNPCs.dispose(); this.villageNPCs = null; }
+
+    // Clean up Commander + minions + HP bars
+    if (this.commander) { this.commander.dispose(); this.commander = null; }
+    if (this.grunts) { this.grunts.killAll(); this.grunts = null; }
+    if (this.bossHealthBar) { this.bossHealthBar.dispose(); this.bossHealthBar = null; }
+    if (this.minionHealthBar) { this.minionHealthBar.clear(); this.minionHealthBar = null; }
+    if (this.keyMesh) { this.level.remove(this.keyMesh); this.keyMesh = null; }
+    delete window.__spawnCommander;
 
     if (this.level && this.level.parent) this.level.parent.remove(this.level);
     if (this.sky && this.sky.parent) this.sky.parent.remove(this.sky);

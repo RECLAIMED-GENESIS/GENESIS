@@ -818,11 +818,11 @@ export class StreetEnemies {
     setTimeout(() => showDialogue(lines[2], 4000), 10500);
     setTimeout(() => {
       showDialogue('Step into the portal.', 6000);
-      this._openPortal();
+      this.openPortal();
     }, 15000);
   }
 
-  _openPortal() {
+  openPortal() {
     const torusMat = new THREE.MeshStandardMaterial({
       color: 0x0044ff, emissive: 0x0088ff, emissiveIntensity: 3, roughness: 0.2, metalness: 0.8,
     });
