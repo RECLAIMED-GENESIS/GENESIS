@@ -1,5 +1,80 @@
 // =============================================================
-// REALISTIC CYBERPUNK RIVER
+// REALISTIC MOVING SEA
+// Used by Level2.createRiver()
+//
+// Uniforms:
+//   uTime        - seconds, advanced every frame in Level2.update()
+//   uSeaTexture  - sea.jpg (MirroredRepeatWrapping)
+//   uTileSize    - world size (x, z) of one texture tile
+//   + three.js fog uniforms (material.fog = true)
+// =============================================================
+
+
+// =============================================================
+// SHARED WAVE FUNCTIONS
+// =============================================================
+
+const waveFunctions = `
+
+// One travelling wave. Uses exp(sin) so crests are sharp and
+// troughs are wide and flat, like real sea swell.
+//   dir        - direction of travel (normalized)
+//   wavelength - metres between crests
+//   amplitude  - height in metres
+// Returns height in .x and its x/z slope in .yz
+vec3 wave(
+    vec2 p,
+    vec2 dir,
+    float wavelength,
+    float amplitude,
+    float time
+) {
+
+    float k = 6.28318 / wavelength;
+
+    // Deep water dispersion: longer waves travel faster
+    float speed = sqrt(9.8 * k);
+
+    float theta = k * dot(dir, p) - speed * time;
+
+    float e = exp(sin(theta) - 1.0);
+
+    float height = amplitude * (e - 0.4);
+
+    float slope = amplitude * e * cos(theta) * k;
+
+    return vec3(
+        height,
+        slope * dir.x,
+        slope * dir.y
+    );
+}
+
+// Sum of all waves. Total amplitude = 0.655
+vec3 seaWaves(vec2 p, float time) {
+
+    vec3 w = vec3(0.0);
+
+    // Long swell
+    w += wave(p, normalize(vec2(-1.0,  0.35)), 38.0, 0.300, time);
+    w += wave(p, normalize(vec2(-0.6, -1.0 )), 22.0, 0.180, time);
+
+    // Medium waves
+    w += wave(p, normalize(vec2(-0.3,  1.0 )), 13.0, 0.100, time);
+    w += wave(p, normalize(vec2( 1.0,  0.8 )),  7.5, 0.050, time);
+
+    // Chop
+    w += wave(p, normalize(vec2(-0.8, -0.5 )),  4.2, 0.025, time);
+
+    return w;
+}
+
+const float TOTAL_AMPLITUDE = 0.655;
+`;
+
+
+// =============================================================
+// VERTEX SHADER
 // =============================================================
 
 export const riverVertexShader = `
@@ -9,78 +84,59 @@ uniform float uTime;
 varying vec2 vUv;
 varying vec3 vWorldPosition;
 varying vec3 vNormal;
+varying float vWaveHeight;
+
+#include <fog_pars_vertex>
+
+${waveFunctions}
 
 void main() {
 
     vUv = uv;
 
-    vec3 pos = position;
-
     // ---------------------------------------------------------
-    // VERY GENTLE LARGE WAVES
-    // ---------------------------------------------------------
-
-    float wave1 =
-        sin(
-            pos.x * 0.18 +
-            uTime * 0.55
-        ) * 0.018;
-
-    float wave2 =
-        sin(
-            pos.y * 0.30 -
-            uTime * 0.42
-        ) * 0.014;
-
-    // ---------------------------------------------------------
-    // SMALL RIPPLE DETAIL
-    // ---------------------------------------------------------
-
-    float ripple1 =
-        sin(
-            pos.x * 1.5 +
-            pos.y * 0.8 +
-            uTime * 1.1
-        ) * 0.006;
-
-    float ripple2 =
-        sin(
-            pos.x * 2.4 -
-            pos.y * 1.2 -
-            uTime * 0.8
-        ) * 0.004;
-
-    // ---------------------------------------------------------
-    // KEEP THE WAVES EXTREMELY SHALLOW
-    // ---------------------------------------------------------
-
-    pos.z +=
-        wave1 +
-        wave2 +
-        ripple1 +
-        ripple2;
-
-    // ---------------------------------------------------------
-    // WORLD POSITION
+    // WAVES ARE BUILT IN WORLD SPACE
+    // so neighbouring tiles / rotations always line up
     // ---------------------------------------------------------
 
     vec4 worldPosition =
         modelMatrix *
-        vec4(pos, 1.0);
+        vec4(position, 1.0);
+
+    vec3 w =
+        seaWaves(
+            worldPosition.xz,
+            uTime
+        );
+
+    worldPosition.y += w.x;
+
+    // -1 = deepest trough, 1 = highest crest
+    vWaveHeight =
+        w.x / (TOTAL_AMPLITUDE * 0.6);
+
+    // Normal from the wave slopes
+    vNormal =
+        normalize(
+            vec3(
+                -w.y,
+                1.0,
+                -w.z
+            )
+        );
 
     vWorldPosition =
         worldPosition.xyz;
 
-    vNormal =
-        normalize(
-            normalMatrix *
-            normal
-        );
+    vec4 mvPosition =
+        viewMatrix *
+        worldPosition;
 
     gl_Position =
         projectionMatrix *
-        viewMatrix *
-        worldPosition;
+        mvPosition;
+
+    #include <fog_vertex>
 }
 `;
 
@@ -92,14 +148,19 @@ void main() {
 export const riverFragmentShader = `
 
 uniform float uTime;
+uniform sampler2D uSeaTexture;
+uniform vec2 uTileSize;
 
 varying vec2 vUv;
 varying vec3 vWorldPosition;
 varying vec3 vNormal;
+varying float vWaveHeight;
+
+#include <fog_pars_fragment>
 
 
 // =============================================================
-// HASH
+// HASH / NOISE (for shimmer and foam breakup)
 // =============================================================
 
 float hash(vec2 p) {
@@ -108,53 +169,24 @@ float hash(vec2 p) {
         sin(
             dot(
                 p,
-                vec2(
-                    127.1,
-                    311.7
-                )
+                vec2(127.1, 311.7)
             )
         ) *
         43758.5453123
     );
 }
 
-
-// =============================================================
-// SMOOTH NOISE
-// =============================================================
-
 float noise(vec2 p) {
 
-    vec2 i =
-        floor(p);
+    vec2 i = floor(p);
+    vec2 f = fract(p);
 
-    vec2 f =
-        fract(p);
+    f = f * f * (3.0 - 2.0 * f);
 
-    f =
-        f * f *
-        (3.0 - 2.0 * f);
-
-    float a =
-        hash(i);
-
-    float b =
-        hash(
-            i +
-            vec2(1.0, 0.0)
-        );
-
-    float c =
-        hash(
-            i +
-            vec2(0.0, 1.0)
-        );
-
-    float d =
-        hash(
-            i +
-            vec2(1.0, 1.0)
-        );
+    float a = hash(i);
+    float b = hash(i + vec2(1.0, 0.0));
+    float c = hash(i + vec2(0.0, 1.0));
+    float d = hash(i + vec2(1.0, 1.0));
 
     return mix(
         mix(a, b, f.x),
@@ -164,281 +196,167 @@ float noise(vec2 p) {
 }
 
 
-// =============================================================
-// FRACTAL WATER NOISE
-// =============================================================
-
-float waterNoise(vec2 p) {
-
-    float n = 0.0;
-
-    n += noise(p) * 0.55;
-
-    n +=
-        noise(p * 2.0)
-        * 0.25;
-
-    n +=
-        noise(p * 4.0)
-        * 0.12;
-
-    n +=
-        noise(p * 8.0)
-        * 0.06;
-
-    return n;
-}
-
-
-// =============================================================
-// MAIN
-// =============================================================
-
 void main() {
 
-    // ---------------------------------------------------------
-    // WATER COORDINATES
-    // ---------------------------------------------------------
-
-    vec2 waterUV =
-        vWorldPosition.xz;
-
+    vec2 p = vWorldPosition.xz;
 
     // ---------------------------------------------------------
-    // SLOW FLOWING WATER
+    // SMALL RIPPLES ON TOP OF THE VERTEX WAVES
+    // (too small for vertices, so done per pixel)
     // ---------------------------------------------------------
 
-    vec2 flow =
-        vec2(
-            uTime * 0.035,
-            -uTime * 0.018
-        );
+    vec3 normal = normalize(vNormal);
+
+    normal.x +=
+        0.06 * sin(p.x * 2.1 + p.y * 0.7 + uTime * 2.3) +
+        0.04 * sin(p.x * 3.7 - p.y * 1.9 - uTime * 3.1);
+
+    normal.z +=
+        0.06 * sin(p.y * 2.4 - p.x * 0.9 + uTime * 2.0) +
+        0.04 * sin(p.y * 4.1 + p.x * 1.3 - uTime * 2.7);
+
+    normal = normalize(normal);
 
 
-    // ---------------------------------------------------------
-    // LARGE-SCALE WATER VARIATION
-    // ---------------------------------------------------------
+    // =========================================================
+    // BASE TEXTURE - TWO LAYERS FLOWING IN DIFFERENT DIRECTIONS
+    // =========================================================
 
-    float largeWater =
-        waterNoise(
-            waterUV * 0.045 +
-            flow
-        );
+    // Distort the lookup by the surface slope so the texture
+    // bends over the waves instead of sliding flat under them
+    vec2 distortion = normal.xz * 0.04;
 
+    vec2 uv1 =
+        p / uTileSize +
+        vec2(uTime * 0.010, -uTime * 0.018) +
+        distortion;
 
-    // ---------------------------------------------------------
-    // MEDIUM RIPPLE DETAIL
-    // ---------------------------------------------------------
+    vec2 uv2 =
+        p.yx / (uTileSize.yx * 1.7) +
+        vec2(-uTime * 0.014, uTime * 0.006) -
+        distortion;
 
-    float mediumWater =
-        waterNoise(
-            waterUV * 0.16 -
-            flow * 1.5
-        );
-
-
-    // ---------------------------------------------------------
-    // SMALL MOVING RIPPLES
-    // ---------------------------------------------------------
-
-    float smallWater =
-        waterNoise(
-            waterUV * 0.65 +
-            flow * 3.0
+    vec3 tex =
+        mix(
+            texture2D(uSeaTexture, uv1).rgb,
+            texture2D(uSeaTexture, uv2).rgb,
+            0.45
         );
 
 
     // =========================================================
-    // REALISTIC DARK WATER COLORS
+    // DEPTH - TROUGHS DARKER, CRESTS LIGHTER
     // =========================================================
 
-    vec3 deepWater =
-        vec3(
-            0.002,
-            0.008,
-            0.018
+    vec3 deepWater = vec3(0.004, 0.018, 0.040);
+    vec3 surfaceTint = vec3(0.020, 0.110, 0.160);
+
+    float crest =
+        smoothstep(
+            -1.0,
+            1.0,
+            vWaveHeight
         );
-
-    vec3 darkBlue =
-        vec3(
-            0.003,
-            0.035,
-            0.065
-        );
-
-    vec3 blueWater =
-        vec3(
-            0.005,
-            0.085,
-            0.13
-        );
-
-    vec3 cyanReflection =
-        vec3(
-            0.0,
-            0.35,
-            0.55
-        );
-
-
-    // ---------------------------------------------------------
-    // BUILD BASE WATER
-    // ---------------------------------------------------------
 
     vec3 waterColor =
         mix(
-            deepWater,
-            darkBlue,
-            largeWater
-        );
-
-    waterColor =
-        mix(
-            waterColor,
-            blueWater,
-            mediumWater * 0.45
+            tex * 0.45 + deepWater,
+            tex * 1.05 + surfaceTint,
+            crest
         );
 
 
     // =========================================================
-    // SOFT SURFACE HIGHLIGHTS
+    // LIGHTING - MOONLIGHT
     // =========================================================
 
-    float highlight =
-        smoothstep(
-            0.68,
-            0.92,
-            smallWater
-        );
+    vec3 lightDir = normalize(vec3(-0.35, 0.55, -0.75));
+    vec3 moonColor = vec3(0.75, 0.82, 1.0);
 
-
-    waterColor =
-        mix(
-            waterColor,
-            cyanReflection,
-            highlight * 0.16
-        );
-
-
-    // =========================================================
-    // LONG REALISTIC WATER STREAKS
-    // =========================================================
-
-    float streak =
-        sin(
-            waterUV.x * 2.8 +
-            waterUV.y * 0.35 +
-            uTime * 0.65
-        );
-
-    streak =
-        smoothstep(
-            0.82,
-            0.98,
-            streak
-        );
-
-
-    waterColor +=
-        cyanReflection *
-        streak *
-        0.08;
-
-
-    // =========================================================
-    // SECONDARY SMALL STREAKS
-    // =========================================================
-
-    float streak2 =
-        sin(
-            waterUV.x * 7.0 -
-            waterUV.y * 0.8 -
-            uTime * 1.2
-        );
-
-    streak2 =
-        smoothstep(
-            0.86,
-            0.99,
-            streak2
-        );
-
-
-    waterColor +=
-        vec3(
-            0.0,
-            0.10,
-            0.16
-        ) *
-        streak2 *
-        0.12;
-
-
-    // =========================================================
-    // FRESNEL EFFECT
-    // =========================================================
-
-    vec3 viewDirection =
+    vec3 viewDir =
         normalize(
             cameraPosition -
             vWorldPosition
         );
 
-    float fresnel =
-        1.0 -
-        max(
-            dot(
-                normalize(vNormal),
-                viewDirection
-            ),
-            0.0
-        );
+    float diffuse =
+        max(dot(normal, lightDir), 0.0);
 
-    fresnel =
+    waterColor *= 0.55 + 0.45 * diffuse;
+
+
+    // ---------------------------------------------------------
+    // SPECULAR HIGHLIGHT
+    // ---------------------------------------------------------
+
+    vec3 halfDir =
+        normalize(lightDir + viewDir);
+
+    float spec =
         pow(
-            fresnel,
-            3.5
+            max(dot(normal, halfDir), 0.0),
+            180.0
         );
 
+    waterColor += moonColor * spec * 0.9;
+
 
     // ---------------------------------------------------------
-    // EDGE REFLECTION
+    // SHIMMER - small twinkling glints that move with the water
     // ---------------------------------------------------------
+
+    float glintMask =
+        smoothstep(
+            0.78,
+            0.97,
+            noise(p * 2.5 + vec2(uTime * 1.3, -uTime * 0.9))
+        );
+
+    float glint =
+        pow(
+            max(dot(normal, halfDir), 0.0),
+            24.0
+        );
+
+    waterColor += moonColor * glint * glintMask * 0.35;
+
+
+    // =========================================================
+    // WAVE TOPS - LIGHTER, WITH A LITTLE BROKEN-UP FOAM
+    // =========================================================
+
+    float foam =
+        smoothstep(0.55, 0.95, vWaveHeight) *
+        smoothstep(0.45, 0.75, noise(p * 1.6 + uTime * 0.4));
 
     waterColor =
         mix(
             waterColor,
-            vec3(
-                0.0,
-                0.28,
-                0.42
-            ),
-            fresnel * 0.30
+            vec3(0.55, 0.65, 0.72),
+            foam * 0.35
         );
 
 
     // =========================================================
-    // SUBTLE CYBERPUNK GLOW
+    // FRESNEL - REFLECT THE NIGHT SKY AT LOW ANGLES
     // =========================================================
 
-    float neon =
-        smoothstep(
-            0.78,
-            0.98,
-            waterNoise(
-                waterUV * 0.11 +
-                flow
-            )
+    float fresnel =
+        0.02 +
+        0.98 *
+        pow(
+            1.0 - max(dot(normal, viewDir), 0.0),
+            5.0
         );
 
+    vec3 skyReflection = vec3(0.045, 0.030, 0.110);
 
-    waterColor +=
-        vec3(
-            0.0,
-            0.08,
-            0.13
-        ) *
-        neon;
+    waterColor =
+        mix(
+            waterColor,
+            skyReflection,
+            fresnel * 0.6
+        );
 
 
     // =========================================================
@@ -450,5 +368,9 @@ void main() {
             waterColor,
             1.0
         );
+
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+    #include <fog_fragment>
 }
 `;

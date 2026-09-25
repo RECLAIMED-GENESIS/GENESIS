@@ -564,14 +564,49 @@ createRoadBoundaryWall() {
 
 createRiver() {
 
+    // ---------------------------------------------------------
+    // SEA TEXTURE
+    // Lives in public/ so it is copied into dist/ on build
+    // ---------------------------------------------------------
+
+    const seaTexture =
+        new THREE.TextureLoader().load(
+            './assets/textures/sea.jpg'
+        );
+
+    seaTexture.colorSpace =
+        THREE.SRGBColorSpace;
+
+    // Mirrored so the photo's edges line up between tiles
+    seaTexture.wrapS =
+        THREE.MirroredRepeatWrapping;
+
+    seaTexture.wrapT =
+        THREE.MirroredRepeatWrapping;
+
+
     const riverMaterial =
         new THREE.ShaderMaterial({
 
-            uniforms: {
-                uTime: {
-                    value: 0
-                }
-            },
+            uniforms:
+                THREE.UniformsUtils.merge([
+                    THREE.UniformsLib.fog,
+                    {
+                        uTime: {
+                            value: 0
+                        },
+
+                        uSeaTexture: {
+                            value: null
+                        },
+
+                        // One texture tile = 24 x 16 world units
+                        // (same 3:2 shape as sea.jpg)
+                        uTileSize: {
+                            value: new THREE.Vector2(24, 16)
+                        }
+                    }
+                ]),
 
             vertexShader:
                 riverVertexShader,
@@ -579,21 +614,35 @@ createRiver() {
             fragmentShader:
                 riverFragmentShader,
 
-            transparent: true,
-
-            side:
-                THREE.DoubleSide
+            // Fade into the scene fog so the far edge is hidden
+            fog: true
         });
 
+    // Set after merge() - merge() clones textures
+    riverMaterial.uniforms.uSeaTexture.value =
+        seaTexture;
+
+
+    // ---------------------------------------------------------
+    // SEA SIZE
+    // ---------------------------------------------------------
+    // Road = x 0, width 16
+    // Boundary wall outer edge (neon strip) = x 10.51
+    // Sea = x 10.51 to 310.51, z -300 to 300 (same length as
+    // the ground), so its far edges sit beyond the fog (270)
+
+    const SEA_START_X = 10.51;
+    const SEA_WIDTH = 300;
+    const SEA_LENGTH = 600;
 
     const river =
         new THREE.Mesh(
 
             new THREE.PlaneGeometry(
-                290,
-                260,
-                180,
-                180
+                SEA_WIDTH,
+                SEA_LENGTH,
+                200,    // ~1.5 units per segment
+                400
             ),
 
             riverMaterial
@@ -605,14 +654,13 @@ createRiver() {
         -Math.PI / 2;
 
 
-    // IMPORTANT:
-    // Road = x 0
-    // Boundary wall = x 9.8
-    // River = beyond the wall
+    // Base height 0.5: waves move -0.17 to +0.39 around it, so troughs
+    // stay above the ground (y -0.01) and crests stay below
+    // the top of the wall (y 1.48)
 
     river.position.set(
-        155,
-        0.06,
+        SEA_START_X + SEA_WIDTH / 2,
+        0.5,
         0
     );
 
