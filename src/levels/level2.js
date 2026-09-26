@@ -615,7 +615,7 @@ export class AlienLevel {
 
         // Enforcer spawns at far end of the street (away from player)
         const ex = this.spawn.x;
-        const ez = this.spawn.z + 30; // 30 units down the street
+        const ez = this.spawn.z + 120; // 30 units down the street
         const ey = (typeof this.getSurfaceHeight === 'function')
             ? this.getSurfaceHeight(ex, ez)
             : 0.5;
