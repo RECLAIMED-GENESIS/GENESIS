@@ -151,7 +151,7 @@ export class Level1 {
 
         loader.load(
 
-            '/assets/models/Level1.glb',
+            './assets/models/Level1.glb',
 
             (gltf) => {
 
