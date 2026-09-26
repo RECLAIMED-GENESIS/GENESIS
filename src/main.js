@@ -6,7 +6,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { StreetLevel } from './levels/level1.js';
 import { AlienLevel } from './levels/level2.js';
 import { ArchitectLevel } from './levels/level3.js';
-import { Dialogue } from './ui/Dialogue.js';
+import { Dialogue } from './ui/dialogue.js';
 import { endingAttack, endingLearn, endingSilence } from './player/endings.js';
 
 // ---------- renderer ----------
@@ -14,15 +14,12 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-// NOTE: PCFSoftShadowMap was removed in recent three.js versions.
-// PCFShadowMap is the modern equivalent.
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 renderer.autoClear = false;
 document.body.appendChild(renderer.domElement);
 
-// Surface context-lost events so we can see them in the console
 renderer.domElement.addEventListener('webglcontextlost', (event) => {
   event.preventDefault();
   console.error('[GENESIS] WebGL context lost. Refresh the tab.');
@@ -37,14 +34,6 @@ camera.rotation.order = 'YXZ';
 window.__camera = camera;
 
 // ---------- root motion fix ----------
-// Mixamo FBX animations exported without "In Place" bake the character's
-// forward travel straight into the Hips bone's position keyframes. That
-// means the clip itself drags the model across the floor, on top of our
-// own WASD movement code also moving it — double motion, plus a visible
-// "snap back" every time the clip loops back to frame 0.
-// This locks the Hips bone's X/Z to its first-frame value on every key,
-// so the clip plays fully in place, while leaving Y untouched so the
-// natural up/down footstep bob is preserved.
 function stripRootMotion(clip) {
   if (!clip || !clip.tracks) return clip;
   for (const track of clip.tracks) {
@@ -71,24 +60,20 @@ const player = {
   R: 0.4, H: 1.8,
 };
 
-// ---------- Sorini avatar (third-person Y_Bot) ----------
+// ---------- Sorini avatar ----------
 const soriniGroup = new THREE.Group();
 scene.add(soriniGroup);
 
 let soriniMixer  = null;
 let soriniActions = {};
 let soriniCurrentAction = null;
-
-let _soriniPending = null;   // action requested before its clip finished downloading
+let _soriniPending = null;
 
 function playSoriniAction(name, loop = true) {
   let next = soriniActions[name];
-  // fallback chain if a clip failed to load (e.g. Swagger_Walk.fbx)
-  if (!next && name === 'walk') next = soriniActions['run'] || soriniActions['fightIdle'];
-  if (!next) { _soriniPending = { name, loop }; return; }  // retried when the clip lands
+  if (!next && name === 'walk') next = soriniActions['run'] || soriniActions['idle'];
+  if (!next) { _soriniPending = { name, loop }; return; }
   if (next === soriniCurrentAction) {
-    // Already playing. For loops, do nothing. For one-shots that have
-    // finished, restart them so the punch/kick/hook can be re-triggered.
     if (next.isRunning()) return;
     next.reset().setLoop(THREE.LoopOnce, 1).fadeIn(0.05).play();
     return;
@@ -101,9 +86,6 @@ function playSoriniAction(name, loop = true) {
   soriniCurrentAction = next;
 }
 
-// raw clips are cached even when the model hasn't finished loading yet —
-// previously any clip that won the download race against Y_Bot.fbx was
-// discarded by the `&& soriniMixer` guard and never played again
 const soriniClips = {};
 
 function _bindSoriniClip(key) {
@@ -125,61 +107,42 @@ function loadSoriniAnim(path, key, onDone) {
   }, undefined, (e) => console.warn('sorini anim failed:', path, e));
 }
 
-// Load Y_Bot model
+// Load Sorini model
 new FBXLoader().load('./assets/models/player/sorini.fbx', (fbx) => {
   fbx.scale.setScalar(0.013);
-  // Offset the model so feet align with player.pos.y (ground level).
   fbx.position.y = -0.13;
   fbx.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
   soriniGroup.add(fbx);
 
   soriniMixer = new THREE.AnimationMixer(fbx);
-  // bind every clip that arrived before the model did
   for (const k of Object.keys(soriniClips)) _bindSoriniClip(k);
-  // name anything still missing after 8s (wrong file name / case / path)
+
   setTimeout(() => {
-    const want = ['idle', 'fightIdle', 'walk', 'run', 'punch', 'kick', 'hook', 'jump', 'die'];
+    const want = ['idle', 'walk', 'punch', 'hook', 'jump', 'die'];
     const missing = want.filter(k => !soriniClips[k]);
     if (missing.length) console.warn('[Sorini] clips missing:', missing.join(', '));
   }, 8000);
 
+  // Load animations that ACTUALLY exist in the repo.
+  // Missing files: Kicking.fbx, Running.fbx, Left Turn.fbx, Right Turn.fbx
+  // For missing ones, we reuse existing animations.
   const base = './assets/models/player/';
-  loadSoriniAnim(base + 'Idle.fbx',           'fightIdle', null);
-  loadSoriniAnim(base + 'Dying.fbx',          'die',       null);
-  // Dwarf Idle = relaxed idle (not fighting stance) — file is in enemy folder
-  new FBXLoader().load('./assets/models/enemy/Dwarf Idle.fbx', (fbx2) => {
-    if (fbx2.animations?.[0]) {
-      soriniClips['idle'] = stripRootMotion(fbx2.animations[0]);
-      _bindSoriniClip('idle');
-      playSoriniAction('idle');
-    }
-  }, undefined, (e) => {
-    // fallback to fight idle if Dwarf Idle missing
-    if (soriniActions['fightIdle']) {
-      soriniActions['idle'] = soriniActions['fightIdle'];
-      playSoriniAction('idle');
-    }
-  });
-  loadSoriniAnim(base + 'Swagger_Walk.fbx',   'walk',      null);
-  loadSoriniAnim(base + 'Running.fbx',        'run',       null);
-  loadSoriniAnim(base + 'Punching.fbx',       'punch',     null);
-  loadSoriniAnim(base + 'Kicking.fbx',        'kick',      null);
-  loadSoriniAnim(base + 'Hook.fbx',           'hook',      null);
-  loadSoriniAnim(base + 'Jump.fbx',           'jump',      null);
-  loadSoriniAnim(base + 'Left Turn.fbx',      'turnLeft',  null);
-  loadSoriniAnim(base + 'Right Turn.fbx',     'turnRight', null);
-}, undefined, (e) => console.warn('Y_Bot load failed:', e));
+    loadSoriniAnim(base + 'Swagger_Walk.fbx',   'walk',     null);
+  loadSoriniAnim(base + 'Running.fbx',        'run',      null);
+  loadSoriniAnim(base + 'Punching.fbx',       'punch',    null);
+  loadSoriniAnim(base + 'Kicking.fbx',        'kick',     null);
+  loadSoriniAnim(base + 'Hook.fbx',           'hook',     null);
+  loadSoriniAnim(base + 'Jump.fbx',           'jump',     null);
+  loadSoriniAnim(base + 'Idle.fbx', 'idle', null);
+}, undefined, (e) => console.warn('sorini.fbx load failed:', e));
 
 // ---------- input ----------
 const keys = {};
 let locked = false;
-// attack cooldowns
 const attackCooldown = { f: 0, g: 0, h: 0 };
-let attackLock = false;   // true while a punch/kick/hook swing plays — roots Sorini
+let attackLock = false;
 
 addEventListener('keydown', e => {
-
-  // If dialogue is active, route keys to the dialogue system
   if (window.__dialogue && window.__dialogue.active) {
     window.__dialogue.handleKey(e.code);
     return;
@@ -196,26 +159,24 @@ addEventListener('keydown', e => {
     level.setPhase(phase, timer.getElapsed());
   }
 
-  // ── Jump ── handled here so it fires once per press (not per frame)
-  if (e.code === 'Space' && player.grounded && !attackLock) {
+  // Jump — lock prevents key-repeat from retriggering
+  if (e.code === 'Space' && player.grounded && !attackLock && !keys._spaceConsumed) {
     player.vel.y = 12;
+    keys._spaceConsumed = true;
   }
 
-  // ── F = Punch ──
   if (e.code === 'KeyF' && attackCooldown.f <= 0) {
     attackCooldown.f = 0.7;
     playSoriniAction('punch', false);
     _triggerAttack();
     _damageCommanderIfClose(1);
   }
-  // ── G = Kick ──
   if (e.code === 'KeyG' && attackCooldown.g <= 0) {
     attackCooldown.g = 0.8;
     playSoriniAction('kick', false);
     _triggerAttack();
     _damageCommanderIfClose(2);
   }
-  // ── H = Hook ──
   if (e.code === 'KeyH' && attackCooldown.h <= 0) {
     attackCooldown.h = 0.7;
     playSoriniAction('hook', false);
@@ -234,20 +195,20 @@ function _triggerAttack() {
 
 function _damageCommanderIfClose(damage) {
   if (!level) return;
-  // Commander (Level 1)
   if (level.commander && level.commander.alive) {
     const dist = level.commander.getPosition().distanceTo(player.pos);
-    if (dist < 2.5) {
-      level.commander.takeDamage(damage);
-    }
+    if (dist < 2.5) level.commander.takeDamage(damage);
   }
-  // Grunts (Level 1)
   if (level.grunts) {
     level.grunts.checkHit(player.pos, 2.2, damage);
   }
 }
 
-addEventListener('keyup', e => keys[e.code] = false);
+addEventListener('keyup', e => {
+  keys[e.code] = false;
+  if (e.code === 'Space') keys._spaceConsumed = false;
+});
+
 renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
@@ -281,16 +242,11 @@ function switchLevel(n) {
     if (level.stars && scene.children.includes(level.stars)) scene.remove(level.stars);
   }
 
-  // Clean up dialogue from a previous Level 3 session
   if (window.__dialogue) {
     try { window.__dialogue.dispose(); } catch (e) {}
     window.__dialogue = null;
   }
 
-  // ── Flush renderer caches ──
-  // Three.js keeps an internal cache of GPU objects. Even after
-  // .dispose(), the cache holds references. Clearing it forces the
-  // renderer to release texture/buffer memory back to the GPU driver.
   try {
     if (renderer.renderLists) renderer.renderLists.dispose();
     if (renderer.info) renderer.info.reset();
@@ -301,7 +257,6 @@ function switchLevel(n) {
   try {
     level = new LEVELS[n](scene, renderer);
 
-    // If this is Level 3, wire up the dialogue + endings
     if (n === 3 && level instanceof ArchitectLevel) {
       const dialogue = new Dialogue();
       window.__dialogue = dialogue;
@@ -317,8 +272,6 @@ function switchLevel(n) {
           window.__dialogue = null;
           endingAttack();
         } else if (choice === 'learn') {
-          // The learn ending needs the dialogue for the final choice,
-          // so pass it in and let it dispose itself.
           endingLearn(dialogue).then(() => {
             window.__dialogue = null;
           });
@@ -334,7 +287,6 @@ function switchLevel(n) {
     try { level = new LEVELS[n](scene); } catch (e2) { level = new LEVELS[n](); }
   }
 
-  // If the level used its own scene, hoist things onto the main scene.
   if (level.scene && level.scene !== scene) {
     if (level.scene.background) scene.background = level.scene.background;
     scene.fog = level.scene.fog !== undefined ? level.scene.fog : null;
@@ -356,8 +308,6 @@ function switchLevel(n) {
     }
   }
 
-  // ── Spawn resolution ──
-  // Some levels provide getSpawn() instead of a fixed spawn vector.
   if (typeof level.getSpawn === 'function') {
     try { level.spawn = level.getSpawn(); } catch (e) { console.warn('getSpawn failed:', e); }
   }
@@ -382,7 +332,6 @@ function switchLevel(n) {
   player.pitch = 0;
 }
 
-// ── expose switchLevel globally so villageNPCs portal can call it ──
 window.__switchLevel = switchLevel;
 
 // ---------- minimap ----------
@@ -398,25 +347,22 @@ scene.add(marker);
 
 // ---------- physics ----------
 const GRAV = 30, SPEED = 4.5, SPRINT = 9;
-const TURN_SPEED = 2.2; // radians/sec for A/D turning
+const TURN_SPEED = 2.2;
 
 function stepPlayer(dt) {
   const isSprint = keys.ShiftLeft || keys.ShiftRight;
   const sp = isSprint ? SPRINT : SPEED;
 
-  // A/D turn Sorini left/right (locked during attack swings)
   if (!attackLock) {
     if (keys.KeyA) player.yaw += TURN_SPEED * dt;
     if (keys.KeyD) player.yaw -= TURN_SPEED * dt;
   }
 
-  // W/S move in the direction Sorini faces
   const f = attackLock ? 0 : (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
   player.vel.x = sin * f * sp;
   player.vel.z = cos * f * sp;
 
-  // Gravity — jump velocity is set from the keydown handler
   player.vel.y -= GRAV * dt;
 
   player.pos.addScaledVector(player.vel, dt);
@@ -453,11 +399,8 @@ function stepPlayer(dt) {
 }
 
 // ---------- loop ----------
-// three.js deprecates Clock in favour of Timer.
 const timer = new THREE.Timer();
 let _rafId = 0;
-
-// HUD caching — innerHTML writes every frame are expensive.
 let _lastHudString = '';
 
 function tick() {
@@ -475,7 +418,6 @@ function tick() {
     catch (e) { console.warn('level.update error', e); }
   }
 
-  // ── Third-person camera — centered directly behind Sorini ──
   const CAM_DIST   = 5.5;
   const CAM_HEIGHT = 2.8;
   const CAM_LOOK_UP = 1.2;
@@ -492,14 +434,11 @@ function tick() {
   }
   camera.lookAt(player.pos.x, player.pos.y + CAM_LOOK_UP, player.pos.z);
 
-  // ── Sorini avatar ──
   soriniGroup.position.set(player.pos.x, player.pos.y, player.pos.z);
   soriniGroup.rotation.y = player.yaw;
 
-  // ── tick attack cooldowns ──
   for (const k of ['f','g','h']) if (attackCooldown[k] > 0) attackCooldown[k] -= dt;
 
-  // ── Sorini animation state ──
   const isSprint  = keys.ShiftLeft || keys.ShiftRight;
   const isMovingW = keys.KeyW || keys.KeyS;
 
@@ -516,15 +455,12 @@ function tick() {
     if (!player.grounded)             playSoriniAction('jump');
     else if (isSprint && isMovingW)   playSoriniAction('run');
     else if (isMovingW)               playSoriniAction('walk');
-    else if (keys.KeyA && !isMovingW) playSoriniAction('turnLeft');
-    else if (keys.KeyD && !isMovingW) playSoriniAction('turnRight');
     else                              playSoriniAction('idle');
   }
 
   marker.position.set(player.pos.x, player.pos.y + 2, player.pos.z);
   marker.rotation.set(Math.PI / 2, player.yaw, 0);
 
-  // ── HUD (cached — only written when the string changes) ──
   const levelName = (level && level.name) ? level.name : `LEVEL ${current}`;
   const hudStr =
     `<b>GENESIS — THE DEVICE</b><br>` +
@@ -535,13 +471,11 @@ function tick() {
     _lastHudString = hudStr;
   }
 
-  // ── Main render ──
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   renderer.clear();
   renderer.render(scene, camera);
 
-  // ── Minimap render ──
   const S = 200;
   renderer.setScissorTest(true);
   renderer.setViewport(innerWidth - S - 12, 12, S, S);
@@ -565,9 +499,6 @@ switchLevel(1);
 tick();
 
 // ---------- Vite HMR cleanup ----------
-// Without this, every hot reload leaks a WebGL context. Browsers cap
-// a tab at ~16 contexts, so after a dozen saves WebGL stops working
-// until you close the tab.
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     cancelAnimationFrame(_rafId);
