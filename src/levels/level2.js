@@ -511,6 +511,45 @@ export class AlienLevel {
     }
 
         // =========================================================
+    // LEVEL 2 INTRO DIALOGUE — The Enforcer speaks
+    // =========================================================
+    async _playIntroDialogue() {
+        // Import Dialogue class
+        const { Dialogue } = await import('../ui/dialogue.js');
+
+        const dlg = new Dialogue();
+        this._introDialogue = dlg;
+
+        // Line 1
+        await dlg.say('...\n\n"An anomaly was detected in the lower tiers. One of our cores — stolen."', 4000);
+
+        // Line 2
+        await dlg.say('"The report says a mortal is carrying it. In her chest. As if the core chose her."', 4000);
+
+        // Line 3 — Enforcer directly
+        await dlg.say('"Sorini."\n\n"You carry something that does not belong to you."', 4000);
+
+        // Line 4 — Enforcer demands
+        await dlg.say('"Hand it over. The core. Now."\n\n"And I will let you live."', 4000);
+
+        // Line 5 — Sorini refuses
+        await dlg.say('Sorini:\n\n"...I can\'t. It chose me. It doesn\'t want to go back."', 4000);
+
+        // Line 6 — Enforcer threatens
+        await dlg.say('"Then the Enforcer will take it by force."\n\n"Minions — unleash."', 4000);
+
+        // Hide dialogue, start combat
+        dlg.hide();
+        dlg.dispose();
+        this._introDialogue = null;
+
+        // Trigger combat
+        this.triggerCombat();
+
+        console.log('🎬 [L2] Intro dialogue complete');
+    }
+
+        // =========================================================
     // LEVEL 2 ARRIVAL — Sorini comes through the portal from L1
     // =========================================================
     _spawnArrivalPortal() {
@@ -569,11 +608,35 @@ export class AlienLevel {
     // =========================================================
     // TRIGGER COMBAT — dialogue finished, commander + minions in
     // =========================================================
-    _triggerCombat() {
+    triggerCombat() {
         if (this._introCommanderSpawned) return;
         this._introCommanderSpawned = true;
-        console.log('⚔️ [L2] Commander + minions incoming');
-        // Commander spawn will be added in a later step.
+        console.log('⚔️ [L2] The Enforcer approaches');
+
+        // Enforcer spawns at far end of the street (away from player)
+        const ex = this.spawn.x;
+        const ez = this.spawn.z + 30; // 30 units down the street
+        const ey = (typeof this.getSurfaceHeight === 'function')
+            ? this.getSurfaceHeight(ex, ez)
+            : 0.5;
+
+        const enforcerPos = new THREE.Vector3(ex, ey, ez);
+
+        // Spawn commander (uses our commander.js system)
+        // For now, we'll add a temporary placeholder box
+        const geo = new THREE.BoxGeometry(2, 3, 2);
+        const mat = new THREE.MeshStandardMaterial({
+            color: 0xff2200,
+            emissive: 0xff4400,
+            emissiveIntensity: 0.6,
+        });
+        const enforcer = new THREE.Mesh(geo, mat);
+        enforcer.position.copy(enforcerPos);
+        enforcer.position.y += 1.5;
+        this.level.add(enforcer);
+
+        this._enforcerMesh = enforcer;
+        console.log('⚔️ [L2] The Enforcer has arrived');
     }
 
     _buildColliders() {
@@ -6703,6 +6766,14 @@ createCityBackground() {
                 this.level.remove(this._arrivalPortal);
                 this._arrivalPortal = null;
                 console.log('🌀 [L2] Arrival portal closed');
+
+                // Wait 1 second, then start the intro dialogue
+                if (!this._introDialoguePlayed) {
+                    this._introDialoguePlayed = true;
+                    setTimeout(() => {
+                        this._playIntroDialogue();
+                    }, 1000);
+                }
             }
         }
 
