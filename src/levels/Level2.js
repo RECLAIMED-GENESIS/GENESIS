@@ -161,7 +161,7 @@ export class Level2 {
         // =========================================================
 
         const skyTexture =
-            textureLoader.load(
+            this.loadTexture(
                 './assets/textures/skybox1.png'
             );
 
@@ -329,7 +329,7 @@ export class Level2 {
         // =========================================================
 
         const roadTexture =
-            textureLoader.load(
+            this.loadTexture(
                 './assets/textures/Road.png'
             );
 
@@ -1693,6 +1693,61 @@ addStreetLightBulbs(light) {
     // flicker costs one uniform update per frame (see update()).
     // =============================================================
 
+    loadTexture(path) {
+
+        // Road.png and skybox1.png are each used by several
+        // materials with their own repeat, colour space or
+        // mapping. The file is fetched and decoded once; every
+        // user gets its own lightweight Texture on the shared
+        // image, and three.js uploads a shared image to the GPU
+        // only once per identical sampler setup.
+
+        if (!this.textureCache) {
+            this.textureCache = new Map();
+        }
+
+        let entry =
+            this.textureCache.get(path);
+
+        if (!entry) {
+
+            entry = {
+                loaded: false,
+                users: []
+            };
+
+            entry.base =
+                new THREE.TextureLoader().load(
+                    path,
+                    () => {
+
+                        entry.loaded = true;
+
+                        entry.users.forEach((texture) => {
+                            texture.needsUpdate = true;
+                        });
+                    }
+                );
+
+            this.textureCache.set(path, entry);
+        }
+
+        const texture =
+            new THREE.Texture();
+
+        texture.source =
+            entry.base.source;
+
+        if (entry.loaded) {
+            texture.needsUpdate = true;
+        } else {
+            entry.users.push(texture);
+        }
+
+        return texture;
+    }
+
+
     createRuinMaterials() {
 
         const textureLoader =
@@ -1721,7 +1776,7 @@ addStreetLightBulbs(light) {
             THREE.SRGBColorSpace;
 
         const glassTexture =
-            textureLoader.load(
+            this.loadTexture(
                 './assets/textures/Road.png'
             );
 
@@ -4164,11 +4219,9 @@ building.add(
         // scene has no environment, so the skybox is loaded as an
         // equirect reflection map for the dome alone - without it a
         // glossy surface has nothing to reflect and reads flat.
-        const textureLoader =
-            new THREE.TextureLoader();
 
         const domeTexture =
-            textureLoader.load(
+            this.loadTexture(
                 './assets/textures/Road.png'
             );
 
@@ -4187,7 +4240,7 @@ building.add(
         );
 
         const domeEnvMap =
-            textureLoader.load(
+            this.loadTexture(
                 './assets/textures/skybox1.png'
             );
 
