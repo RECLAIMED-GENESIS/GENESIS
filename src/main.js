@@ -311,6 +311,10 @@ function switchLevel(n) {
   if (typeof level.getSpawn === 'function') {
     try { level.spawn = level.getSpawn(); } catch (e) { console.warn('getSpawn failed:', e); }
   }
+    // ── Level 2 arrival sequence ──
+  if (n === 2 && typeof level.startIntroSequence === 'function') {
+    level.startIntroSequence();
+  }
 
   if (!level.spawn || !level.spawn.isVector3) {
     console.warn(`Level ${n} missing spawn, using fallback`);

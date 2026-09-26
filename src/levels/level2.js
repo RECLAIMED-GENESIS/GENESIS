@@ -29,6 +29,13 @@ export class AlienLevel {
         this.spawn = new THREE.Vector3(0, 0.1, -120);
         this.spawnYaw = 0;   // face down the street (toward +z, where the enemies are)
         this.root = null; // will alias to this.level after creation
+                // ── Arrival sequence state ──
+        this._arrivalPortal = null;
+        this._arrivalPortalAge = 0;
+        this._introStarted = false;
+        this._introFinished = false;
+        this._introCommanderSpawned = false;
+        this._introDialogue = null;
 
         this.level =
             new THREE.Group();
@@ -489,15 +496,84 @@ export class AlienLevel {
         try { this._buildColliders(); } catch (e) { console.warn('AlienLevel collider build failed', e); }
 
         // ── Street enemies, waves, health bar, portal ──────────
-        this.streetEnemies = new StreetEnemies(
-          this.level,
-          () => { if (typeof window.__switchLevel === 'function') window.__switchLevel(3); }
-        );
+                // ── Street enemies — DISABLED for now. We'll add our own
+        //    Commander + minions instead. ──
+        // this.streetEnemies = new StreetEnemies(
+        //   this.level,
+        //   () => { if (typeof window.__switchLevel === 'function') window.__switchLevel(3); }
+        // );
+        this.streetEnemies = null;
 
         // Spawn is already set — ensure it sits on flat ground
         if (typeof this.getSurfaceHeight === 'function') {
             this.spawn.y = this.getSurfaceHeight(this.spawn.x, this.spawn.z) + 0.1;
         }
+    }
+
+        // =========================================================
+    // LEVEL 2 ARRIVAL — Sorini comes through the portal from L1
+    // =========================================================
+    _spawnArrivalPortal() {
+        const px = this.spawn.x;
+        const pz = this.spawn.z + 4; // slightly behind player
+        const py = (typeof this.getSurfaceHeight === 'function')
+            ? this.getSurfaceHeight(px, pz)
+            : 0.5;
+
+        const portalGroup = new THREE.Group();
+        portalGroup.position.set(px, py + 2, pz);
+
+        // Blue torus
+        const torusMat = new THREE.MeshStandardMaterial({
+            color: 0x0044ff,
+            emissive: 0x0088ff,
+            emissiveIntensity: 3,
+            roughness: 0.2,
+            metalness: 0.8,
+        });
+        const torus = new THREE.Mesh(new THREE.TorusGeometry(2.0, 0.18, 16, 60), torusMat);
+        portalGroup.add(torus);
+
+        // Swirling disc
+        const discMat = new THREE.MeshBasicMaterial({
+            color: 0x44aaff,
+            transparent: true,
+            opacity: 0.6,
+            side: THREE.DoubleSide,
+        });
+        const disc = new THREE.Mesh(new THREE.CircleGeometry(1.9, 48), discMat);
+        portalGroup.add(disc);
+        portalGroup.userData.discMat = discMat;
+
+        // Light
+        const pl = new THREE.PointLight(0x0088ff, 15, 15, 2);
+        portalGroup.add(pl);
+
+        this.level.add(portalGroup);
+        this._arrivalPortal = portalGroup;
+        this._arrivalPortalAge = 0;
+
+        console.log('🌀 [L2] Arrival portal spawned');
+    }
+
+    // =========================================================
+    // START INTRO — call this from main.js after switchLevel(2)
+    // =========================================================
+    startIntroSequence() {
+        if (this._introStarted) return;
+        this._introStarted = true;
+        console.log('🎬 [L2] Intro sequence starting');
+        this._spawnArrivalPortal();
+    }
+
+    // =========================================================
+    // TRIGGER COMBAT — dialogue finished, commander + minions in
+    // =========================================================
+    _triggerCombat() {
+        if (this._introCommanderSpawned) return;
+        this._introCommanderSpawned = true;
+        console.log('⚔️ [L2] Commander + minions incoming');
+        // Commander spawn will be added in a later step.
     }
 
     _buildColliders() {
@@ -6607,6 +6683,28 @@ createCityBackground() {
     update(deltaTime, t, player) {
 
         const now = performance.now();
+
+                // ── Arrival portal fade ──
+        if (this._arrivalPortal) {
+            this._arrivalPortalAge += deltaTime;
+
+            // Shrink + fade over 2 seconds
+            const age = this._arrivalPortalAge;
+            const t2 = Math.min(age / 2.0, 1.0);
+
+            this._arrivalPortal.scale.setScalar(1 - t2 * 0.9);
+            this._arrivalPortal.rotation.z += deltaTime * 1.5;
+
+            if (this._arrivalPortal.userData.discMat) {
+                this._arrivalPortal.userData.discMat.opacity = 0.6 * (1 - t2);
+            }
+
+            if (age > 2.0) {
+                this.level.remove(this._arrivalPortal);
+                this._arrivalPortal = null;
+                console.log('🌀 [L2] Arrival portal closed');
+            }
+        }
 
         // update enemy system
         if (this.streetEnemies && player) {
