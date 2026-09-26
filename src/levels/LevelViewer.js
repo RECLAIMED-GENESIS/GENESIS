@@ -11,7 +11,7 @@ import { Level2 } from './Level2.js';
 import { Level3 } from './Level3.js';
 
 
-export function createLevelViewer(renderer, { onEnter, onExit } = {}) {
+export function createLevelViewer(renderer, { onEnter, onExit, canEnter } = {}) {
 
     // =====================================================
     // CURRENT LEVEL
@@ -240,10 +240,19 @@ export function createLevelViewer(renderer, { onEnter, onExit } = {}) {
         // -------------------------------------------------
         // LEVEL SELECTOR
         // -------------------------------------------------
+        //
+        // Entering the viewer is only allowed where canEnter()
+        // says so (the main menu), so 1 / 2 / 3 never pull the
+        // player out of Play. Once inside, they switch levels.
 
-        if (event.code === 'Digit1') loadLevel(1);
-        if (event.code === 'Digit2') loadLevel(2);
-        if (event.code === 'Digit3') loadLevel(3);
+        const canSelect =
+            active || !canEnter || canEnter();
+
+        if (canSelect) {
+            if (event.code === 'Digit1') loadLevel(1);
+            if (event.code === 'Digit2') loadLevel(2);
+            if (event.code === 'Digit3') loadLevel(3);
+        }
 
         if (event.code === 'Escape') exit();
     });

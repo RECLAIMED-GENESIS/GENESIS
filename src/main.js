@@ -194,9 +194,10 @@ renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
 // ============================================
-// LEVEL VIEWER (press 1, 2, 3 to view a level, Escape to return)
+// LEVEL VIEWER (press 1, 2, 3 on the main menu to view a level, Escape to return)
 // ============================================
 const levelViewer = createLevelViewer(renderer, {
+    canEnter: () => uiManager.currentScreen === 'main-menu',
     onEnter: () => {
         uiManager.hideAllScreens();
         uiManager.hideHUD();
