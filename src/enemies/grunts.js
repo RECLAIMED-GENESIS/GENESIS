@@ -1,49 +1,9 @@
 // src/enemies/grunts.js
-// Level 1 Minions — "Grunts" (Alien Soldier)
+// Level 1 Minions — X_Bot variants
 
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-
-// Shared model cache
-let CACHED_GRUNT = null;
-let CACHED_GRUNT_CLIPS = null;
-let LOADING_PROMISE = null;
-
-async function loadGruntModel(loader) {
-  if (CACHED_GRUNT) return { model: CACHED_GRUNT.clone(true), clips: CACHED_GRUNT_CLIPS };
-  if (LOADING_PROMISE) return LOADING_PROMISE;
-
-  LOADING_PROMISE = new Promise((resolve) => {
-    loader.load('./assets/models/enemy/grunt.fbx', (fbx) => {
-      CACHED_GRUNT = fbx;
-      CACHED_GRUNT_CLIPS = {};
-
-      const base = './assets/models/enemy/';
-      const anims = {
-        idle:  base + 'Idle.fbx',
-        walk:  base + 'Mutant Walking.fbx',
-        punch: base + 'Mutant_Punch.fbx',
-        hit:   base + 'Reaction.fbx',
-        die:   base + 'Dying.fbx'
-      };
-
-      let pending = Object.keys(anims).length;
-      for (const [key, path] of Object.entries(anims)) {
-        loader.load(path, (animFbx) => {
-          if (animFbx.animations?.[0]) {
-            CACHED_GRUNT_CLIPS[key] = stripRootMotion(animFbx.animations[0]);
-          }
-          if (--pending === 0) resolve({ model: CACHED_GRUNT.clone(true), clips: CACHED_GRUNT_CLIPS });
-        }, undefined, () => { if (--pending === 0) resolve({ model: CACHED_GRUNT.clone(true), clips: CACHED_GRUNT_CLIPS }); });
-      }
-    }, undefined, (e) => {
-      console.error('Grunt load failed:', e);
-      resolve(null);
-    });
-  });
-
-  return LOADING_PROMISE;
-}
+import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 function stripRootMotion(clip) {
   if (!clip || !clip.tracks) return clip;
@@ -58,6 +18,52 @@ function stripRootMotion(clip) {
     }
   }
   return clip;
+}
+
+// Shared cache
+let CACHED_GRUNT = null;
+let CACHED_GRUNT_CLIPS = null;
+let LOADING_PROMISE = null;
+
+async function loadGruntModel() {
+  if (CACHED_GRUNT) return { model: skeletonClone(CACHED_GRUNT), clips: CACHED_GRUNT_CLIPS };
+  if (LOADING_PROMISE) return LOADING_PROMISE;
+
+  const loader = new FBXLoader();
+
+  LOADING_PROMISE = new Promise((resolve) => {
+    loader.load('./assets/models/enemy/X_Bot.fbx', (fbx) => {
+      CACHED_GRUNT = fbx;
+      CACHED_GRUNT_CLIPS = {};
+
+      const base = './assets/models/enemy/';
+      const anims = {
+        idle:  base + 'Idle.fbx',
+        walk:  base + 'Mutant Walking.fbx',
+        punch: base + 'Mutant_Punch.fbx',
+        hit:   base + 'Reaction.fbx',
+        die:   base + 'Dying.fbx'
+      };
+
+      let pending = Object.keys(anims).length;
+      const done = () => { if (--pending === 0) resolve(); };
+      for (const [key, path] of Object.entries(anims)) {
+        loader.load(path, (animFbx) => {
+          if (animFbx.animations?.[0]) {
+            CACHED_GRUNT_CLIPS[key] = stripRootMotion(animFbx.animations[0]);
+          }
+          done();
+        }, undefined, () => done());
+      }
+    }, undefined, (e) => {
+      console.error('Grunt X_Bot load failed:', e);
+      resolve();
+    });
+  });
+
+  await LOADING_PROMISE;
+  if (!CACHED_GRUNT) return null;
+  return { model: skeletonClone(CACHED_GRUNT), clips: CACHED_GRUNT_CLIPS };
 }
 
 export class Grunt {
@@ -78,7 +84,6 @@ export class Grunt {
     this.isAttacking = false;
     this.mixer = null;
     this.actions = {};
-    this.clips = {};
     this.model = null;
     this.currentAction = null;
     this.hitFlashTimer = 0;
@@ -91,20 +96,20 @@ export class Grunt {
   }
 
   async _loadModel() {
-    const loader = new FBXLoader();
-    const result = await loadGruntModel(loader);
-    if (!result) return;
+    const result = await loadGruntModel();
+    if (!result || !this.alive) return;
 
     const fbx = result.model;
     fbx.scale.setScalar(this.SCALE);
     fbx.position.y = -0.13 * 0.8;
 
-    // Tint: alien purple body, green glowing accents
     fbx.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
         o.receiveShadow = true;
+        o.frustumCulled = false;
         if (o.material) {
+          o.material = Array.isArray(o.material) ? o.material.map(m => m.clone()) : o.material.clone();
           const mats = Array.isArray(o.material) ? o.material : [o.material];
           mats.forEach((mat) => {
             if (mat.color) mat.color.setHex(0x4a2a6b);
@@ -125,25 +130,25 @@ export class Grunt {
       this.actions[key] = this.mixer.clipAction(clip);
     }
 
-    setTimeout(() => this._playAction('idle'), 200);
+    if (this.actions.idle) {
+      this.actions.idle.reset().play();
+      this.currentAction = this.actions.idle;
+    }
   }
 
   _playAction(name, loop = true) {
     const next = this.actions[name];
     if (!next || next === this.currentAction) return;
-
     if (this.currentAction) this.currentAction.fadeOut(0.15);
     next.reset()
       .setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
-      .fadeIn(0.15)
-      .play();
+      .fadeIn(0.15).play();
     if (!loop) next.clampWhenFinished = true;
     this.currentAction = next;
   }
 
   update(delta, playerPos, onDamagePlayer) {
     if (!this.alive) return;
-
     this.mixer?.update(delta);
 
     if (this.hitFlashTimer > 0) {
@@ -152,9 +157,7 @@ export class Grunt {
     }
 
     const toPlayer = new THREE.Vector3(
-      playerPos.x - this.position.x,
-      0,
-      playerPos.z - this.position.z
+      playerPos.x - this.position.x, 0, playerPos.z - this.position.z
     );
     const distance = toPlayer.length();
     toPlayer.normalize();
@@ -184,7 +187,6 @@ export class Grunt {
     this.isAttacking = true;
     this.attackTimer = this.ATTACK_COOLDOWN;
     this._playAction('punch', false);
-
     setTimeout(() => {
       if (onDamagePlayer) onDamagePlayer(this.ATTACK_DAMAGE);
       this.isAttacking = false;
@@ -194,14 +196,10 @@ export class Grunt {
 
   takeDamage(amount) {
     if (!this.alive) return;
-
     this.health -= amount;
     this.hitFlashTimer = 0.12;
     this._flashColor();
-
-    if (this.health <= 0) {
-      this._die();
-    }
+    if (this.health <= 0) this._die();
   }
 
   _flashColor() {
@@ -210,10 +208,7 @@ export class Grunt {
       if (o.isMesh && o.material) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         mats.forEach((mat) => {
-          if (mat.emissive) {
-            mat.emissive.setHex(0xff4444);
-            mat.emissiveIntensity = 1.0;
-          }
+          if (mat.emissive) { mat.emissive.setHex(0xff4444); mat.emissiveIntensity = 1.0; }
         });
       }
     });
@@ -225,10 +220,7 @@ export class Grunt {
       if (o.isMesh && o.material) {
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         mats.forEach((mat) => {
-          if (mat.emissive) {
-            mat.emissive.setHex(0x2a4400);
-            mat.emissiveIntensity = 0.4;
-          }
+          if (mat.emissive) { mat.emissive.setHex(0x2a4400); mat.emissiveIntensity = 0.4; }
         });
       }
     });
@@ -241,35 +233,9 @@ export class Grunt {
   }
 
   dispose() {
-    if (this.model) {
-      this.model.traverse((o) => {
-        if (o.isMesh) {
-          o.geometry?.dispose();
-          if (Array.isArray(o.material)) {
-            o.material.forEach(m => {
-              if (m.map) m.map.dispose();
-              if (m.normalMap) m.normalMap.dispose();
-              if (m.emissiveMap) m.emissiveMap.dispose();
-              if (m.roughnessMap) m.roughnessMap.dispose();
-              if (m.metalnessMap) m.metalnessMap.dispose();
-              m.dispose();
-            });
-          } else if (o.material) {
-            const m = o.material;
-            if (m.map) m.map.dispose();
-            if (m.normalMap) m.normalMap.dispose();
-            if (m.emissiveMap) m.emissiveMap.dispose();
-            if (m.roughnessMap) m.roughnessMap.dispose();
-            if (m.metalnessMap) m.metalnessMap.dispose();
-            m.dispose();
-          }
-        }
-      });
-    }
     this.scene.remove(this._group);
     this.mixer = null;
     this.actions = {};
-    this.clips = {};
   }
 
   getPosition() {
@@ -298,28 +264,21 @@ export class GruntManager {
   }
 
   update(delta, playerPos, onDamagePlayer) {
-    for (const g of this.grunts) {
-      g.update(delta, playerPos, onDamagePlayer);
-    }
+    for (const g of this.grunts) g.update(delta, playerPos, onDamagePlayer);
     this.grunts = this.grunts.filter(g => g.alive);
   }
 
   killAll() {
-    for (const g of this.grunts) {
-      g._die();
-    }
+    for (const g of this.grunts) g._die();
     this.grunts = [];
   }
 
-  getAlive() {
-    return this.grunts.filter(g => g.alive);
-  }
+  getAlive() { return this.grunts.filter(g => g.alive); }
 
   checkHit(attackerPos, range, damage) {
     for (const g of this.grunts) {
       if (!g.alive) continue;
-      const d = g.position.distanceTo(attackerPos);
-      if (d < range) {
+      if (g.position.distanceTo(attackerPos) < range) {
         g.takeDamage(damage);
         return g;
       }
@@ -327,7 +286,5 @@ export class GruntManager {
     return null;
   }
 
-  get count() {
-    return this.grunts.length;
-  }
+  get count() { return this.grunts.length; }
 }

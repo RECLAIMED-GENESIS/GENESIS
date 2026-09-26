@@ -236,7 +236,7 @@ export class StreetLevel {
       const portalPos = new THREE.Vector3(sx, sy, sz);
 
       console.log('👽 Initial alien wave incoming...');
-      this.grunts.spawnWave(portalPos, 2);
+      this.grunts.spawnWave(portalPos, 1);
       for (const g of this.grunts.grunts) {
         this.minionHealthBar.register(g);
       }
