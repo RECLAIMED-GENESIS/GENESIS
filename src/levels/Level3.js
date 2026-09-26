@@ -7,6 +7,21 @@ import {
     moonFragmentShader
 } from '../shaders/moon.js';
 
+// Spaceship + corridor palette: two body colours, cool
+// white light, coral only for the door status light.
+const SHIP_BLACK = 0x0a0c10;
+const SHIP_WHITE = 0xe8f4ff;
+const SHIP_CORAL = 0xff6f61;
+
+const SHIP_SCALE = 1.25;
+
+// Door: opens on approach, E toggles within key range.
+const DOOR_OPEN_DISTANCE = 10;
+const DOOR_KEY_DISTANCE = 30;
+const DOOR_OPEN_SECONDS = 0.6;
+const DOOR_CLOSED_COLOR = new THREE.Color(SHIP_CORAL);
+const DOOR_OPEN_COLOR = new THREE.Color(SHIP_WHITE);
+
 export class Level3 {
 
     constructor(renderer = null) {
@@ -1236,337 +1251,1449 @@ createMoonSurface() {
 
     createSpaceship() {
 
-    const spaceship = new THREE.Group();
+        // =====================================================
+        // GENESIS SPACESHIP + CORRIDOR
+        // =====================================================
+        //
+        // Both models load asynchronously into one group.
+        // Once BOTH are in, finishSpaceship() scales the
+        // group, seats it on the regolith and adds the detail
+        // pass and the corridor door, since those need the
+        // final world-space shapes.
 
-    spaceship.name = 'GenesisSpaceship';
+        const spaceship = new THREE.Group();
 
-    this.spaceship = spaceship;
+        spaceship.name = 'GenesisSpaceship';
 
-    this.level.add(spaceship);
+        this.spaceship = spaceship;
 
+        this.level.add(spaceship);
 
-    // =====================================================
-    // LOAD EXTERIOR FBX
-    // =====================================================
+        this.shipExterior = null;
+        this.shipCorridor = null;
+        this.shipFinished = false;
+        this.shipBlinkers = null;
+        this.shipTime = 0;
+        this.door = null;
 
-    const fbxLoader = new FBXLoader();
+        // One material set shared by the hull, the corridor
+        // and every detail part.
+        const materials =
+            this.createShipMaterials();
 
-    fbxLoader.load(
-        './assets/models/Spaceship.fbx',
-
-        (fbx) => {
-
-            const exterior = fbx;
-
-            exterior.name = 'SpaceshipExterior';
-
-
-            // ---------------------------------------------
-            // SCALE
-            // ---------------------------------------------
-            //
-            // This FBX is already authored in meters
-            // (measured hull: roughly 52 x 20 x 68 units),
-            // so no centimeter conversion is applied.
-
-            exterior.scale.set(
-                1,
-                1,
-                1
-            );
+        this.shipMaterials = materials;
 
 
-            // ---------------------------------------------
-            // POSITION
-            // ---------------------------------------------
-            //
-            // The FBX pivot is offset from the hull, so
-            // re-center the model on the ship group and
-            // rest its belly just above the regolith
-            // (terrain under the footprint sits near -2).
+        // E toggles the corridor door when close enough.
+        this.onShipKeyDown = (event) => {
 
-            exterior.updateMatrixWorld(true);
+            const door = this.door;
 
-            const hullBox =
-                new THREE.Box3().setFromObject(exterior);
+            if (
+                event.code !== 'KeyE' ||
+                !door ||
+                !door.inRange
+            ) {
+                return;
+            }
 
-            const hullCenter =
-                hullBox.getCenter(
-                    new THREE.Vector3()
+            door.forced =
+                !(door.forced ?? door.near);
+        };
+
+        window.addEventListener(
+            'keydown',
+            this.onShipKeyDown
+        );
+
+
+        // =====================================================
+        // LOAD EXTERIOR FBX
+        // =====================================================
+
+        const fbxLoader = new FBXLoader();
+
+        fbxLoader.load(
+            './assets/models/Spaceship.fbx',
+
+            (fbx) => {
+
+                const exterior = fbx;
+
+                exterior.name = 'SpaceshipExterior';
+
+                // Authored in meters (hull roughly
+                // 52 x 20 x 68), the group scale in
+                // finishSpaceship() makes it bigger.
+                exterior.scale.set(1, 1, 1);
+
+
+                // Re-center the hull on the ship group. The
+                // final height is set by seatHullOnTerrain().
+
+                exterior.updateMatrixWorld(true);
+
+                const hullBox =
+                    new THREE.Box3().setFromObject(exterior);
+
+                const hullCenter =
+                    hullBox.getCenter(
+                        new THREE.Vector3()
+                    );
+
+                exterior.position.set(
+                    -hullCenter.x + 20,
+                    -hullBox.min.y - 5,
+                    -hullCenter.z + 15
                 );
 
-            exterior.position.set(
-                -hullCenter.x +20,
-                -hullBox.min.y-5 ,
-                -hullCenter.z +15
-            );
+                exterior.rotation.set(0, 0, 0);
 
 
-            // ---------------------------------------------
-            // ROTATION
-            // ---------------------------------------------
+                // The source FBX renders nearly black, so
+                // every mesh takes the shared cool white
+                // hull; the cylinders (engine / thruster
+                // parts) take the dark metal instead.
 
-            exterior.rotation.set(
-                0,
-                0,
-                0
-            );
+                exterior.traverse((object) => {
 
-
-            // ---------------------------------------------
-            // SHADOWS + WHITE PLACEHOLDER MATERIAL
-            // ---------------------------------------------
-            //
-            // The source FBX renders nearly black in this
-            // scene, so every mesh is swapped to a plain
-            // white placeholder material in the meantime.
-            // DoubleSide guards against flipped mesh
-            // winding, which Maya exports often carry.
-
-            const hullMaterial =
-                new THREE.MeshStandardMaterial({
-
-                    // Plain white placeholder.
-                    color: 0xffffff,
-
-                    roughness: 0.65,
-
-                    // Placeholder must stay non-metallic.
-                    metalness: 0.0,
-
-                    side: THREE.DoubleSide
-                });
-
-
-            exterior.traverse((object) => {
-
-                if (object.isMesh) {
-
-                    object.castShadow = true;
-                    object.receiveShadow = true;
-
-                    if (
-                        Array.isArray(
-                            object.material
-                        )
-                    ) {
-                        object.material.forEach(
-                            (material) => {
-                                material.dispose();
-                            }
-                        );
-
-                    } else {
-                        object.material.dispose();
+                    if (!object.isMesh) {
+                        return;
                     }
 
-                    object.material = hullMaterial;
+                    object.castShadow = true;
+                    object.receiveShadow = true;
 
-                }
+                    const old =
+                        Array.isArray(object.material)
+                            ? object.material
+                            : [object.material];
 
-            });
+                    old.forEach((material) => {
+                        material.dispose();
+                    });
 
+                    object.material =
+                        object.name.startsWith('pCylinder')
+                            ? materials.darkMetal
+                            : materials.hullWhite;
+                });
 
-            // ---------------------------------------------
-            // ADD EXTERIOR
-            // ---------------------------------------------
+                spaceship.add(exterior);
 
-            spaceship.add(exterior);
+                this.shipExterior = exterior;
 
+                console.log(
+                    'GENESIS: Spaceship FBX loaded.'
+                );
 
-            console.log(
-                'GENESIS: Spaceship FBX loaded.'
-            );
+                this.finishSpaceship();
+            },
 
-        },
+            undefined,
 
-        undefined,
+            (error) => {
 
-        (error) => {
-
-            console.error(
-                'GENESIS: Could not load Spaceship.fbx',
-                error
-            );
-
-        }
-    );
-
-
-    // =====================================================
-    // LOAD INTERIOR CORRIDOR
-    // =====================================================
-
-    const gltfLoader = new GLTFLoader();
-
-    gltfLoader.load(
-        './assets/models/space_ship_hallway.glb',
-
-        (gltf) => {
-
-            const corridor = gltf.scene;
-
-            corridor.name = 'SpaceshipCorridor';
+                console.error(
+                    'GENESIS: Could not load Spaceship.fbx',
+                    error
+                );
+            }
+        );
 
 
-            // ---------------------------------------------
-            // SCALE
-            // ---------------------------------------------
+        // =====================================================
+        // LOAD INTERIOR CORRIDOR
+        // =====================================================
 
-            corridor.scale.set(
-                1,
-                2,
-                1.5
-            );
+        // Authored corridor material -> shared ship material.
+        // Wall_blue was the cyan light strip, now cool white.
+        const corridorMaterials = {
+            Wall_Black: materials.darkMetal,
+            lambert1: materials.hullMatte,
+            Wall_Roof_White: materials.hullWhite,
+            Wall_blue: materials.glow,
+            Floor_and_vent: materials.darkMatte,
+            Floor_vent: materials.darkMetal,
+            Vent_light: materials.glow
+        };
+
+        const gltfLoader = new GLTFLoader();
+
+        gltfLoader.load(
+            './assets/models/space_ship_hallway.glb',
+
+            (gltf) => {
+
+                const corridor = gltf.scene;
+
+                corridor.name = 'SpaceshipCorridor';
+
+                corridor.scale.set(1, 2, 1.5);
+
+                corridor.position.set(0, 0, 45);
+
+                corridor.rotation.set(0, 0, 0);
 
 
-            // ---------------------------------------------
-            // POSITION
-            // ---------------------------------------------
+                corridor.traverse((object) => {
 
-            corridor.position.set(
-                0,
-                0,
-                45
-            );
-
-
-            // ---------------------------------------------
-            // ROTATION
-            // ---------------------------------------------
-
-            corridor.rotation.set(
-                0,
-                0,
-                0
-            );
-
-
-            // ---------------------------------------------
-            // SHADOWS + INTERIOR IMAGE-BASED LIGHTING
-            // ---------------------------------------------
-            //
-            // The corridor keeps its ORIGINAL materials so
-            // the authored look (black walls, cyan light
-            // strips, vent lights, glass) is preserved.
-            // The PMREM room environment is attached per
-            // material so metallic surfaces get reflections
-            // instead of rendering black inside the hull.
-
-            corridor.traverse((object) => {
-
-                if (object.isMesh) {
+                    if (!object.isMesh) {
+                        return;
+                    }
 
                     object.castShadow = true;
                     object.receiveShadow = true;
+
+                    this.cutCorridorEndWall(
+                        object.geometry
+                    );
+
+                    const shared =
+                        corridorMaterials[
+                            object.material.name
+                        ];
+
+                    if (shared) {
+
+                        object.material.dispose();
+
+                        object.material = shared;
+
+                        return;
+                    }
+
+                    // Glass keeps its own transparent
+                    // material, tinted cool white.
+                    object.material.color.set(SHIP_WHITE);
 
                     if (this.envTexture) {
 
-                        const materials =
-                            Array.isArray(
-                                object.material
-                            )
-                                ? object.material
-                                : [object.material];
+                        object.material.envMap =
+                            this.envTexture;
 
-                        materials.forEach(
-                            (material) => {
+                        object.material.envMapIntensity =
+                            0.5;
 
-                                material.envMap =
-                                    this.envTexture;
-
-                                material.envMapIntensity =
-                                    0.5;
-
-                                material.needsUpdate =
-                                    true;
-                            }
-                        );
-
+                        object.material.needsUpdate =
+                            true;
                     }
+                });
 
+                spaceship.add(corridor);
+
+                this.shipCorridor = corridor;
+
+                console.log(
+                    'GENESIS: Spaceship corridor loaded.'
+                );
+
+                this.finishSpaceship();
+            },
+
+            undefined,
+
+            (error) => {
+
+                console.error(
+                    'GENESIS: Could not load space_ship_hallway.glb',
+                    error
+                );
+            }
+        );
+
+
+        // =====================================================
+        // WHOLE SHIP POSITION + ROTATION
+        // =====================================================
+
+        spaceship.position.set(0, 0, 5);
+
+        spaceship.rotation.set(0, 0, 0);
+    }
+
+
+    // =========================================================
+    // CORRIDOR END WALL CUT
+    // =========================================================
+    //
+    // The corridor model ends at +Z in a solid wall with a
+    // painted-on door. Triangles of that wall inside the
+    // side walls, floor and ceiling are dropped so the
+    // sliding door in createCorridorDoor() can fill the
+    // hole; the model's white frame ring stays around it.
+    // Corridor-local units (end wall: z 2.9 - 3.58).
+
+    cutCorridorEndWall(geometry) {
+
+        const index = geometry.index;
+
+        if (!index) {
+            return;
+        }
+
+        const position =
+            geometry.attributes.position;
+
+        const kept = [];
+
+        for (let i = 0; i < index.count; i += 3) {
+
+            let inEndWall = true;
+
+            let x = 0;
+            let y = 0;
+
+            for (let k = 0; k < 3; k++) {
+
+                const vertex =
+                    index.getX(i + k);
+
+                if (position.getZ(vertex) <= 2.9) {
+                    inEndWall = false;
                 }
 
+                x += position.getX(vertex) / 3;
+                y += position.getY(vertex) / 3;
+            }
+
+            const inDoorway =
+                inEndWall &&
+                x > 16.37 && x < 23.87 &&
+                y > -2.9 && y < 2.95;
+
+            if (!inDoorway) {
+
+                kept.push(
+                    index.getX(i),
+                    index.getX(i + 1),
+                    index.getX(i + 2)
+                );
+            }
+        }
+
+        geometry.setIndex(kept);
+    }
+
+
+    // =========================================================
+    // SHARED SHIP MATERIALS
+    // =========================================================
+    //
+    // Two body colours only. Variety comes from roughness and
+    // metalness; lights are cool white, and coral is kept for
+    // the door status light. Only the metals get a real share
+    // of the room environment (they render pure black
+    // without one), so the sunlit hull keeps its hard look.
+
+    createShipMaterials() {
+
+        const envMap =
+            this.envTexture;
+
+        return {
+
+            // Main hull skin, corridor walls and roof.
+            hullWhite: new THREE.MeshStandardMaterial({
+                color: SHIP_WHITE,
+                roughness: 0.55,
+                metalness: 0.05,
+                envMap,
+                envMapIntensity: 0.2,
+                side: THREE.DoubleSide
+            }),
+
+            // Hatches, door frame, inset panels.
+            hullMatte: new THREE.MeshStandardMaterial({
+                color: SHIP_WHITE,
+                roughness: 0.9,
+                metalness: 0.0,
+                envMap,
+                envMapIntensity: 0.2,
+                side: THREE.DoubleSide
+            }),
+
+            // Trims, vents, engines, bulkhead, floor.
+            darkMetal: new THREE.MeshStandardMaterial({
+                color: SHIP_BLACK,
+                roughness: 0.35,
+                metalness: 0.8,
+                envMap,
+                envMapIntensity: 0.6,
+                side: THREE.DoubleSide
+            }),
+
+            // Panel lines, vent slats, door grooves.
+            darkMatte: new THREE.MeshStandardMaterial({
+                color: SHIP_BLACK,
+                roughness: 0.85,
+                metalness: 0.1,
+                envMap,
+                envMapIntensity: 0.2,
+                side: THREE.DoubleSide
+            }),
+
+            // Every light and light strip.
+            glow: new THREE.MeshBasicMaterial({
+                color: SHIP_WHITE,
+                side: THREE.DoubleSide
+            }),
+
+            // Door status light, coral -> cool white.
+            status: new THREE.MeshBasicMaterial({
+                color: SHIP_CORAL
+            })
+        };
+    }
+
+
+    // =========================================================
+    // FINISH SPACESHIP
+    // =========================================================
+    //
+    // Runs once both models are loaded.
+
+    finishSpaceship() {
+
+        if (
+            !this.shipExterior ||
+            !this.shipCorridor ||
+            this.shipFinished
+        ) {
+            return;
+        }
+
+        this.shipFinished = true;
+
+        const spaceship = this.spaceship;
+
+        const corridor = this.shipCorridor;
+
+
+        // -----------------------------------------------------
+        // SCALE AROUND THE CORRIDOR MOUTH
+        // -----------------------------------------------------
+        //
+        // The corridor mouth (local x 20.1, z 3.58) stays
+        // where the landing path ends; the ship grows back
+        // and to the sides. Rotation is zero, so the ship
+        // group maps local -> world as position + scale.
+
+        const mouth =
+            new THREE.Vector3(20.1, 0, 3.58)
+                .multiply(corridor.scale)
+                .add(corridor.position);
+
+        const pivot =
+            mouth.clone().add(spaceship.position);
+
+        spaceship.scale.setScalar(SHIP_SCALE);
+
+        spaceship.position.x =
+            pivot.x - SHIP_SCALE * mouth.x;
+
+        spaceship.position.z =
+            pivot.z - SHIP_SCALE * mouth.z;
+
+
+        // -----------------------------------------------------
+        // CORRIDOR FLOOR AT GROUND LEVEL
+        // -----------------------------------------------------
+        //
+        // The corridor floor is found by casting down from
+        // mid-height a few meters inside the mouth, then the
+        // whole ship is lifted so that floor meets the
+        // regolith just outside the door.
+
+        spaceship.position.y = 0;
+
+        spaceship.updateMatrixWorld(true);
+
+        const raycaster = new THREE.Raycaster();
+
+        raycaster.set(
+            spaceship.localToWorld(
+                new THREE.Vector3(20.1, 0, mouth.z - 3)
+            ),
+            new THREE.Vector3(0, -1, 0)
+        );
+
+        const floorHit =
+            raycaster
+                .intersectObject(corridor, true)
+                .find((hit) =>
+                    !hit.object.material.transparent
+                );
+
+        const floorWorldY =
+            floorHit
+                ? floorHit.point.y
+                : SHIP_SCALE * -6;
+
+        const ground =
+            this.getSurfaceHeight(
+                pivot.x,
+                pivot.z + 2
+            );
+
+        spaceship.position.y =
+            ground - floorWorldY;
+
+        spaceship.updateMatrixWorld(true);
+
+        // Floor height in ship-local space, for the door.
+        this.shipFloorY =
+            spaceship.worldToLocal(
+                new THREE.Vector3(0, ground, 0)
+            ).y;
+
+
+        this.seatHullOnTerrain();
+
+        this.createShipDetails();
+
+        this.createCorridorDoor(mouth.z);
+    }
+
+
+    // =========================================================
+    // SEAT HULL ON TERRAIN
+    // =========================================================
+    //
+    // Casts up at the belly across the hull footprint and
+    // compares each hit with the regolith below it. The hull
+    // moves so its lowest contact sinks 0.3 m into the
+    // ground: nothing floats, nothing is buried deep.
+
+    seatHullOnTerrain() {
+
+        const exterior = this.shipExterior;
+
+        const box =
+            new THREE.Box3().setFromObject(exterior);
+
+        const raycaster = new THREE.Raycaster();
+
+        const up = new THREE.Vector3(0, 1, 0);
+
+        const origin = new THREE.Vector3();
+
+        const steps = 10;
+
+        let lowestGap = Infinity;
+
+        for (let i = 0; i <= steps; i++) {
+
+            for (let j = 0; j <= steps; j++) {
+
+                origin.set(
+                    THREE.MathUtils.lerp(
+                        box.min.x,
+                        box.max.x,
+                        i / steps
+                    ),
+                    box.min.y - 5,
+                    THREE.MathUtils.lerp(
+                        box.min.z,
+                        box.max.z,
+                        j / steps
+                    )
+                );
+
+                raycaster.set(origin, up);
+
+                const hit =
+                    raycaster.intersectObject(
+                        exterior,
+                        true
+                    )[0];
+
+                if (!hit) {
+                    continue;
+                }
+
+                const gap =
+                    hit.point.y -
+                    this.getSurfaceHeight(
+                        origin.x,
+                        origin.z
+                    );
+
+                lowestGap =
+                    Math.min(lowestGap, gap);
+            }
+        }
+
+        if (lowestGap === Infinity) {
+            return;
+        }
+
+        // Local units: the ship group is scaled.
+        exterior.position.y -=
+            (lowestGap + 0.3) / SHIP_SCALE;
+
+        exterior.updateMatrixWorld(true);
+    }
+
+
+    // =========================================================
+    // SHIP DETAILS
+    // =========================================================
+    //
+    // Panel seams, vents, hatches, running lights and
+    // antennas. The hull is a single imported shape with
+    // generic mesh names, so every part is placed by casting
+    // rays at the real surface and lying flat against it.
+    // Parts are built in world space, batched into six
+    // InstancedMeshes (one per geometry + material) and then
+    // attached to the ship group.
+
+    createShipDetails() {
+
+        const exterior = this.shipExterior;
+
+        const materials = this.shipMaterials;
+
+        const box =
+            new THREE.Box3().setFromObject(exterior);
+
+        const center =
+            box.getCenter(new THREE.Vector3());
+
+        const size =
+            box.getSize(new THREE.Vector3());
+
+        const reach =
+            size.length();
+
+        const raycaster = new THREE.Raycaster();
+
+
+        // Surface hit with a world normal facing the ray.
+        const hitHull = (origin, direction) => {
+
+            raycaster.set(origin, direction);
+
+            const hit =
+                raycaster.intersectObject(
+                    exterior,
+                    true
+                )[0];
+
+            if (!hit || !hit.face) {
+                return null;
+            }
+
+            const normal =
+                hit.face.normal
+                    .clone()
+                    .transformDirection(
+                        hit.object.matrixWorld
+                    );
+
+            if (normal.dot(direction) > 0) {
+                normal.negate();
+            }
+
+            return {
+                point: hit.point,
+                normal
+            };
+        };
+
+
+        // Matrix lists, one per InstancedMesh.
+        const parts = {
+            darkMatte: [],
+            darkMetal: [],
+            hullMatte: [],
+            glow: [],
+            mast: [],
+            tip: []
+        };
+
+        const basis = new THREE.Matrix4();
+
+        // Box lying on the surface: local Y = normal, local X
+        // = tangent. offset is in that local frame (meters).
+        const place = (
+            list,
+            surface,
+            tangent,
+            dimensions,
+            offset = new THREE.Vector3()
+        ) => {
+
+            const y = surface.normal;
+
+            const x =
+                tangent
+                    .clone()
+                    .addScaledVector(y, -tangent.dot(y));
+
+            if (x.lengthSq() < 1e-6) {
+                x.set(1, 0, 0)
+                    .addScaledVector(y, -y.x);
+            }
+
+            x.normalize();
+
+            const z =
+                new THREE.Vector3()
+                    .crossVectors(x, y);
+
+            basis.makeBasis(x, y, z);
+
+            const position =
+                surface.point
+                    .clone()
+                    .addScaledVector(x, offset.x)
+                    .addScaledVector(y, offset.y)
+                    .addScaledVector(z, offset.z);
+
+            list.push(
+                basis
+                    .clone()
+                    .scale(dimensions)
+                    .setPosition(position)
+            );
+        };
+
+        const alongZ = new THREE.Vector3(0, 0, 1);
+
+        const alongX = new THREE.Vector3(1, 0, 0);
+
+        const down = new THREE.Vector3(0, -1, 0);
+
+
+        // -----------------------------------------------------
+        // PANEL SEAM RINGS
+        // -----------------------------------------------------
+        //
+        // Rays fan around the hull at a few stations along
+        // its length; neighbouring hits are joined by a thin
+        // dark strip. Big jumps (wing edges, gaps) are
+        // skipped, so the seams only follow smooth skin.
+
+        const ringSteps = 48;
+
+        [0.18, 0.34, 0.5, 0.66, 0.82].forEach(
+            (fraction) => {
+
+                const z =
+                    THREE.MathUtils.lerp(
+                        box.min.z,
+                        box.max.z,
+                        fraction
+                    );
+
+                const hits = [];
+
+                for (let i = 0; i < ringSteps; i++) {
+
+                    const angle =
+                        (i / ringSteps) * Math.PI * 2;
+
+                    const direction =
+                        new THREE.Vector3(
+                            -Math.cos(angle),
+                            -Math.sin(angle),
+                            0
+                        );
+
+                    hits.push(
+                        hitHull(
+                            new THREE.Vector3(
+                                center.x,
+                                center.y,
+                                z
+                            ).addScaledVector(
+                                direction,
+                                -reach
+                            ),
+                            direction
+                        )
+                    );
+                }
+
+                for (let i = 0; i < ringSteps; i++) {
+
+                    const a = hits[i];
+
+                    const b =
+                        hits[(i + 1) % ringSteps];
+
+                    if (!a || !b) {
+                        continue;
+                    }
+
+                    const chord =
+                        b.point.clone().sub(a.point);
+
+                    const length =
+                        chord.length();
+
+                    if (
+                        length < 0.05 ||
+                        length > 4 ||
+                        a.normal.dot(b.normal) < 0.6
+                    ) {
+                        continue;
+                    }
+
+                    place(
+                        parts.darkMatte,
+                        {
+                            point: a.point
+                                .clone()
+                                .lerp(b.point, 0.5),
+                            normal: a.normal
+                                .clone()
+                                .add(b.normal)
+                                .normalize()
+                        },
+                        chord,
+                        new THREE.Vector3(
+                            length + 0.04,
+                            0.1,
+                            0.16
+                        ),
+                        new THREE.Vector3(0, 0.02, 0)
+                    );
+                }
+            }
+        );
+
+
+        // -----------------------------------------------------
+        // RUNNING LIGHTS
+        // -----------------------------------------------------
+        //
+        // A row down each flank in a dark metal housing.
+
+        const lightY =
+            box.min.y + size.y * 0.3;
+
+        for (let i = 1; i <= 9; i++) {
+
+            const z =
+                THREE.MathUtils.lerp(
+                    box.min.z,
+                    box.max.z,
+                    i / 10
+                );
+
+            [-1, 1].forEach((side) => {
+
+                const direction =
+                    new THREE.Vector3(-side, 0, 0);
+
+                const surface =
+                    hitHull(
+                        new THREE.Vector3(
+                            center.x + side * reach,
+                            lightY,
+                            z
+                        ),
+                        direction
+                    );
+
+                if (!surface) {
+                    return;
+                }
+
+                place(
+                    parts.darkMetal,
+                    surface,
+                    alongZ,
+                    new THREE.Vector3(0.9, 0.12, 0.5)
+                );
+
+                place(
+                    parts.glow,
+                    surface,
+                    alongZ,
+                    new THREE.Vector3(0.6, 0.1, 0.22),
+                    new THREE.Vector3(0, 0.06, 0)
+                );
+            });
+        }
+
+
+        // -----------------------------------------------------
+        // ROOF VENTS
+        // -----------------------------------------------------
+        //
+        // Dark metal frame with five matte slats. Only
+        // placed where the roof is close to flat.
+
+        [0.3, 0.45, 0.6, 0.75].forEach((fraction) => {
+
+            [-0.18, 0.18].forEach((across) => {
+
+                const surface =
+                    hitHull(
+                        new THREE.Vector3(
+                            center.x + size.x * across,
+                            box.max.y + 5,
+                            THREE.MathUtils.lerp(
+                                box.min.z,
+                                box.max.z,
+                                fraction
+                            )
+                        ),
+                        down
+                    );
+
+                if (
+                    !surface ||
+                    surface.normal.y < 0.75
+                ) {
+                    return;
+                }
+
+                place(
+                    parts.darkMetal,
+                    surface,
+                    alongX,
+                    new THREE.Vector3(2.6, 0.14, 1.6)
+                );
+
+                for (let s = -2; s <= 2; s++) {
+
+                    place(
+                        parts.darkMatte,
+                        surface,
+                        alongX,
+                        new THREE.Vector3(0.22, 0.12, 1.3),
+                        new THREE.Vector3(s * 0.46, 0.12, 0)
+                    );
+                }
+            });
+        });
+
+
+        // -----------------------------------------------------
+        // SIDE HATCHES
+        // -----------------------------------------------------
+        //
+        // Matte white plate on a dark metal rim, with a small
+        // dark handle.
+
+        [0.28, 0.72].forEach((fraction) => {
+
+            [-1, 1].forEach((side) => {
+
+                const surface =
+                    hitHull(
+                        new THREE.Vector3(
+                            center.x + side * reach,
+                            box.min.y + size.y * 0.45,
+                            THREE.MathUtils.lerp(
+                                box.min.z,
+                                box.max.z,
+                                fraction
+                            )
+                        ),
+                        new THREE.Vector3(-side, 0, 0)
+                    );
+
+                if (!surface) {
+                    return;
+                }
+
+                place(
+                    parts.darkMetal,
+                    surface,
+                    alongZ,
+                    new THREE.Vector3(2.2, 0.08, 2.6)
+                );
+
+                place(
+                    parts.hullMatte,
+                    surface,
+                    alongZ,
+                    new THREE.Vector3(1.8, 0.1, 2.2),
+                    new THREE.Vector3(0, 0.03, 0)
+                );
+
+                place(
+                    parts.darkMetal,
+                    surface,
+                    alongZ,
+                    new THREE.Vector3(0.7, 0.12, 0.14),
+                    new THREE.Vector3(0, 0.1, -0.6)
+                );
+            });
+        });
+
+
+        // -----------------------------------------------------
+        // ANTENNAS
+        // -----------------------------------------------------
+        //
+        // Upright masts on the roof with blinking tips.
+
+        const mastMatrix = new THREE.Matrix4();
+
+        [
+            { fraction: 0.38, across: 0.0, height: 5.5 },
+            { fraction: 0.52, across: -0.08, height: 3.5 },
+            { fraction: 0.52, across: 0.08, height: 4.2 }
+        ].forEach((antenna) => {
+
+            const surface =
+                hitHull(
+                    new THREE.Vector3(
+                        center.x + size.x * antenna.across,
+                        box.max.y + 5,
+                        THREE.MathUtils.lerp(
+                            box.min.z,
+                            box.max.z,
+                            antenna.fraction
+                        )
+                    ),
+                    down
+                );
+
+            if (!surface) {
+                return;
+            }
+
+            place(
+                parts.darkMetal,
+                surface,
+                alongX,
+                new THREE.Vector3(0.8, 0.3, 0.8)
+            );
+
+            const base = surface.point;
+
+            parts.mast.push(
+                mastMatrix
+                    .clone()
+                    .makeScale(1, antenna.height, 1)
+                    .setPosition(
+                        base.x,
+                        base.y + antenna.height / 2,
+                        base.z
+                    )
+            );
+
+            parts.tip.push(
+                mastMatrix
+                    .clone()
+                    .makeTranslation(
+                        base.x,
+                        base.y + antenna.height + 0.1,
+                        base.z
+                    )
+            );
+        });
+
+
+        // -----------------------------------------------------
+        // BUILD INSTANCED MESHES
+        // -----------------------------------------------------
+
+        const boxGeometry =
+            new THREE.BoxGeometry(1, 1, 1);
+
+        const batches = [
+            [parts.darkMatte, boxGeometry, materials.darkMatte],
+            [parts.darkMetal, boxGeometry, materials.darkMetal],
+            [parts.hullMatte, boxGeometry, materials.hullMatte],
+            [parts.glow, boxGeometry, materials.glow],
+            [
+                parts.mast,
+                new THREE.CylinderGeometry(0.07, 0.12, 1, 6),
+                materials.darkMetal
+            ],
+            [
+                parts.tip,
+                new THREE.SphereGeometry(0.22, 8, 6),
+                materials.glow
+            ]
+        ];
+
+        const details = new THREE.Group();
+
+        details.name = 'SpaceshipDetails';
+
+        this.level.add(details);
+
+        let triangles = 0;
+
+        batches.forEach(([matrices, geometry, material]) => {
+
+            if (matrices.length === 0) {
+                return;
+            }
+
+            const mesh =
+                new THREE.InstancedMesh(
+                    geometry,
+                    material,
+                    matrices.length
+                );
+
+            matrices.forEach((matrix, index) => {
+                mesh.setMatrixAt(index, matrix);
             });
 
+            mesh.instanceMatrix.needsUpdate = true;
 
-            // ---------------------------------------------
-            // ADD CORRIDOR
-            // ---------------------------------------------
+            mesh.computeBoundingSphere();
 
-            spaceship.add(corridor);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+
+            details.add(mesh);
+
+            triangles +=
+                matrices.length *
+                geometry.index.count / 3;
+
+            if (geometry.type === 'SphereGeometry') {
+                this.shipBlinkers = mesh;
+            }
+        });
+
+        // Built in world space; attach() keeps the world
+        // transform while parenting to the ship group.
+        this.spaceship.attach(details);
+
+        console.log(
+            `GENESIS: Spaceship details added (${triangles} triangles).`
+        );
+    }
 
 
-            // ---------------------------------------------
-            // DOOR EMBLEM
-            // ---------------------------------------------
-            //
-            // A GENESIS emblem floating in the entrance
-            // mouth of the corridor. Parented to the
-            // corridor so it follows position tweaks, and
-            // counter-scaled against the corridor stretch
-            // (scale 1 / 2 / 1.5) so it keeps its true
-            // size. The corridor opening spans local
-            // x 15.9 - 24.4, y up to 3.9, z up to 3.6.
+    // =========================================================
+    // CORRIDOR DOOR
+    // =========================================================
+    //
+    // A dark metal bulkhead seals the corridor mouth around
+    // a sliding double door. The door opens automatically
+    // when the camera comes close, and E toggles it. The
+    // status light above the door and the door light go
+    // coral when closed and cool white when open.
+    //
+    // Built in ship-local units (the group scale makes the
+    // opening about 4.4 m wide and 6.9 m tall). The bulkhead
+    // fills the hole cut by cutCorridorEndWall(): x 16.37 -
+    // 23.87 between the side walls, up to the ceiling at
+    // corridor y 3 (ship y 6).
 
-            const doorLogo =
-                this.createGenesisLogo(6, 3);
+    createCorridorDoor(mouthZ) {
 
-            doorLogo.scale.set(
-                1,
-                0.5,
+        const materials = this.shipMaterials;
+
+        const floor = this.shipFloorY;
+
+        const door = new THREE.Group();
+
+        door.name = 'SpaceshipDoor';
+
+        this.spaceship.add(door);
+
+
+        const centerX = 20.1;
+
+        const openWidth = 3.5;
+
+        const openHeight = 5.5;
+
+        const top = 3 * this.shipCorridor.scale.y;
+
+        const wallLeft = 16.37;
+
+        const wallRight = 23.87;
+
+        // Bulkhead front face, just inside the frame ring.
+        const front = mouthZ - 0.15;
+
+        const thickness = 0.3;
+
+        const left = centerX - openWidth / 2;
+
+        const right = centerX + openWidth / 2;
+
+        const boxGeometry =
+            new THREE.BoxGeometry(1, 1, 1);
+
+        const addBox = (
+            material,
+            x1, x2,
+            y1, y2,
+            z,
+            depth,
+            parent = door
+        ) => {
+
+            const mesh =
+                new THREE.Mesh(boxGeometry, material);
+
+            mesh.scale.set(x2 - x1, y2 - y1, depth);
+
+            mesh.position.set(
+                (x1 + x2) / 2,
+                (y1 + y2) / 2,
+                z
+            );
+
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+
+            parent.add(mesh);
+
+            return mesh;
+        };
+
+
+        // -----------------------------------------------------
+        // BULKHEAD
+        // -----------------------------------------------------
+
+        const bulkZ = front - thickness / 2;
+
+        addBox(materials.darkMetal, wallLeft, left, floor, top, bulkZ, thickness);
+        addBox(materials.darkMetal, right, wallRight, floor, top, bulkZ, thickness);
+        addBox(materials.darkMetal, left, right, floor + openHeight, top, bulkZ, thickness);
+
+        // Horizontal panel seams across the bulkhead.
+        [floor + 3, floor + openHeight + 1.6, top - 0.8].forEach((y) => {
+            addBox(materials.darkMatte, wallLeft, left, y - 0.04, y + 0.04, front + 0.01, 0.04);
+            addBox(materials.darkMatte, right, wallRight, y - 0.04, y + 0.04, front + 0.01, 0.04);
+        });
+
+
+        // -----------------------------------------------------
+        // DOOR FRAME + LIGHT STRIPS
+        // -----------------------------------------------------
+
+        const frame = 0.28;
+
+        const frameZ = front + 0.1;
+
+        addBox(materials.hullMatte, left - frame, left, floor, floor + openHeight + frame, frameZ, 0.2);
+        addBox(materials.hullMatte, right, right + frame, floor, floor + openHeight + frame, frameZ, 0.2);
+        addBox(materials.hullMatte, left, right, floor + openHeight, floor + openHeight + frame, frameZ, 0.2);
+
+        // Vertical strips flanking the frame, one over it.
+        addBox(materials.glow, left - frame - 0.3, left - frame - 0.18, floor + 0.4, floor + openHeight - 0.4, front + 0.03, 0.06);
+        addBox(materials.glow, right + frame + 0.18, right + frame + 0.3, floor + 0.4, floor + openHeight - 0.4, front + 0.03, 0.06);
+        addBox(materials.glow, left, right, floor + openHeight + 0.5, floor + openHeight + 0.6, front + 0.03, 0.06);
+
+        // Status light, coral closed / cool white open.
+        addBox(materials.status, centerX - 0.35, centerX + 0.35, floor + openHeight + 0.85, floor + openHeight + 1.1, front + 0.05, 0.1);
+
+
+        // -----------------------------------------------------
+        // GENESIS EMBLEM
+        // -----------------------------------------------------
+
+        const emblem =
+            this.createGenesisLogo(6, 3);
+
+        emblem.position.set(
+            centerX,
+            floor + openHeight + 3.6,
+            front + 0.04
+        );
+
+        door.add(emblem);
+
+
+        // -----------------------------------------------------
+        // SLIDING LEAVES
+        // -----------------------------------------------------
+        //
+        // Two leaves just behind the bulkhead. Each slides
+        // its own width sideways, which keeps it inside the
+        // corridor walls.
+
+        const leafWidth = openWidth / 2;
+
+        const leafZ = bulkZ - thickness / 2 - 0.15;
+
+        const leaves = [-1, 1].map((side) => {
+
+            const leaf = new THREE.Group();
+
+            leaf.position.set(
+                centerX + side * leafWidth / 2,
+                floor,
+                leafZ
+            );
+
+            door.add(leaf);
+
+            const half = leafWidth / 2;
+
+            // Panel with a groove on the meeting edge and two
+            // horizontal panel lines.
+            addBox(materials.hullWhite, -half, half, 0, openHeight, 0, 0.2, leaf);
+
+            const edge = -side * (half - 0.08);
+
+            addBox(materials.darkMatte, edge - 0.04, edge + 0.04, 0.2, openHeight - 0.2, 0.11, 0.04, leaf);
+
+            [openHeight / 3, openHeight * 2 / 3].forEach((y) => {
+                addBox(materials.darkMatte, -half + 0.15, half - 0.15, y - 0.03, y + 0.03, 0.11, 0.04, leaf);
+            });
+
+            leaf.userData.closedX = leaf.position.x;
+
+            leaf.userData.openX =
+                leaf.position.x + side * leafWidth;
+
+            return leaf;
+        });
+
+
+        // -----------------------------------------------------
+        // DOOR LIGHT
+        // -----------------------------------------------------
+
+        const light =
+            new THREE.PointLight(
+                SHIP_CORAL,
+                30,
+                14,
+                2
+            );
+
+        light.position.set(
+            centerX,
+            floor + openHeight + 1,
+            front + 1.5
+        );
+
+        door.add(light);
+
+
+        // -----------------------------------------------------
+        // CAMERA TRACKING
+        // -----------------------------------------------------
+        //
+        // update() only receives deltaTime, so the door picks
+        // up the viewer camera from its own render call.
+        // Shadow passes use the sun's orthographic camera,
+        // hence the perspective check.
+
+        const sensor = leaves[0].children[0];
+
+        sensor.onBeforeRender = (renderer, scene, camera) => {
+
+            if (camera.isPerspectiveCamera) {
+                this.door.camera = camera;
+            }
+        };
+
+
+        this.door = {
+            leaves,
+            light,
+            camera: null,
+            near: false,
+            inRange: false,
+            forced: null,
+            progress: 0,
+            center: this.spaceship.localToWorld(
+                new THREE.Vector3(
+                    centerX,
+                    floor + openHeight / 2,
+                    front
+                )
+            )
+        };
+    }
+
+
+    // =========================================================
+    // SPACESHIP UPDATE
+    // =========================================================
+
+    updateSpaceship(deltaTime) {
+
+        this.shipTime += deltaTime;
+
+        // Antenna tips flash briefly every 1.6 s.
+        if (this.shipBlinkers) {
+
+            this.shipBlinkers.visible =
+                this.shipTime % 1.6 < 0.18;
+        }
+
+
+        const door = this.door;
+
+        if (!door) {
+            return;
+        }
+
+        if (door.camera) {
+
+            const distance =
+                door.camera.position.distanceTo(
+                    door.center
+                );
+
+            const near =
+                distance < DOOR_OPEN_DISTANCE;
+
+            // Walking in or out of range hands control
+            // back to the proximity sensor.
+            if (near !== door.near) {
+
+                door.near = near;
+
+                door.forced = null;
+            }
+
+            door.inRange =
+                distance < DOOR_KEY_DISTANCE;
+        }
+
+        const target =
+            (door.forced ?? door.near) ? 1 : 0;
+
+        const step =
+            deltaTime / DOOR_OPEN_SECONDS;
+
+        door.progress =
+            target > door.progress
+                ? Math.min(target, door.progress + step)
+                : Math.max(target, door.progress - step);
+
+        const eased =
+            THREE.MathUtils.smoothstep(
+                door.progress,
+                0,
                 1
             );
 
-            doorLogo.position.set(
-                20.1,
-                2.25,
-                3.75
-            );
+        door.leaves.forEach((leaf) => {
 
-            corridor.add(doorLogo);
+            leaf.position.x =
+                THREE.MathUtils.lerp(
+                    leaf.userData.closedX,
+                    leaf.userData.openX,
+                    eased
+                );
+        });
 
+        this.shipMaterials.status.color.lerpColors(
+            DOOR_CLOSED_COLOR,
+            DOOR_OPEN_COLOR,
+            eased
+        );
 
-            console.log(
-                'GENESIS: Spaceship corridor loaded.'
-            );
-
-        },
-
-        undefined,
-
-        (error) => {
-
-            console.error(
-                'GENESIS: Could not load space_ship_hallway.glb',
-                error
-            );
-
-        }
-    );
-
-
-    // =====================================================
-    // WHOLE SHIP POSITION
-    // =====================================================
-
-    spaceship.position.set(
-        0,
-        0,
-        5
-    );
-
-
-    // =====================================================
-    // WHOLE SHIP ROTATION
-    // =====================================================
-
-    spaceship.rotation.set(
-        0,
-        0,
-        0
-    );
-}
+        door.light.color.copy(
+            this.shipMaterials.status.color
+        );
+    }
 
     // =========================================================
     // GENESIS LOGO
@@ -2315,6 +3442,8 @@ createMoonSurface() {
 
     update(deltaTime) {
 
+        this.updateSpaceship(deltaTime);
+
         // The Moon environment remains static.
 
         // Very slow Earth rotation so it feels like a real
@@ -2465,6 +3594,23 @@ createMoonSurface() {
         this.distantTerrain = null;
 
         this.pathGroup = null;
+
+        window.removeEventListener(
+            'keydown',
+            this.onShipKeyDown
+        );
+
+        this.spaceship = null;
+
+        this.shipExterior = null;
+
+        this.shipCorridor = null;
+
+        this.shipBlinkers = null;
+
+        this.shipMaterials = null;
+
+        this.door = null;
 
         this.flagCloth = null;
 
