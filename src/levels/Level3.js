@@ -15,6 +15,10 @@ const SHIP_CORAL = 0xff6f61;
 
 const SHIP_SCALE = 1.25;
 
+// 1 px transparent GIF, stands in for the FBX's missing textures.
+const EMPTY_IMAGE =
+    'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+
 // Door: opens on approach, E toggles within key range.
 const DOOR_OPEN_DISTANCE = 10;
 const DOOR_KEY_DISTANCE = 30;
@@ -1311,7 +1315,21 @@ createMoonSurface() {
         // LOAD EXTERIOR FBX
         // =====================================================
 
-        const fbxLoader = new FBXLoader();
+        // Spaceship.fbx still references four Maya textures
+        // (Spaceship 3 front / back / bridge / bridge holder.jpg)
+        // that were never exported. Its materials are replaced
+        // below anyway, so those requests get a 1 px placeholder
+        // instead of failing.
+
+        const fbxManager = new THREE.LoadingManager();
+
+        fbxManager.setURLModifier((url) =>
+            /\.jpe?g$/i.test(url)
+                ? EMPTY_IMAGE
+                : url
+        );
+
+        const fbxLoader = new FBXLoader(fbxManager);
 
         fbxLoader.load(
             './assets/models/Spaceship.fbx',
