@@ -1350,6 +1350,29 @@ createMoonSurface() {
                 exterior.rotation.set(0, 0, 0);
 
 
+                // The FBX carries its own Maya lights, one of them
+                // an invisible (intensity 0) shadow-casting point
+                // light that re-rendered the scene into a 6-face
+                // shadow cube every frame. Level 3 lights the
+                // ship itself, so all embedded lights are removed.
+
+                const embeddedLights = [];
+
+                exterior.traverse((object) => {
+
+                    if (object.isLight) {
+                        embeddedLights.push(object);
+                    }
+                });
+
+                embeddedLights.forEach((light) => {
+
+                    light.removeFromParent();
+
+                    light.dispose();
+                });
+
+
                 // The source FBX renders nearly black, so
                 // every mesh takes the shared cool white
                 // hull; the cylinders (engine / thruster
