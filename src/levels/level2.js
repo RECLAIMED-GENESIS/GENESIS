@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { StreetEnemies } from '../player/streetEnemies.js';
 import { Enforcer } from '../enemies/enforcer.js';
+import { BossHealthBar } from '../ui/BossHealthBar.js';
 
 export class AlienLevel {
 
@@ -636,6 +637,11 @@ export class AlienLevel {
                 if (this._onEnforcerDeath) this._onEnforcerDeath();
             }
         });
+
+                // Boss HP bar
+        this.bossHealthBar = new BossHealthBar();
+        this.bossHealthBar.setName('THE ENFORCER');
+        this.bossHealthBar.show();
 
         console.log('⚔️ [L2] The Enforcer has arrived');
     }
@@ -6786,6 +6792,11 @@ createCityBackground() {
                 // update Enforcer
         if (this.enforcer && player) {
           this.enforcer.update(deltaTime, player.pos);
+        }
+                // update boss HP bar
+        if (this.enforcer && this.bossHealthBar) {
+          this.bossHealthBar.setHealth(this.enforcer.health, this.enforcer.MAX_HEALTH);
+          this.bossHealthBar.setPhase(this.enforcer.phase);
         }
 
         if (this.portal) {
