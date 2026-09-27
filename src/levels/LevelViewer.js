@@ -6,7 +6,7 @@
 
 import * as THREE from 'three';
 
-import { Level1 } from './Level1.js';
+import { Level1 } from './new_level1.js';
 import { Level2 } from './Level2.js';
 import { Level3 } from './Level3.js';
 
@@ -29,19 +29,21 @@ export function createLevelViewer(renderer, { onEnter, onExit, canEnter } = {}) 
     // -----------------------------------------------------
     // LEVEL 1 CAMERA
     // ORTHOGRAPHIC = 2D / PIXEL ART STYLE
+    // Sized to see most of the mine from above (mine is
+    // roughly 60 wide x 40 deep — see new_level1.js)
     // -----------------------------------------------------
 
     const level1Camera = new THREE.OrthographicCamera(
-        -12,
-        12,
-        9,
-        -9,
+        -32,
+        32,
+        22,
+        -22,
         0.1,
         1000
     );
 
     // Look straight down at the arena
-    level1Camera.position.set(0, 20, 0);
+    level1Camera.position.set(0, 30, 0);
     level1Camera.rotation.set(-Math.PI / 2, 0, 0);
 
 
@@ -150,7 +152,7 @@ export function createLevelViewer(renderer, { onEnter, onExit, canEnter } = {}) 
             camera = level1Camera;
 
             // Put camera above centre of arena, looking straight down
-            camera.position.set(0, 20, 0);
+            camera.position.set(0, 30, 0);
             camera.rotation.set(-Math.PI / 2, 0, 0);
 
             // Reset mouse values
@@ -312,11 +314,13 @@ export function createLevelViewer(renderer, { onEnter, onExit, canEnter } = {}) 
 
         // =================================================
         // LEVEL 1 ORTHOGRAPHIC CAMERA
+        // Sized to keep most of the (roughly 60 x 40) mine
+        // visible from above.
         // =================================================
 
         const aspect = window.innerWidth / window.innerHeight;
 
-        const viewHeight = 18;
+        const viewHeight = 44;
         const viewWidth = viewHeight * aspect;
 
         level1Camera.left = -viewWidth / 2;
@@ -362,6 +366,8 @@ export function createLevelViewer(renderer, { onEnter, onExit, canEnter } = {}) 
         // =================================================
         // LEVEL 1
         // ORTHOGRAPHIC 2D MOVEMENT
+        // Clamped to stay inside the mine's rock walls
+        // (walls sit at roughly x = ±29.5, z = ±19.5)
         // =================================================
 
         if (currentLevelNumber === 1) {
@@ -371,9 +377,9 @@ export function createLevelViewer(renderer, { onEnter, onExit, canEnter } = {}) 
             if (keys['KeyA']) camera.position.x -= distance;
             if (keys['KeyD']) camera.position.x += distance;
 
-            // Keep camera/player inside Level 1 arena
-            camera.position.x = THREE.MathUtils.clamp(camera.position.x, -10, 10);
-            camera.position.z = THREE.MathUtils.clamp(camera.position.z, -6, 6);
+            // Keep camera/player inside Level 1 mine
+            camera.position.x = THREE.MathUtils.clamp(camera.position.x, -27, 27);
+            camera.position.z = THREE.MathUtils.clamp(camera.position.z, -17, 17);
 
             // IMPORTANT:
             // Keep Level 1 looking straight down
