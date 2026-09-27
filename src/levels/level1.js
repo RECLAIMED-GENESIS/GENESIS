@@ -194,6 +194,7 @@ export class StreetLevel {
     this.createShrine();
     this.createHouses();
     this.createCrashedShip();
+    this.createScenery();
     this.createFireflies();
     this.createPetals();
     this._buildColliders();
@@ -897,6 +898,395 @@ export class StreetLevel {
     ));
 
     return g;
+  }
+
+    // =========================================================
+  // SCENERY — fences, well, pavilion, stream, bamboo, props
+  // =========================================================
+  createScenery() {
+    // Shared materials
+    const woodMat = new THREE.MeshStandardMaterial({ color: 0x5a3a20, roughness: 0.9 });
+    const woodDarkMat = new THREE.MeshStandardMaterial({ color: 0x3a2410, roughness: 0.9 });
+    const stoneMat = new THREE.MeshStandardMaterial({ color: 0x8a8496, roughness: 0.8 });
+    const stoneDarkMat = new THREE.MeshStandardMaterial({ color: 0x5a5a62, roughness: 0.9 });
+    const bambooMat = new THREE.MeshStandardMaterial({ color: 0x6b8f4a, roughness: 0.6 });
+    const bambooDarkMat = new THREE.MeshStandardMaterial({ color: 0x4a6a2a, roughness: 0.6 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x1b1b2a, roughness: 0.7 });
+    const paperMat = new THREE.MeshStandardMaterial({ color: 0xf5e6c8, emissive: 0xffcc88, emissiveIntensity: 0.5 });
+
+    // ─────────────────────────────────────────────────────
+    // 1. BAMBOO FENCES along both sides of the path
+    // ─────────────────────────────────────────────────────
+    const fenceSections = [
+      { z: 58, side: -2.8 }, { z: 52, side: -2.8 },
+      { z: 46, side: 3.0 },  { z: 40, side: 3.0 },
+      { z: 32, side: -3.0 }, { z: 26, side: -3.0 },
+      { z: 18, side: 3.0 },  { z: 12, side: 3.0 },
+      { z: 4, side: -3.0 },  { z: -2, side: -3.0 },
+      { z: -12, side: 3.0 }, { z: -18, side: 3.0 },
+    ];
+    for (const { z, side } of fenceSections) {
+      const x = this.pathX(z) + side;
+      const y = this._h(x, z);
+      this._makeFence(x, y, z, woodMat, bambooMat);
+    }
+
+    // ─────────────────────────────────────────────────────
+    // 2. STONE WELL — at village center
+    // ─────────────────────────────────────────────────────
+    {
+      const wx = this.pathX(20) + 6;
+      const wz = 20;
+      const wy = this._h(wx, wz);
+      const g = new THREE.Group();
+
+      // Circular stone rim
+      const rim = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.0, 1.1, 0.6, 12),
+        stoneMat
+      );
+      rim.position.y = 0.3;
+      rim.castShadow = true;
+      g.add(rim);
+
+      // Inner dark circle (water)
+      const water = new THREE.Mesh(
+        new THREE.CircleGeometry(0.85, 16),
+        new THREE.MeshStandardMaterial({
+          color: 0x0a2030,
+          emissive: 0x112233,
+          roughness: 0.2,
+        })
+      );
+      water.rotation.x = -Math.PI / 2;
+      water.position.y = 0.55;
+      g.add(water);
+
+      // Wooden posts + roof (Japanese style well cover)
+      for (const [px, pz] of [[-0.9, 0], [0.9, 0]]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.8, 0.15), woodMat);
+        post.position.set(px, 0.9, pz);
+        post.castShadow = true;
+        g.add(post);
+      }
+
+      // Roof beam
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.15, 0.2), woodMat);
+      beam.position.y = 1.8;
+      beam.castShadow = true;
+      g.add(beam);
+
+      // Roof
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(1.6, 0.6, 4), roofMat);
+      roof.position.y = 2.2;
+      roof.rotation.y = Math.PI / 4;
+      roof.castShadow = true;
+      g.add(roof);
+
+      // Bucket
+      const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.25, 8), woodDarkMat);
+      bucket.position.set(0, 1.3, 0);
+      g.add(bucket);
+      const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.5, 4), woodDarkMat);
+      rope.position.set(0, 1.65, 0);
+      g.add(rope);
+
+      g.position.set(wx, wy, wz);
+      this.level.add(g);
+
+      this.colliders.push(new THREE.Box3(
+        new THREE.Vector3(wx - 1.1, wy, wz - 1.1),
+        new THREE.Vector3(wx + 1.1, wy + 1, wz + 1.1)
+      ));
+    }
+
+    // ─────────────────────────────────────────────────────
+    // 3. SMALL PAVILION — resting spot mid-village
+    // ─────────────────────────────────────────────────────
+    {
+      const px = this.pathX(8) - 7;
+      const pz = 8;
+      const py = this._h(px, pz);
+      const g = new THREE.Group();
+
+      // Stone base
+      const base = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.3, 3.2), stoneDarkMat);
+      base.position.y = 0.15;
+      base.receiveShadow = true;
+      g.add(base);
+
+      // 4 wooden pillars
+      for (const [cx, cz] of [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]]) {
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 2.5, 8), woodMat);
+        pillar.position.set(cx, 1.55, cz);
+        pillar.castShadow = true;
+        g.add(pillar);
+      }
+
+      // Roof
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(2.6, 1.2, 4), roofMat);
+      roof.position.y = 3.4;
+      roof.rotation.y = Math.PI / 4;
+      roof.castShadow = true;
+      g.add(roof);
+
+      // Ridge cap
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.6, 6), woodDarkMat);
+      cap.position.y = 4.1;
+      g.add(cap);
+
+      // Glow light under pavilion
+      const light = new THREE.PointLight(0xffc880, 4, 8, 2);
+      light.position.y = 2.8;
+      g.add(light);
+
+      g.position.set(px, py, pz);
+      this.level.add(g);
+
+      this.colliders.push(new THREE.Box3(
+        new THREE.Vector3(px - 1.6, py, pz - 1.6),
+        new THREE.Vector3(px + 1.6, py + 2.5, pz + 1.6)
+      ));
+    }
+
+    // ─────────────────────────────────────────────────────
+    // 4. STREAM + WOODEN BRIDGE — crosses the path at z=35
+    // ─────────────────────────────────────────────────────
+    {
+      // Stream runs perpendicular to path, from x=-15 to x=+15 at z=35
+      const streamZ = 35;
+      const streamMat = new THREE.MeshStandardMaterial({
+        color: 0x2a5878,
+        emissive: 0x1a3858,
+        emissiveIntensity: 0.4,
+        roughness: 0.2,
+        transparent: true,
+        opacity: 0.9,
+      });
+
+      const streamGeo = new THREE.PlaneGeometry(30, 3, 1, 1);
+      const stream = new THREE.Mesh(streamGeo, streamMat);
+      stream.rotation.x = -Math.PI / 2;
+      // Sink slightly below terrain
+      const streamY = this._h(0, streamZ) - 0.4;
+      stream.position.set(0, streamY, streamZ);
+      stream.userData.noShadow = true;
+      this.level.add(stream);
+
+      // Bridge planks across the path
+      const bx = this.pathX(streamZ);
+      const by = this._h(bx, streamZ);
+      const bridgeGroup = new THREE.Group();
+
+      // Bridge deck (5 wooden planks)
+      for (let i = 0; i < 5; i++) {
+        const plank = new THREE.Mesh(
+          new THREE.BoxGeometry(3.5, 0.12, 0.55),
+          woodMat
+        );
+        plank.position.set(0, 0.1, -1.1 + i * 0.55);
+        plank.castShadow = true;
+        plank.receiveShadow = true;
+        bridgeGroup.add(plank);
+      }
+
+      // Two side rails
+      for (const rx of [-1.7, 1.7]) {
+        const rail = new THREE.Mesh(
+          new THREE.BoxGeometry(0.12, 0.8, 3.2),
+          woodMat
+        );
+        rail.position.set(rx, 0.6, 0);
+        rail.castShadow = true;
+        bridgeGroup.add(rail);
+      }
+
+      bridgeGroup.position.set(bx, by, streamZ);
+      this.level.add(bridgeGroup);
+
+      // Collider prevents falling in — treat stream as invisible walls on either side of bridge
+      this.colliders.push(new THREE.Box3(
+        new THREE.Vector3(bx - 20, by - 2, streamZ - 1.4),
+        new THREE.Vector3(bx - 1.8, by + 1, streamZ + 1.4)
+      ));
+      this.colliders.push(new THREE.Box3(
+        new THREE.Vector3(bx + 1.8, by - 2, streamZ - 1.4),
+        new THREE.Vector3(bx + 20, by + 1, streamZ + 1.4)
+      ));
+    }
+
+    // ─────────────────────────────────────────────────────
+    // 5. BAMBOO STANDS — clusters of tall bamboo
+    // ─────────────────────────────────────────────────────
+    const bambooClusters = [
+      { x: -18, z: 55 }, { x: 20, z: 48 },
+      { x: -22, z: 25 }, { x: 25, z: 10 },
+      { x: -25, z: -10 }, { x: 28, z: -30 },
+    ];
+    for (const { x, z } of bambooClusters) {
+      const y = this._h(x, z);
+      this._makeBambooCluster(x, y, z, bambooMat, bambooDarkMat);
+    }
+
+    // ─────────────────────────────────────────────────────
+    // 6. WOOD STACKS & CRATES near houses
+    // ─────────────────────────────────────────────────────
+    const propSpots = [
+      { x: this.pathX(50) - 6, z: 50 },
+      { x: this.pathX(36) + 5, z: 36 },
+      { x: this.pathX(22) - 6, z: 22 },
+      { x: this.pathX(0) + 6, z: 0 },
+      { x: this.pathX(-15) - 6, z: -15 },
+    ];
+    for (const { x, z } of propSpots) {
+      const y = this._h(x, z);
+      this._makeVillageProps(x, y, z, woodMat, woodDarkMat);
+    }
+
+    // ─────────────────────────────────────────────────────
+    // 7. ROCK FORMATIONS — natural decoration
+    // ─────────────────────────────────────────────────────
+    const rockSpots = [
+      { x: -30, z: 40 }, { x: 32, z: 30 },
+      { x: -28, z: 0 },  { x: 30, z: -20 },
+      { x: -20, z: -40 }, { x: 22, z: 55 },
+    ];
+    for (const { x, z } of rockSpots) {
+      const y = this._h(x, z);
+      this._makeRockCluster(x, y, z, stoneMat, stoneDarkMat);
+    }
+
+    console.log('🏘️ Scenery built: fences, well, pavilion, stream, bamboo, props, rocks');
+  }
+
+  // ─── Helper: single fence segment (posts + 2 horizontal rails) ───
+  _makeFence(x, y, z, woodMat, bambooMat) {
+    const g = new THREE.Group();
+    const fenceLength = 4;
+
+    // Bamboo posts every 1 unit
+    for (let i = -2; i <= 2; i++) {
+      const post = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.07, 0.08, 1.2, 6),
+        bambooMat
+      );
+      post.position.set(i * 1, 0.6, 0);
+      post.castShadow = true;
+      g.add(post);
+    }
+
+    // Two horizontal bamboo rails
+        // Two horizontal bamboo rails
+    for (const ry of [0.4, 0.9]) {
+      const rail = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05, 0.05, fenceLength, 5),
+        woodMat
+      );
+      rail.rotation.z = Math.PI / 2;
+      rail.position.set(0, ry, 0);
+      rail.castShadow = true;
+      g.add(rail);
+    }
+
+    g.position.set(x, y, z);
+    // Random slight rotation
+    g.rotation.y = (Math.random() - 0.5) * 0.3;
+    this.level.add(g);
+  }
+
+  // ─── Helper: bamboo cluster ───
+  _makeBambooCluster(x, y, z, bambooMat, bambooDarkMat) {
+    const g = new THREE.Group();
+    const count = 8 + Math.floor(Math.random() * 6);
+    for (let i = 0; i < count; i++) {
+      const h = 3 + Math.random() * 3;
+      const stalk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.06, 0.08, h, 5),
+        Math.random() > 0.5 ? bambooMat : bambooDarkMat
+      );
+      stalk.position.set(
+        (Math.random() - 0.5) * 2.5,
+        h / 2,
+        (Math.random() - 0.5) * 2.5
+      );
+      stalk.rotation.z = (Math.random() - 0.5) * 0.1;
+      stalk.rotation.x = (Math.random() - 0.5) * 0.1;
+      stalk.castShadow = true;
+      g.add(stalk);
+    }
+    g.position.set(x, y, z);
+    this.level.add(g);
+
+    this.colliders.push(new THREE.Box3(
+      new THREE.Vector3(x - 1.4, y, z - 1.4),
+      new THREE.Vector3(x + 1.4, y + 3, z + 1.4)
+    ));
+  }
+
+  // ─── Helper: wood stacks + crates ───
+  _makeVillageProps(x, y, z, woodMat, woodDarkMat) {
+    const g = new THREE.Group();
+
+    // Wood stack (3 logs)
+    for (let i = 0; i < 3; i++) {
+      const log = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.15, 0.15, 1.2, 6),
+        woodDarkMat
+      );
+      log.rotation.z = Math.PI / 2;
+      log.position.set(0, 0.15 + i * 0.3, 0);
+      log.castShadow = true;
+      g.add(log);
+    }
+
+    // Two crates
+    for (const [cx, cz] of [[0.8, 0.6], [1.6, -0.3]]) {
+      const crate = new THREE.Mesh(
+        new THREE.BoxGeometry(0.55, 0.55, 0.55),
+        woodMat
+      );
+      crate.position.set(cx, 0.28, cz);
+      crate.castShadow = true;
+      crate.rotation.y = Math.random() * 0.4;
+      g.add(crate);
+    }
+
+    g.position.set(x, y, z);
+    g.rotation.y = Math.random() * Math.PI * 2;
+    this.level.add(g);
+  }
+
+  // ─── Helper: rock cluster ───
+  _makeRockCluster(x, y, z, stoneMat, stoneDarkMat) {
+    const g = new THREE.Group();
+    const count = 3 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < count; i++) {
+      const size = 0.6 + Math.random() * 0.9;
+      const rock = new THREE.Mesh(
+        new THREE.DodecahedronGeometry(size, 0),
+        Math.random() > 0.5 ? stoneMat : stoneDarkMat
+      );
+      rock.position.set(
+        (Math.random() - 0.5) * 2,
+        size * 0.4,
+        (Math.random() - 0.5) * 2
+      );
+      rock.rotation.set(
+        Math.random() * 3,
+        Math.random() * 3,
+        Math.random() * 3
+      );
+      rock.castShadow = true;
+      rock.receiveShadow = true;
+      g.add(rock);
+    }
+    g.position.set(x, y, z);
+    this.level.add(g);
+
+    this.colliders.push(new THREE.Box3(
+      new THREE.Vector3(x - 1.5, y, z - 1.5),
+      new THREE.Vector3(x + 1.5, y + 1.5, z + 1.5)
+    ));
   }
 
     // =========================================================
