@@ -164,11 +164,11 @@ export class StreetLevel {
     if (outerScene) {
       this.scene = outerScene;
       if (!this.scene.background) this.scene.background = new THREE.Color(0x1a1030);
-      if (this.scene.fog === null || this.scene.fog === undefined) this.scene.fog = new THREE.FogExp2(0x3a2050, 0.011);
+      if (this.scene.fog === null || this.scene.fog === undefined) this.scene.fog = new THREE.FogExp2(0x6a4a80, 0.007);
     } else {
       this.scene = new THREE.Scene();
       this.scene.background = new THREE.Color(0x1a1030);
-      this.scene.fog = new THREE.FogExp2(0x3a2050, 0.011);
+      this.scene.fog = new THREE.FogExp2(0x6a4a80, 0.007);
     }
 
     this.name = 'LEVEL 1 — THE GROVE VILLAGE';
@@ -416,8 +416,8 @@ export class StreetLevel {
   // LIGHTING
   // =========================================================
   createLighting() {
-    this.scene.add(new THREE.HemisphereLight(0x8a6fd0, 0x2e1f3f, 0.7));
-    const sun = new THREE.DirectionalLight(0xffb27a, 1.9);
+    this.scene.add(new THREE.HemisphereLight(0xb8a0e8, 0x5a4a70, 1.4));
+    const sun = new THREE.DirectionalLight(0xffd4a8, 2.8);
     sun.position.set(70, 32, -30);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
