@@ -247,6 +247,56 @@ export class StreetLevel {
         this.minionHealthBar.register(g);
       }
     }, 2000);
+
+        // Play the intro monologue after the level is built
+    setTimeout(() => {
+      this._playIntroMonologue();
+    }, 800);
+  }
+
+    // =========================================================
+  // INTRO MONOLOGUE — Sorini's confused inner voice
+  // =========================================================
+  async _playIntroMonologue() {
+    const { Dialogue } = await import('../ui/dialogue.js');
+    const dlg = new Dialogue();
+
+    // Don't allow player input while intro plays
+    if (window.__dialogue) {
+      try { window.__dialogue.dispose(); } catch(e){}
+    }
+    window.__dialogue = dlg;
+
+    await dlg.say("...", 1200);
+
+    await dlg.say(
+      "Where... where am I?\nThis isn't home.",
+      3200
+    );
+
+    await dlg.say(
+      "The air tastes strange. Everything feels... lighter.",
+      3200
+    );
+
+    await dlg.say(
+      "And inside me... there's something moving.\nLike a heartbeat that isn't mine.",
+      4000
+    );
+
+    await dlg.say(
+      "I can feel it. Power. Waiting.\nBut I don't know why it chose me.",
+      4200
+    );
+
+    // Short pause, then the sky lights up with the crash
+    await dlg.say("...", 800);
+
+    dlg.hide();
+    dlg.dispose();
+    window.__dialogue = null;
+
+    console.log('🎬 [L1] Intro monologue complete');
   }
   
 
