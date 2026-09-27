@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { StreetEnemies } from '../player/streetEnemies.js';
+import { Enforcer } from '../enemies/enforcer.js';
 
 export class AlienLevel {
 
@@ -608,34 +609,34 @@ export class AlienLevel {
     // =========================================================
     // TRIGGER COMBAT — dialogue finished, commander + minions in
     // =========================================================
-    triggerCombat() {
+        triggerCombat() {
         if (this._introCommanderSpawned) return;
         this._introCommanderSpawned = true;
         console.log('⚔️ [L2] The Enforcer approaches');
 
-        // Enforcer spawns at far end of the street (away from player)
         const ex = this.spawn.x;
-        const ez = this.spawn.z + 120; // 30 units down the street
+        const ez = this.spawn.z + 60;
         const ey = (typeof this.getSurfaceHeight === 'function')
             ? this.getSurfaceHeight(ex, ez)
             : 0.5;
 
         const enforcerPos = new THREE.Vector3(ex, ey, ez);
 
-        // Spawn commander (uses our commander.js system)
-        // For now, we'll add a temporary placeholder box
-        const geo = new THREE.BoxGeometry(2, 3, 2);
-        const mat = new THREE.MeshStandardMaterial({
-            color: 0xff2200,
-            emissive: 0xff4400,
-            emissiveIntensity: 0.6,
+        // Spawn the real Enforcer with our Enemy class
+        this.enforcer = new Enforcer(this.level, enforcerPos, {
+            onDamagePlayer: (dmg) => {
+                if (this.onDamagePlayer) this.onDamagePlayer(dmg);
+            },
+            onMinionSpawn: (count) => {
+                console.log(`⚔️ [L2] Enforcer summons ${count} minions`);
+                // Minions will be added in the next step
+            },
+            onDeath: () => {
+                console.log('💀 [L2] The Enforcer has fallen');
+                if (this._onEnforcerDeath) this._onEnforcerDeath();
+            }
         });
-        const enforcer = new THREE.Mesh(geo, mat);
-        enforcer.position.copy(enforcerPos);
-        enforcer.position.y += 1.5;
-        this.level.add(enforcer);
 
-        this._enforcerMesh = enforcer;
         console.log('⚔️ [L2] The Enforcer has arrived');
     }
 
@@ -6780,6 +6781,11 @@ createCityBackground() {
         // update enemy system
         if (this.streetEnemies && player) {
           try { this.streetEnemies.update(deltaTime, t, player); } catch(e) { console.warn(e); }
+        }
+
+                // update Enforcer
+        if (this.enforcer && player) {
+          this.enforcer.update(deltaTime, player.pos);
         }
 
         if (this.portal) {
