@@ -227,7 +227,7 @@ function _damageEnemiesIfClose(damage) {
   // Level 2: Enforcer
   if (level.enforcer && level.enforcer.alive) {
     const dist = level.enforcer.getPosition().distanceTo(player.pos);
-    if (dist < 3.0) level.enforcer.takeDamage(damage);
+    if (dist < 2.0) level.enforcer.takeDamage(damage);
   }
 }
 

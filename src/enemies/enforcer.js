@@ -68,7 +68,7 @@ export class Enforcer {
     this.SCALE = 0.018;                   // imposing size (same as Warden)
     this.SPEED = 2.5;
     this.CHARGE_SPEED = 10.0;
-    this.ATTACK_RANGE = 3.0;
+    this.ATTACK_RANGE = 2.2;
     this.ATTACK_DAMAGE = 3;             // harder hits
     this.ATTACK_COOLDOWN = 1.8;
     this.CHARGE_COOLDOWN = 6.0;
@@ -139,7 +139,9 @@ export class Enforcer {
       for (const [key, path] of Object.entries(animPaths)) {
         fbxLoader.load(path, (animFbx) => {
           if (animFbx.animations?.[0]) {
-            const clip = stripRootMotion(animFbx.animations[0]);
+                        const clip = stripRootMotion(
+              remapClipTracks(animFbx.animations[0], model, 'enforcer/' + key)
+            );
             this.clips[key] = clip;
             this.actions[key] = this.mixer.clipAction(clip);
           }
@@ -151,6 +153,10 @@ export class Enforcer {
   }
 
   _playAction(name, loop = true) {
+      
+    console.log('🎬 [Enforcer] playAction:', name, '| loop:', loop, '| exists:', !!this.actions[name]);
+    
+  
     const next = this.actions[name];
     if (!next) return;
     if (next === this.currentAction) return;
@@ -242,11 +248,18 @@ export class Enforcer {
     }
   }
 
-  _startAttack() {
+    _startAttack() {
+    console.log('🥊 [Enforcer] startAttack called');
     this.isAttacking = true;
     this.attackTimer = this.ATTACK_COOLDOWN;
     this._playAction('punch', false);
     this._attackDidHit = false;
+    this._pendingHitCheck = false;
+
+    // Damage lands at mid-swing (~250ms in), so it visually matches the punch
+    setTimeout(() => {
+      if (this.alive) this._pendingHitCheck = true;
+    }, 250);
 
     setTimeout(() => {
       this.isAttacking = false;
@@ -255,7 +268,7 @@ export class Enforcer {
   }
 
   _updateAttack(delta, distance) {
-    if (!this._attackDidHit && distance < this.ATTACK_RANGE + 0.5) {
+    if (!this._attackDidHit && distance < this.ATTACK_RANGE) {
       this._attackDidHit = true;
       if (this.callbacks.onDamagePlayer) {
         this.callbacks.onDamagePlayer(this.ATTACK_DAMAGE);

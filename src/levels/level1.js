@@ -227,7 +227,10 @@ export class StreetLevel {
     // Expose spawnCommander so villageNPCs.js can trigger it
         // Expose spawnCommander so villageNPCs.js can trigger it
     window.__spawnCommander = () => this._spawnCommander();
-
+        // Wire grunt damage to the global playerHealth (set by main.js)
+    this._onDamagePlayer = (dmg) => {
+      if (this.playerHealth) this.playerHealth.takeDamage(dmg);
+    };
     // ── Spawn initial aliens from the portal at level start ──
     setTimeout(() => {
       const sx = this.pathX(-58);
