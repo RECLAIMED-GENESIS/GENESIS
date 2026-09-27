@@ -166,10 +166,12 @@ export class Enforcer {
     this.currentAction = next;
   }
 
-  update(delta, playerPos) {
-    if (!this.alive) return;
-
+    update(delta, playerPos) {
+    // Keep the mixer running even after death so the death animation plays.
+    // Only the AI logic should stop when `alive` is false.
     this.mixer?.update(delta);
+
+    if (!this.alive) return;
 
     const hpPct = this.health / this.MAX_HEALTH;
     if (hpPct <= 0.5 && this.phase < 2) this.phase = 2;
@@ -225,11 +227,16 @@ export class Enforcer {
       return;
     }
 
+        // Chase the player — run when far, walk when close
     if (distance > this.ATTACK_RANGE - 0.5) {
-      const speed = this.phase === 1 ? this.SPEED : this.SPEED * 1.5;
+      const isFar = distance > 12;              // 12+ units → run
+      const baseSpeed = isFar ? this.SPEED * 2.2 : this.SPEED;
+      const speed = this.phase === 1 ? baseSpeed : baseSpeed * 1.3;
+
       this.position.x += toPlayer.x * speed * delta;
       this.position.z += toPlayer.z * speed * delta;
-      this._playAction('walk');
+
+      this._playAction(isFar ? 'run' : 'walk');
     } else {
       this._playAction('idle');
     }
@@ -355,8 +362,10 @@ export class Enforcer {
     });
   }
 
-  _die() {
+    _die() {
     this.alive = false;
+    console.log('💀 [Enforcer] _die called. Available actions:', Object.keys(this.actions));
+    console.log('   die action exists?', !!this.actions.die);
     this._playAction('die', false);
 
     setTimeout(() => {

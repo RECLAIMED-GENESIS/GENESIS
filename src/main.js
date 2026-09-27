@@ -6,6 +6,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { StreetLevel } from './levels/level1.js';
 import { AlienLevel } from './levels/level2.js';
 import { ArchitectLevel } from './levels/level3.js';
+import { PlayerHealth } from './player/PlayerHealth.js';
 import { Dialogue } from './ui/dialogue.js';
 import { endingAttack, endingLearn, endingSilence } from './player/endings.js';
 
@@ -59,6 +60,26 @@ const player = {
   EYE: 1.7,
   R: 0.4, H: 1.8,
 };
+
+// =====================================================
+// PLAYER HEALTH — shared across all levels
+// =====================================================
+const playerHealth = new PlayerHealth({
+  onDeath: () => {
+    console.log('💀 Sorini has fallen');
+    // TODO: show lose screen
+  },
+  onRespawn: (spawnPos) => {
+    console.log('✨ Sorini has respawned');
+    if (spawnPos && spawnPos.isVector3) {
+      player.pos.copy(spawnPos);
+    } else if (level && level.spawn) {
+      player.pos.copy(level.spawn);
+    }
+    player.vel.set(0, 0, 0);
+  }
+});
+window.__playerHealth = playerHealth;
 
 // ---------- Sorini avatar ----------
 const soriniGroup = new THREE.Group();
@@ -118,22 +139,20 @@ new FBXLoader().load('./assets/models/player/sorini.fbx', (fbx) => {
   for (const k of Object.keys(soriniClips)) _bindSoriniClip(k);
 
   setTimeout(() => {
-    const want = ['idle', 'walk', 'punch', 'hook', 'jump', 'die'];
+    const want = ['idle', 'walk', 'run', 'punch', 'kick', 'hook', 'jump', 'die'];
     const missing = want.filter(k => !soriniClips[k]);
     if (missing.length) console.warn('[Sorini] clips missing:', missing.join(', '));
   }, 8000);
 
-  // Load animations that ACTUALLY exist in the repo.
-  // Missing files: Kicking.fbx, Running.fbx, Left Turn.fbx, Right Turn.fbx
-  // For missing ones, we reuse existing animations.
   const base = './assets/models/player/';
-    loadSoriniAnim(base + 'Swagger_Walk.fbx',   'walk',     null);
+  loadSoriniAnim(base + 'Idle.fbx',           'idle',     null);
+  loadSoriniAnim(base + 'Dying.fbx',          'die',      null);
+  loadSoriniAnim(base + 'Swagger_Walk.fbx',   'walk',     null);
   loadSoriniAnim(base + 'Running.fbx',        'run',      null);
   loadSoriniAnim(base + 'Punching.fbx',       'punch',    null);
   loadSoriniAnim(base + 'Kicking.fbx',        'kick',     null);
   loadSoriniAnim(base + 'Hook.fbx',           'hook',     null);
   loadSoriniAnim(base + 'Jump.fbx',           'jump',     null);
-  loadSoriniAnim(base + 'Idle.fbx', 'idle', null);
 }, undefined, (e) => console.warn('sorini.fbx load failed:', e));
 
 // ---------- input ----------
@@ -169,19 +188,19 @@ addEventListener('keydown', e => {
     attackCooldown.f = 0.7;
     playSoriniAction('punch', false);
     _triggerAttack();
-    _damageCommanderIfClose(1);
+    _damageEnemiesIfClose(1);
   }
   if (e.code === 'KeyG' && attackCooldown.g <= 0) {
     attackCooldown.g = 0.8;
     playSoriniAction('kick', false);
     _triggerAttack();
-    _damageCommanderIfClose(2);
+    _damageEnemiesIfClose(2);
   }
   if (e.code === 'KeyH' && attackCooldown.h <= 0) {
     attackCooldown.h = 0.7;
     playSoriniAction('hook', false);
     _triggerAttack();
-    _damageCommanderIfClose(2);
+    _damageEnemiesIfClose(2);
   }
 });
 
@@ -193,14 +212,22 @@ function _triggerAttack() {
   }
 }
 
-function _damageCommanderIfClose(damage) {
+function _damageEnemiesIfClose(damage) {
   if (!level) return;
+
+  // Level 1: Commander + Grunts
   if (level.commander && level.commander.alive) {
     const dist = level.commander.getPosition().distanceTo(player.pos);
     if (dist < 2.5) level.commander.takeDamage(damage);
   }
   if (level.grunts) {
     level.grunts.checkHit(player.pos, 2.2, damage);
+  }
+
+  // Level 2: Enforcer
+  if (level.enforcer && level.enforcer.alive) {
+    const dist = level.enforcer.getPosition().distanceTo(player.pos);
+    if (dist < 3.0) level.enforcer.takeDamage(damage);
   }
 }
 
@@ -262,10 +289,6 @@ function switchLevel(n) {
       window.__dialogue = dialogue;
       level.dialogue = dialogue;
 
-      level.onDamagePlayer = (dmg) => {
-        console.log(`Player took ${dmg} damage from a guardian.`);
-      };
-
       level.onEndingChosen = (choice) => {
         if (choice === 'attack') {
           dialogue.dispose();
@@ -285,6 +308,15 @@ function switchLevel(n) {
   } catch (e) {
     console.warn(`Level ${n} primary constructor failed:`, e);
     try { level = new LEVELS[n](scene); } catch (e2) { level = new LEVELS[n](); }
+  }
+
+  // ── Wire player damage callback ──
+  // Any level can call `level.onDamagePlayer(dmg)` to hurt Sorini.
+  if (level) {
+    level.onDamagePlayer = (dmg) => {
+      playerHealth.takeDamage(dmg);
+    };
+    level.playerHealth = playerHealth;
   }
 
   if (level.scene && level.scene !== scene) {
@@ -311,7 +343,8 @@ function switchLevel(n) {
   if (typeof level.getSpawn === 'function') {
     try { level.spawn = level.getSpawn(); } catch (e) { console.warn('getSpawn failed:', e); }
   }
-    // ── Level 2 arrival sequence ──
+
+  // ── Level 2 arrival sequence ──
   if (n === 2 && typeof level.startIntroSequence === 'function') {
     level.startIntroSequence();
   }
@@ -414,6 +447,8 @@ function tick() {
   const t  = timer.getElapsed();
 
   if (!level) return;
+
+  playerHealth.update(dt);
 
   stepPlayer(dt);
   if (soriniMixer) soriniMixer.update(dt);
