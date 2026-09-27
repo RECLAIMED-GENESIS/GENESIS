@@ -192,9 +192,12 @@ export class StreetLevel {
     this.createLanterns();
     this.createPond();
     this.createShrine();
+    this.createHouses();
+    this.createCrashedShip();
     this.createFireflies();
     this.createPetals();
     this._buildColliders();
+    
 
     // shadows on everything built so far
     this.level.traverse((o) => {
@@ -651,6 +654,372 @@ export class StreetLevel {
     this.level.add(light);
   }
 
+    // =========================================================
+  // HOUSES — neighbourhood of 5 Japanese houses
+  // =========================================================
+  createHouses() {
+    // House definitions: position along the path, side offset, size variation, rotation
+    const houses = [
+      // Sorini's house — closest to spawn, faces the path
+      { z: 55, side: -8,  scale: 1.15, style: 'main' },
+      // Neighbours — alternating sides, going down the path
+      { z: 42, side:  9,  scale: 0.95, style: 'small' },
+      { z: 28, side: -10, scale: 1.0,  style: 'medium' },
+      { z: 12, side:  10, scale: 0.9,  style: 'small' },
+      { z: -8, side: -9,  scale: 1.05, style: 'medium' },
+    ];
+
+    for (const def of houses) {
+      this._makeHouse(def);
+    }
+  }
+
+  // Builds one Japanese-style house and returns the group
+  _makeHouse({ z, side, scale = 1, style = 'medium' }) {
+    const x = this.pathX(z) + side;
+    const y = this._h(x, z);
+
+    const g = new THREE.Group();
+
+    // Materials
+    const wallMat = new THREE.MeshStandardMaterial({
+      color: 0xd9c9a8,           // light beige plaster
+      roughness: 0.9,
+    });
+    const darkWoodMat = new THREE.MeshStandardMaterial({
+      color: 0x3a2218,
+      roughness: 0.85,
+    });
+    const roofMat = new THREE.MeshStandardMaterial({
+      color: 0x1b1b2a,           // near-black roof
+      roughness: 0.7,
+    });
+    const doorMat = new THREE.MeshStandardMaterial({
+      color: 0x2a1a12,
+      roughness: 0.8,
+    });
+    const windowMat = new THREE.MeshStandardMaterial({
+      color: 0xf5e6c8,
+      emissive: 0xffcc88,
+      emissiveIntensity: 0.6,
+      roughness: 0.4,
+    });
+
+    // Sizes (base unit = house body 4 x 2.6 x 3.2)
+    const w = 4 * scale;
+    const h = 2.6 * scale;
+    const d = 3.2 * scale;
+
+    // ---- Foundation: raised wooden platform ----
+    const platform = new THREE.Mesh(
+      new THREE.BoxGeometry(w + 0.4, 0.25, d + 0.4),
+      darkWoodMat
+    );
+    platform.position.y = 0.12;
+    platform.receiveShadow = true;
+    platform.castShadow = true;
+    g.add(platform);
+
+    // ---- Body: plaster walls ----
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(w, h, d),
+      wallMat
+    );
+    body.position.y = 0.25 + h / 2;
+    body.castShadow = true;
+    body.receiveShadow = true;
+    g.add(body);
+
+    // ---- Corner posts (dark wood) ----
+    const postGeo = new THREE.BoxGeometry(0.15, h, 0.15);
+    for (const [cx, cz] of [
+      [-w / 2 + 0.08, -d / 2 + 0.08],
+      [ w / 2 - 0.08, -d / 2 + 0.08],
+      [-w / 2 + 0.08,  d / 2 - 0.08],
+      [ w / 2 - 0.08,  d / 2 - 0.08],
+    ]) {
+      const post = new THREE.Mesh(postGeo, darkWoodMat);
+      post.position.set(cx, 0.25 + h / 2, cz);
+      post.castShadow = true;
+      g.add(post);
+    }
+
+    // ---- Sliding door on the front (facing +z) ----
+    const door = new THREE.Mesh(
+      new THREE.BoxGeometry(w * 0.5, h * 0.85, 0.08),
+      doorMat
+    );
+    door.position.set(0, 0.25 + h * 0.425, d / 2 + 0.04);
+    g.add(door);
+
+    // Two window panels inside the door area
+    for (const wx of [-w * 0.13, w * 0.13]) {
+      const win = new THREE.Mesh(
+        new THREE.BoxGeometry(w * 0.15, h * 0.6, 0.05),
+        windowMat
+      );
+      win.position.set(wx, 0.25 + h * 0.45, d / 2 + 0.09);
+      g.add(win);
+    }
+
+    // ---- Side window ----
+    const sideWin = new THREE.Mesh(
+      new THREE.BoxGeometry(0.05, h * 0.5, d * 0.4),
+      windowMat
+    );
+    sideWin.position.set(w / 2 + 0.03, 0.25 + h * 0.45, 0);
+    g.add(sideWin);
+
+    // ---- Roof: layered low pyramid (hip roof) ----
+    const roof1 = new THREE.Mesh(
+      new THREE.ConeGeometry(w * 0.95, 1.4 * scale, 4),
+      roofMat
+    );
+    roof1.position.y = 0.25 + h + 0.55 * scale;
+    roof1.rotation.y = Math.PI / 4;
+    roof1.castShadow = true;
+    g.add(roof1);
+
+    // Second layer for the pagoda feel
+    const roof2 = new THREE.Mesh(
+      new THREE.ConeGeometry(w * 0.65, 1.0 * scale, 4),
+      roofMat
+    );
+    roof2.position.y = 0.25 + h + 1.15 * scale;
+    roof2.rotation.y = Math.PI / 4;
+    roof2.castShadow = true;
+    g.add(roof2);
+
+    // Ridge cap
+    const ridge = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, w * 0.4, 6),
+      darkWoodMat
+    );
+    ridge.position.y = 0.25 + h + 1.75 * scale;
+    g.add(ridge);
+
+    // ---- Warm interior glow (light coming through windows) ----
+    const interior = new THREE.PointLight(0xffb070, 3, 10 * scale, 2);
+    interior.position.set(0, 0.25 + h * 0.5, 0);
+    g.add(interior);
+
+    // ---- Small garden strip in front ----
+    const gardenMat = new THREE.MeshStandardMaterial({ color: 0x4a3b28, roughness: 1 });
+    const garden = new THREE.Mesh(
+      new THREE.BoxGeometry(w + 0.8, 0.1, 1.2 * scale),
+      gardenMat
+    );
+    garden.position.set(0, 0.05, d / 2 + 0.6 * scale);
+    garden.receiveShadow = true;
+    g.add(garden);
+
+    // Bamboo shoots in the garden (small vertical cylinders)
+    const bambooMat = new THREE.MeshStandardMaterial({ color: 0x6b8f4a, roughness: 0.6 });
+    for (let i = 0; i < 5; i++) {
+      const b = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.04, 0.05, 0.8 + Math.random() * 0.6, 5),
+        bambooMat
+      );
+      b.position.set(
+        (i - 2) * 0.35 * scale,
+        0.45,
+        d / 2 + 0.6 * scale + (Math.random() - 0.5) * 0.4
+      );
+      b.castShadow = true;
+      g.add(b);
+    }
+
+    // ---- Position + rotate to face path ----
+    g.position.set(x, y, z);
+
+    // Face the path (path runs along z; house sits offset on x)
+    // Rotate slightly toward the path
+    g.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+
+    this.level.add(g);
+
+    // ---- Colliders: body only (a simple box) ----
+    const halfW = (side > 0 ? d : w) / 2;   // swap because rotation
+    const halfD = (side > 0 ? w : d) / 2;
+    this.colliders.push(new THREE.Box3(
+      new THREE.Vector3(x - halfW, y, z - halfD),
+      new THREE.Vector3(x + halfW, y + h + 2, z + halfD)
+    ));
+
+    return g;
+  }
+
+    // =========================================================
+  // CRASHED ALIEN SHIP — near the pond, smoke pouring out
+  // =========================================================
+  createCrashedShip() {
+    // Position: near the pond (pond is at x=14, z=18), offset so it doesn't sit in water
+    const x = 24;
+    const z = 24;
+    const y = this._h(x, z);
+
+    const g = new THREE.Group();
+
+    // ── Materials ──
+    const hullMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2a3a,
+      roughness: 0.6,
+      metalness: 0.7,
+    });
+    const hullDarkMat = new THREE.MeshStandardMaterial({
+      color: 0x15151c,
+      roughness: 0.8,
+      metalness: 0.6,
+    });
+    const glowMat = new THREE.MeshStandardMaterial({
+      color: 0x00ffff,
+      emissive: 0x00ffff,
+      emissiveIntensity: 3.0,
+    });
+    const emberMat = new THREE.MeshStandardMaterial({
+      color: 0xff6600,
+      emissive: 0xff4400,
+      emissiveIntensity: 2.0,
+    });
+
+    // ── Main hull — tilted, broken wedge shape ──
+    const hull = new THREE.Mesh(
+      new THREE.BoxGeometry(6, 2.2, 3.5),
+      hullMat
+    );
+    hull.rotation.z = 0.35;
+    hull.rotation.y = 0.4;
+    hull.position.y = 1.0;
+    hull.castShadow = true;
+    hull.receiveShadow = true;
+    g.add(hull);
+
+    // ── Nose cone (front, crushed) ──
+    const nose = new THREE.Mesh(
+      new THREE.ConeGeometry(1.6, 2.5, 6),
+      hullMat
+    );
+    nose.rotation.z = Math.PI / 2 + 0.3;
+    nose.rotation.y = 0.4;
+    nose.position.set(3.2, 1.4, 0);
+    nose.castShadow = true;
+    g.add(nose);
+
+    // ── Tail fin (broken off to the side) ──
+    const fin = new THREE.Mesh(
+      new THREE.BoxGeometry(2.5, 0.3, 0.8),
+      hullDarkMat
+    );
+    fin.rotation.z = 0.9;
+    fin.rotation.x = 0.3;
+    fin.position.set(-4, 1.2, 1.5);
+    fin.castShadow = true;
+    g.add(fin);
+
+    // ── Cockpit window (dark glass) ──
+    const cockpit = new THREE.Mesh(
+      new THREE.SphereGeometry(0.9, 12, 10),
+      hullDarkMat
+    );
+    cockpit.scale.set(1, 0.6, 1.2);
+    cockpit.position.set(2.2, 2.0, 0);
+    g.add(cockpit);
+
+    // ── Glowing exposed core (cyan) ──
+    const core = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.55, 1),
+      glowMat
+    );
+    core.position.set(0.5, 2.0, 0.8);
+    g.add(core);
+
+    const coreLight = new THREE.PointLight(0x00ffff, 8, 10, 2);
+    coreLight.position.copy(core.position);
+    g.add(coreLight);
+
+    // ── Embers around the wreckage (small orange cubes on the ground) ──
+    for (let i = 0; i < 14; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 2 + Math.random() * 4;
+      const ember = new THREE.Mesh(
+        new THREE.BoxGeometry(0.15, 0.15, 0.15),
+        emberMat
+      );
+      ember.position.set(
+        Math.cos(angle) * radius,
+        0.1 + Math.random() * 0.15,
+        Math.sin(angle) * radius * 0.7
+      );
+      ember.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+      g.add(ember);
+    }
+
+    // ── Hull fragments scattered (broken-off panels) ──
+    for (let i = 0; i < 5; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 4 + Math.random() * 3;
+      const frag = new THREE.Mesh(
+        new THREE.BoxGeometry(
+          0.8 + Math.random() * 0.6,
+          0.15,
+          0.6 + Math.random() * 0.5
+        ),
+        hullDarkMat
+      );
+      frag.position.set(
+        Math.cos(angle) * radius,
+        0.08,
+        Math.sin(angle) * radius * 0.7
+      );
+      frag.rotation.y = Math.random() * Math.PI;
+      frag.rotation.x = (Math.random() - 0.5) * 0.4;
+      frag.castShadow = true;
+      g.add(frag);
+    }
+
+    // ── Smoke particles (rising, fading) ──
+    const smokeGeo = new THREE.BufferGeometry();
+    const smokeCount = 40;
+    const smokePositions = new Float32Array(smokeCount * 3);
+    const smokeSpeeds = [];
+    for (let i = 0; i < smokeCount; i++) {
+      smokePositions[i * 3] = (Math.random() - 0.5) * 3;
+      smokePositions[i * 3 + 1] = Math.random() * 4;
+      smokePositions[i * 3 + 2] = (Math.random() - 0.5) * 2;
+      smokeSpeeds.push(0.3 + Math.random() * 0.5);
+    }
+    smokeGeo.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
+
+    const smokeMat = new THREE.PointsMaterial({
+      color: 0x333333,
+      size: 1.2,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    });
+
+    const smoke = new THREE.Points(smokeGeo, smokeMat);
+    smoke.position.set(0, 2.5, 0);
+    g.add(smoke);
+
+    // Store for animation
+    this._shipSmoke = { points: smoke, speeds: smokeSpeeds, baseY: 2.5 };
+
+    // ── Position the whole ship ──
+    g.position.set(x, y, z);
+
+    this.level.add(g);
+
+    // ── Collider (rough box around the wreckage) ──
+    this.colliders.push(new THREE.Box3(
+      new THREE.Vector3(x - 3.5, y, z - 3),
+      new THREE.Vector3(x + 3.5, y + 2.5, z + 3)
+    ));
+
+    console.log('🚀 Crashed ship placed at', x, z);
+    return g;
+  }
+
   // =========================================================
   // FIREFLIES
   // =========================================================
@@ -712,6 +1081,20 @@ export class StreetLevel {
     this.time += deltaTime;
     for (const m of this.timeMats) m.uniforms.uTime.value = this.time;
 
+    // ── Crashed ship smoke rising ──
+    if (this._shipSmoke) {
+      const { points, speeds } = this._shipSmoke;
+      const pos = points.geometry.attributes.position;
+      for (let i = 0; i < speeds.length; i++) {
+        pos.setY(i, pos.getY(i) + speeds[i] * deltaTime);
+        if (pos.getY(i) > 6) {
+          pos.setY(i, 0);
+          pos.setX(i, (Math.random() - 0.5) * 3);
+          pos.setZ(i, (Math.random() - 0.5) * 2);
+        }
+      }
+      pos.needsUpdate = true;
+    }
     // lantern candle flicker
     for (const l of this.lanternMats) {
       l.mat.emissiveIntensity = 2 + Math.sin(this.time * 6 + l.phase) * 0.35 + Math.sin(this.time * 17 + l.phase * 2) * 0.2;

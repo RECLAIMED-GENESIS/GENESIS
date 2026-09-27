@@ -7,6 +7,8 @@ import { StreetLevel } from './levels/level1.js';
 import { AlienLevel } from './levels/level2.js';
 import { ArchitectLevel } from './levels/level3.js';
 import { PlayerHealth } from './player/PlayerHealth.js';
+import { AudioManager } from './audio/AudioManager.js';
+import { loadAllAudio } from './audio/loadAudio.js';
 import { Dialogue } from './ui/dialogue.js';
 import { endingAttack, endingLearn, endingSilence } from './player/endings.js';
 
@@ -33,6 +35,11 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1200);
 camera.rotation.order = 'YXZ';
 window.__camera = camera;
+// ---------- audio ----------
+const audioManager = new AudioManager();
+loadAllAudio(audioManager);
+window.__audioManager = audioManager;  // expose for levels to use
+console.log('🎵 Audio manager initialized');
 
 // ---------- root motion fix ----------
 function stripRootMotion(clip) {
@@ -189,18 +196,21 @@ addEventListener('keydown', e => {
     playSoriniAction('punch', false);
     _triggerAttack();
     _damageEnemiesIfClose(1);
+    audioManager.playSfx('punch_hit');
   }
   if (e.code === 'KeyG' && attackCooldown.g <= 0) {
     attackCooldown.g = 0.8;
     playSoriniAction('kick', false);
     _triggerAttack();
     _damageEnemiesIfClose(2);
+    audioManager.playSfx('punch_hit');
   }
   if (e.code === 'KeyH' && attackCooldown.h <= 0) {
     attackCooldown.h = 0.7;
     playSoriniAction('hook', false);
     _triggerAttack();
     _damageEnemiesIfClose(2);
+    audioManager.playSfx('punch_hit');
   }
 });
 
@@ -236,7 +246,36 @@ addEventListener('keyup', e => {
   if (e.code === 'Space') keys._spaceConsumed = false;
 });
 
-renderer.domElement.addEventListener('click', () => renderer.domElement.requestPointerLock());
+renderer.domElement.addEventListener('click', () => {
+  renderer.domElement.requestPointerLock();
+
+  // Browser requires user gesture before audio can play.
+  // Force-resume Howler's global AudioContext.
+  if (window.Howler && window.Howler.ctx && window.Howler.ctx.state === 'suspended') {
+    window.Howler.ctx.resume().then(() => {
+      console.log('🔊 AudioContext resumed');
+    });
+  }
+
+  if (window.__audioManager) {
+    const firstSound = window.__audioManager.sounds['ship_hum'];
+    console.log('🎵 Ship hum sound object:', firstSound);
+    console.log('🎵 Ship hum state:', firstSound ? firstSound.state() : 'none');
+
+    if (firstSound && current === 1) {
+      const id = firstSound.play();
+      console.log('🎵 Ship hum playing, id:', id);
+      firstSound.volume(0.3);
+    }
+
+    // Restart music if not playing
+    if (!audioManager.currentMusic) {
+      const musicMap = { 1: 'level_1_chiptune', 2: 'level_2_orchestral', 3: 'level_3_electronic' };
+      const track = musicMap[current];
+      if (track) audioManager.playMusic(track);
+    }
+  }
+});
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
   const msg = document.getElementById('msg');
@@ -367,6 +406,10 @@ function switchLevel(n) {
   player.vel.set(0, 0, 0);
   player.yaw   = (typeof level.spawnYaw === 'number') ? level.spawnYaw : Math.PI;
   player.pitch = 0;
+    // ── Switch music by level ──
+  const musicMap = { 1: 'level_1_chiptune', 2: 'level_2_orchestral', 3: 'level_3_electronic' };
+  const track = musicMap[n];
+  if (track) audioManager.playMusic(track);
 }
 
 window.__switchLevel = switchLevel;
