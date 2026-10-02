@@ -1,16 +1,17 @@
-// ============================================================
-// main.js — bootstrap, player controller, level manager, minimap
-// ============================================================
+// main.js
+// Bootstrap, first person controller and level manager for The Last Order.
+// Combat, the third person avatar, health, audio, minimap and endings are gone.
+// Add intro=0 as a query on the address to skip the picture story while developing.
+//
+// Controls: WASD move, mouse look, Shift faster, Q scanner, E examine.
+
 import * as THREE from 'three';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-import { StreetLevel } from './levels/level1.js';
-import { AlienLevel } from './levels/level2.js';
-import { ArchitectLevel } from './levels/level3.js';
-import { PlayerHealth } from './player/PlayerHealth.js';
-import { AudioManager } from './audio/AudioManager.js';
-import { loadAllAudio } from './audio/loadAudio.js';
-import { Dialogue } from './ui/dialogue.js';
-import { endingAttack, endingLearn, endingSilence } from './player/endings.js';
+import { HouseLevel } from './levels/level1.js';
+import { IntroStory } from './ui/IntroStory.js';
+import { GameMenu } from './ui/menu.js';
+import { INTRO_PANELS } from './mystery/introPanels.js';
+import { mystery } from './mystery/mystery.js';
+import { Scanner } from './mystery/scanner.js';
 
 // ---------- renderer ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -20,296 +21,292 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.35;
-renderer.autoClear = false;
 document.body.appendChild(renderer.domElement);
 
 renderer.domElement.addEventListener('webglcontextlost', (event) => {
   event.preventDefault();
-  console.error('[GENESIS] WebGL context lost. Refresh the tab.');
+  console.error('[CASE] WebGL context lost. Refresh the tab.');
 });
 renderer.domElement.addEventListener('webglcontextrestored', () => {
-  console.log('[GENESIS] WebGL context restored.');
+  console.log('[CASE] WebGL context restored.');
 });
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1200);
+const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.05, 1200);
 camera.rotation.order = 'YXZ';
 window.__camera = camera;
-// ---------- audio ----------
-const audioManager = new AudioManager();
-loadAllAudio(audioManager);
-window.__audioManager = audioManager;  // expose for levels to use
-console.log('🎵 Audio manager initialized');
-
-// ---------- root motion fix ----------
-function stripRootMotion(clip) {
-  if (!clip || !clip.tracks) return clip;
-  for (const track of clip.tracks) {
-    if (!/Hips/i.test(track.name) || !/\.position/i.test(track.name)) continue;
-    const v = track.values;
-    if (!v || v.length < 3) continue;
-    const x0 = v[0], z0 = v[2];
-    for (let i = 0; i < v.length; i += 3) {
-      v[i] = x0;
-      v[i + 2] = z0;
-    }
-  }
-  return clip;
-}
 
 // ---------- player ----------
+// Only a position and a view direction. The player is never drawn.
 const player = {
-  pos: new THREE.Vector3(0, 0, 55),
+  pos: new THREE.Vector3(0, 0, 2.6),
   vel: new THREE.Vector3(),
   yaw: Math.PI,
   pitch: 0,
   grounded: false,
-  EYE: 1.7,
-  R: 0.4, H: 1.8,
+  EYE: 1.6,
+  R: 0.3,
+  H: 1.8,
 };
 
-// =====================================================
-// PLAYER HEALTH — shared across all levels
-// =====================================================
-const playerHealth = new PlayerHealth({
-  onDeath: () => {
-    console.log('💀 Sorini has fallen');
-    // TODO: show lose screen
-  },
-  onRespawn: (spawnPos) => {
-    console.log('✨ Sorini has respawned');
-    if (spawnPos && spawnPos.isVector3) {
-      player.pos.copy(spawnPos);
-    } else if (level && level.spawn) {
-      player.pos.copy(level.spawn);
-    }
-    player.vel.set(0, 0, 0);
-  }
+// Levels 2 and 3 still call these until their combat code is removed.
+const playerHealthStub = {
+  hp: 100,
+  takeDamage() {},
+  heal() {},
+  update() {},
+};
+window.__playerHealth = playerHealthStub;
+
+// ---------- case state ----------
+window.__mystery = mystery;
+
+// ---------- game state ----------
+const params = new URLSearchParams(location.search);
+const skipIntro = params.get('intro') === '0';
+let gameActive = false;
+let locked = false;
+
+// ---------- hud, hint, prompt, toast ----------
+const hud = document.getElementById('hud');
+const oldMsg = document.getElementById('msg');
+if (oldMsg) oldMsg.style.display = 'none';
+
+const hint = document.createElement('div');
+hint.textContent = 'Click to look around';
+Object.assign(hint.style, {
+  position: 'fixed', left: '50%', bottom: '9%', transform: 'translateX(-50%)',
+  padding: '10px 22px', background: 'rgba(0,0,0,0.55)', color: '#f3d98b',
+  border: '1px solid rgba(243,217,139,0.45)', borderRadius: '4px',
+  font: '15px Georgia, serif', letterSpacing: '0.12em', zIndex: '500',
+  display: 'none', pointerEvents: 'none',
 });
-window.__playerHealth = playerHealth;
+document.body.appendChild(hint);
 
-// ---------- Sorini avatar ----------
-const soriniGroup = new THREE.Group();
-scene.add(soriniGroup);
+const promptEl = document.createElement('div');
+Object.assign(promptEl.style, {
+  position: 'fixed', left: '50%', bottom: '15%', transform: 'translateX(-50%)',
+  padding: '8px 18px', background: 'rgba(0,0,0,0.6)', color: '#7ff5e0',
+  border: '1px solid rgba(127,245,224,0.4)', borderRadius: '4px',
+  font: '14px Georgia, serif', letterSpacing: '0.1em', zIndex: '500',
+  display: 'none', pointerEvents: 'none',
+});
+document.body.appendChild(promptEl);
 
-let soriniMixer  = null;
-let soriniActions = {};
-let soriniCurrentAction = null;
-let _soriniPending = null;
+window.__setPrompt = (text) => {
+  const dialogueOpen = window.__dialogue && window.__dialogue.active;
+  const show = text && locked && gameActive && !dialogueOpen;
+  promptEl.textContent = text || '';
+  promptEl.style.display = show ? 'block' : 'none';
+};
 
-function playSoriniAction(name, loop = true) {
-  let next = soriniActions[name];
-  if (!next && name === 'walk') next = soriniActions['run'] || soriniActions['idle'];
-  if (!next) { _soriniPending = { name, loop }; return; }
-  if (next === soriniCurrentAction) {
-    if (next.isRunning()) return;
-    next.reset().setLoop(THREE.LoopOnce, 1).fadeIn(0.05).play();
-    return;
-  }
-  if (soriniCurrentAction) soriniCurrentAction.fadeOut(0.22);
-  next.reset()
-    .setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
-    .fadeIn(0.22).play();
-  if (!loop) next.clampWhenFinished = true;
-  soriniCurrentAction = next;
+const toastEl = document.createElement('div');
+Object.assign(toastEl.style, {
+  position: 'fixed', left: '50%', top: '12%', transform: 'translateX(-50%)',
+  padding: '12px 26px', background: 'rgba(4,9,12,0.85)',
+  border: '1px solid rgba(127,245,224,0.45)', borderRadius: '4px',
+  color: '#dcefe9', font: '15px Georgia, serif', textAlign: 'center',
+  zIndex: '600', display: 'none', pointerEvents: 'none', maxWidth: '72vw',
+  lineHeight: '1.5',
+});
+document.body.appendChild(toastEl);
+
+let toastTimer = 0;
+function toast(title, sub, kicker) {
+  toastEl.innerHTML =
+    '<div style="color:#7ff5e0;letter-spacing:0.28em;font-size:10px;margin-bottom:5px">' +
+    (kicker || 'EVIDENCE LOGGED') + '</div>' +
+    '<div style="color:#f3d98b;font-size:18px;letter-spacing:0.06em">' + title + '</div>' +
+    (sub ? '<div style="color:#a9c8c0;font-size:13px;margin-top:5px;max-width:46ch">' + sub + '</div>' : '');
+  toastEl.style.display = 'block';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastEl.style.display = 'none'; }, 4600);
 }
+window.__toast = toast;
 
-const soriniClips = {};
-
-function _bindSoriniClip(key) {
-  if (!soriniMixer || !soriniClips[key] || soriniActions[key]) return;
-  soriniActions[key] = soriniMixer.clipAction(soriniClips[key]);
-  if (_soriniPending && _soriniPending.name === key) {
-    const p = _soriniPending; _soriniPending = null;
-    playSoriniAction(p.name, p.loop);
-  }
+function refreshHint() {
+  const dialogueOpen = window.__dialogue && window.__dialogue.active;
+  hint.style.display = (gameActive && !locked && !dialogueOpen) ? 'block' : 'none';
 }
-
-function loadSoriniAnim(path, key, onDone) {
-  new FBXLoader().load(path, (fbx) => {
-    if (fbx.animations?.[0]) {
-      soriniClips[key] = stripRootMotion(fbx.animations[0]);
-      _bindSoriniClip(key);
-      if (onDone) onDone();
-    }
-  }, undefined, (e) => console.warn('sorini anim failed:', path, e));
-}
-
-// Load Sorini model
-new FBXLoader().load('./assets/models/player/sorini.fbx', (fbx) => {
-  fbx.scale.setScalar(0.013);
-  fbx.position.y = -0.13;
-  fbx.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  soriniGroup.add(fbx);
-
-  soriniMixer = new THREE.AnimationMixer(fbx);
-  for (const k of Object.keys(soriniClips)) _bindSoriniClip(k);
-
-  setTimeout(() => {
-    const want = ['idle', 'walk', 'run', 'punch', 'kick', 'hook', 'jump', 'die'];
-    const missing = want.filter(k => !soriniClips[k]);
-    if (missing.length) console.warn('[Sorini] clips missing:', missing.join(', '));
-  }, 8000);
-
-  const base = './assets/models/player/';
-  loadSoriniAnim(base + 'Idle.fbx',           'idle',     null);
-  loadSoriniAnim(base + 'Dying.fbx',          'die',      null);
-  loadSoriniAnim(base + 'Swagger_Walk.fbx',   'walk',     null);
-  loadSoriniAnim(base + 'Running.fbx',        'run',      null);
-  loadSoriniAnim(base + 'Punching.fbx',       'punch',    null);
-  loadSoriniAnim(base + 'Kicking.fbx',        'kick',     null);
-  loadSoriniAnim(base + 'Hook.fbx',           'hook',     null);
-  loadSoriniAnim(base + 'Jump.fbx',           'jump',     null);
-}, undefined, (e) => console.warn('sorini.fbx load failed:', e));
 
 // ---------- input ----------
 const keys = {};
-let locked = false;
-const attackCooldown = { f: 0, g: 0, h: 0 };
-let attackLock = false;
 
-addEventListener('keydown', e => {
+addEventListener('keydown', (e) => {
+  if (!gameActive) return;
+  // Pause toggle works even when paused (menu handles its own keys separately).
+  if (e.code === 'KeyP' || e.code === 'Escape') {
+    if (menu) menu.setPaused(!menu.paused);
+    return;
+  }
+  if (menu && menu.paused) return;
   if (window.__dialogue && window.__dialogue.active) {
     window.__dialogue.handleKey(e.code);
     return;
   }
-
   keys[e.code] = true;
   if (e.code === 'Space') e.preventDefault();
+
+  if (e.code === 'KeyE') tryInteract();
+  if (e.code === 'KeyQ') toggleScanner();
+
+  // developer shortcuts
   if (e.code === 'KeyR') switchLevel(current);
   if (e.code === 'Digit1') switchLevel(1);
   if (e.code === 'Digit2') switchLevel(2);
   if (e.code === 'Digit3') switchLevel(3);
-  if (e.code === 'KeyP' && level && level.setPhase) {
-    phase = phase % 3 + 1;
-    level.setPhase(phase, timer.getElapsed());
-  }
-
-  // Jump — lock prevents key-repeat from retriggering
-  if (e.code === 'Space' && player.grounded && !attackLock && !keys._spaceConsumed) {
-    player.vel.y = 12;
-    keys._spaceConsumed = true;
-  }
-
-  if (e.code === 'KeyF' && attackCooldown.f <= 0) {
-    attackCooldown.f = 0.7;
-    playSoriniAction('punch', false);
-    _triggerAttack();
-    _damageEnemiesIfClose(1);
-    audioManager.playSfx('punch_hit');
-  }
-  if (e.code === 'KeyG' && attackCooldown.g <= 0) {
-    attackCooldown.g = 0.8;
-    playSoriniAction('kick', false);
-    _triggerAttack();
-    _damageEnemiesIfClose(2);
-    audioManager.playSfx('punch_hit');
-  }
-  if (e.code === 'KeyH' && attackCooldown.h <= 0) {
-    attackCooldown.h = 0.7;
-    playSoriniAction('hook', false);
-    _triggerAttack();
-    _damageEnemiesIfClose(2);
-    audioManager.playSfx('punch_hit');
-  }
 });
 
-function _triggerAttack() {
-  if (level && typeof level.onMouseClick === 'function') {
-    level.onMouseClick(camera, player.pos);
-  } else if (level && level.streetEnemies) {
-    level.streetEnemies.onMouseClick(camera, player.pos);
-  }
-}
-
-function _damageEnemiesIfClose(damage) {
-  if (!level) return;
-
-  // Level 1: Commander + Grunts
-  if (level.commander && level.commander.alive) {
-    const dist = level.commander.getPosition().distanceTo(player.pos);
-    if (dist < 2.5) level.commander.takeDamage(damage);
-  }
-  if (level.grunts) {
-    level.grunts.checkHit(player.pos, 2.2, damage);
-  }
-
-  // Level 2: Enforcer
-  if (level.enforcer && level.enforcer.alive) {
-    const dist = level.enforcer.getPosition().distanceTo(player.pos);
-    if (dist < 2.0) level.enforcer.takeDamage(damage);
-  }
-}
-
-addEventListener('keyup', e => {
+addEventListener('keyup', (e) => {
   keys[e.code] = false;
-  if (e.code === 'Space') keys._spaceConsumed = false;
+});
+
+addEventListener('blur', () => {
+  for (const k of Object.keys(keys)) keys[k] = false;
 });
 
 renderer.domElement.addEventListener('click', () => {
+  if (!gameActive) return;
   renderer.domElement.requestPointerLock();
-
-  // Browser requires user gesture before audio can play.
-  // Force-resume Howler's global AudioContext.
-  if (window.Howler && window.Howler.ctx && window.Howler.ctx.state === 'suspended') {
-    window.Howler.ctx.resume().then(() => {
-      console.log('🔊 AudioContext resumed');
-    });
-  }
-
-  if (window.__audioManager) {
-    const firstSound = window.__audioManager.sounds['ship_hum'];
-    console.log('🎵 Ship hum sound object:', firstSound);
-    console.log('🎵 Ship hum state:', firstSound ? firstSound.state() : 'none');
-
-    if (firstSound && current === 1) {
-      const id = firstSound.play();
-      console.log('🎵 Ship hum playing, id:', id);
-      firstSound.volume(0.3);
-    }
-
-    // Restart music if not playing
-    if (!audioManager.currentMusic) {
-      const musicMap = { 1: 'level_1_chiptune', 2: 'level_2_orchestral', 3: 'level_3_electronic' };
-      const track = musicMap[current];
-      if (track) audioManager.playMusic(track);
-    }
-  }
 });
+
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
-  const msg = document.getElementById('msg');
-  if (msg) msg.style.display = locked ? 'none' : 'block';
+  refreshHint();
 });
 
-addEventListener('mousemove', e => {
-  if (!locked) return;
+addEventListener('mousemove', (e) => {
+  if (!locked || !gameActive) return;
   player.yaw -= e.movementX * 0.0022;
-  player.pitch = Math.max(-1.4, Math.min(1.4, player.pitch - e.movementY * 0.0022));
+  player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - e.movementY * 0.0022));
+});
+
+// ---------- scanner ----------
+function toggleScanner() {
+  if (!window.__scanner) return;
+  const on = window.__scanner.toggle();
+  toast(
+    on ? 'SCANNER ONLINE' : 'SCANNER OFF',
+    on ? 'Evidence in view glows teal. Press E to examine it.' : '',
+    'SCANNER'
+  );
+}
+
+// ---------- interaction ----------
+const raycaster = new THREE.Raycaster();
+raycaster.far = 3.2;
+const screenCenter = new THREE.Vector2(0, 0);
+
+function clueIdForObject(obj) {
+  let o = obj;
+  while (o) {
+    for (const [id, entry] of mystery.entries) {
+      if (entry.object === o && !mystery.hasClue(id)) return id;
+    }
+    o = o.parent;
+  }
+  return null;
+}
+
+function tryInteract() {
+  if (!gameActive || !level) return;
+  raycaster.setFromCamera(screenCenter, camera);
+
+  // level-specific interactables (doors, gates) get first claim
+  if (typeof level.tryInteract === 'function') {
+    try {
+      if (level.tryInteract(raycaster)) return;
+    } catch (e) { console.warn('level.tryInteract failed:', e); }
+  }
+
+  // then registered clues
+  const targets = [];
+  for (const entry of mystery.entries.values()) {
+    if (entry.object && !mystery.hasClue(entry.id)) targets.push(entry.object);
+  }
+  if (!targets.length) return;
+  const hits = raycaster.intersectObjects(targets, true);
+  for (const h of hits) {
+    const id = clueIdForObject(h.object);
+    if (id) {
+      mystery.collect(id);
+      return;
+    }
+  }
+}
+
+// ---------- clue collection feedback ----------
+mystery.onChange((evt) => {
+  if (evt.type !== 'collect') return;
+  const def = mystery.defs[evt.id] || { name: evt.id, detail: '' };
+  toast(def.name, def.detail);
+  if (window.__scanner) window.__scanner.sync();
+  updateEvidenceHud();
+  if (level && typeof level.onClueCollected === 'function') {
+    try { level.onClueCollected(evt.id); } catch (e) { console.warn('onClueCollected failed:', e); }
+  }
 });
 
 // ---------- levels ----------
-const LEVELS = { 1: StreetLevel, 2: AlienLevel, 3: ArchitectLevel };
-let level = null, current = 1, phase = 1;
-const hud = document.getElementById('hud');
+// Level 1-only: Levels 2/3 are not imported until their combat code is stripped.
+// Referencing them here threw `ReferenceError: AlienLevel is not defined` on load.
+const LEVELS = { 1: HouseLevel };
+let level = null;
+let current = 1;
+let hudBase = '';
+
+function updateEvidenceHud() {
+  if (!hud) return;
+  const total = mystery.totalForLevel(current);
+  const got = mystery.collectedForLevel(current);
+  hud.innerHTML = hudBase +
+    (total > 0
+      ? '<br><span style="color:#7ff5e0;letter-spacing:0.2em;font-size:12px">EVIDENCE ' +
+        got + ' / ' + total + '</span>'
+      : '');
+}
+
+function disposeLevel() {
+  if (!level) return;
+  if (window.__scanner) window.__scanner.clear();
+  if (typeof level.forgetClues === 'function') level.forgetClues();
+  try {
+    if (typeof level.dispose === 'function') level.dispose(scene);
+    else {
+      if (level.root && level.root.parent) level.root.parent.remove(level.root);
+      if (level.level && level.level.parent) level.level.parent.remove(level.level);
+    }
+  } catch (e) { console.warn('dispose error', e); }
+  if (level.root && scene.children.includes(level.root)) scene.remove(level.root);
+  if (level.level && scene.children.includes(level.level)) scene.remove(level.level);
+  if (level.sky && scene.children.includes(level.sky)) scene.remove(level.sky);
+  if (level.stars && scene.children.includes(level.stars)) scene.remove(level.stars);
+}
+
+function adoptSceneParts() {
+  // Older levels build their own scene and hand pieces over to the main scene.
+  if (!level.scene || level.scene === scene) return;
+  if (level.scene.background) scene.background = level.scene.background;
+  scene.fog = level.scene.fog !== undefined ? level.scene.fog : null;
+  for (const key of ['level', 'root', 'sky', 'stars']) {
+    const part = level[key];
+    if (part && part.parent === level.scene) {
+      level.scene.remove(part);
+      scene.add(part);
+    }
+  }
+}
 
 function switchLevel(n) {
-  if (level) {
-    try {
-      if (typeof level.dispose === 'function') level.dispose(scene);
-      else {
-        if (level.root && level.root.parent) level.root.parent.remove(level.root);
-        if (level.level && level.level.parent) level.level.parent.remove(level.level);
-      }
-    } catch (e) { console.warn('dispose error', e); }
-    if (level.root && scene.children.includes(level.root)) scene.remove(level.root);
-    if (level.level && scene.children.includes(level.level)) scene.remove(level.level);
-    if (level.sky && scene.children.includes(level.sky)) scene.remove(level.sky);
-    if (level.stars && scene.children.includes(level.stars)) scene.remove(level.stars);
+  if (!LEVELS[n]) {
+    console.warn('Level ' + n + ' not wired yet (Level 1-only build).');
+    toast('LEVEL ' + n + ' NOT WIRED YET', 'Level 1-only build: staying in Haru\u2019s house.');
+    return;
   }
+  disposeLevel();
 
   if (window.__dialogue) {
-    try { window.__dialogue.dispose(); } catch (e) {}
+    try { window.__dialogue.dispose(); } catch (e) { /* ignore */ }
     window.__dialogue = null;
   }
 
@@ -318,141 +315,85 @@ function switchLevel(n) {
     if (renderer.info) renderer.info.reset();
   } catch (e) { console.warn('renderer cache flush failed:', e); }
 
-  current = n; phase = 1;
+  current = n;
 
   try {
     level = new LEVELS[n](scene, renderer);
-
-    if (n === 3 && level instanceof ArchitectLevel) {
-      const dialogue = new Dialogue();
-      window.__dialogue = dialogue;
-      level.dialogue = dialogue;
-
-      level.onEndingChosen = (choice) => {
-        if (choice === 'attack') {
-          dialogue.dispose();
-          window.__dialogue = null;
-          endingAttack();
-        } else if (choice === 'learn') {
-          endingLearn(dialogue).then(() => {
-            window.__dialogue = null;
-          });
-        } else {
-          dialogue.dispose();
-          window.__dialogue = null;
-          endingSilence();
-        }
-      };
-    }
   } catch (e) {
-    console.warn(`Level ${n} primary constructor failed:`, e);
+    console.warn('Level ' + n + ' primary constructor failed:', e);
     try { level = new LEVELS[n](scene); } catch (e2) { level = new LEVELS[n](); }
   }
 
-  // ── Wire player damage callback ──
-  // Any level can call `level.onDamagePlayer(dmg)` to hurt Sorini.
-  if (level) {
-    level.onDamagePlayer = (dmg) => {
-      playerHealth.takeDamage(dmg);
-    };
-    level.playerHealth = playerHealth;
-  }
+  level.onDamagePlayer = () => {};
+  level.playerHealth = playerHealthStub;
 
-  if (level.scene && level.scene !== scene) {
-    if (level.scene.background) scene.background = level.scene.background;
-    scene.fog = level.scene.fog !== undefined ? level.scene.fog : null;
-    if (level.level && level.level.parent === level.scene) {
-      level.scene.remove(level.level);
-      scene.add(level.level);
-    }
-    if (level.root && level.root.parent === level.scene) {
-      level.scene.remove(level.root);
-      scene.add(level.root);
-    }
-    if (level.sky && level.sky.parent === level.scene) {
-      level.scene.remove(level.sky);
-      scene.add(level.sky);
-    }
-    if (level.stars && level.stars.parent === level.scene) {
-      level.scene.remove(level.stars);
-      scene.add(level.stars);
-    }
-  }
+  adoptSceneParts();
 
   if (typeof level.getSpawn === 'function') {
     try { level.spawn = level.getSpawn(); } catch (e) { console.warn('getSpawn failed:', e); }
   }
 
-  // ── Level 2 arrival sequence ──
   if (n === 2 && typeof level.startIntroSequence === 'function') {
     level.startIntroSequence();
   }
 
   if (!level.spawn || !level.spawn.isVector3) {
-    console.warn(`Level ${n} missing spawn, using fallback`);
-    let fallbackY = 0;
-    try {
-      if (typeof level.getSurfaceHeight === 'function') fallbackY = level.getSurfaceHeight(0, 55);
-      else if (typeof level.groundHeight === 'function') fallbackY = level.groundHeight(0, 55);
-      else if (typeof level.terrainHeight === 'function') fallbackY = level.terrainHeight(0, 55);
-    } catch (e) { fallbackY = 0; }
-    level.spawn = new THREE.Vector3(0, fallbackY + 0.1, 55);
+    console.warn('Level ' + n + ' missing spawn, using fallback');
+    level.spawn = new THREE.Vector3(0, 0.1, 2.6);
   }
-
   if (!Array.isArray(level.colliders)) level.colliders = [];
-  if (!level.name) level.name = `LEVEL ${n}`;
+  if (!level.name) level.name = 'LEVEL ' + n;
 
   player.pos.copy(level.spawn);
   player.vel.set(0, 0, 0);
-  player.yaw   = (typeof level.spawnYaw === 'number') ? level.spawnYaw : Math.PI;
+  player.yaw = (typeof level.spawnYaw === 'number') ? level.spawnYaw : Math.PI;
   player.pitch = 0;
-    // ── Switch music by level ──
-  const musicMap = { 1: 'level_1_chiptune', 2: 'level_2_orchestral', 3: 'level_3_electronic' };
-  const track = musicMap[n];
-  if (track) audioManager.playMusic(track);
+
+  hudBase = '<b>GENESIS CASE FILES</b><br>' + level.name +
+    '<br><span style="color:#8d8878;font-size:11px">WASD move · mouse look · Shift faster · Q scanner · E examine</span>';
+  updateEvidenceHud();
+
+  // scanner shells follow the clues of the level that just built them
+  if (!window.__scanner) window.__scanner = new Scanner(camera, scene);
+  window.__scanner.clear();
+  window.__scanner.sync();
 }
 
 window.__switchLevel = switchLevel;
 
-// ---------- minimap ----------
-const mini = new THREE.OrthographicCamera(-55, 55, 55, -55, 1, 300);
-mini.layers.set(1);
-mini.layers.enable(2);
-const marker = new THREE.Mesh(
-  new THREE.ConeGeometry(1.1, 2.6, 6),
-  new THREE.MeshBasicMaterial({ color: 0x33ffee }));
-marker.rotation.order = 'YXZ';
-marker.layers.set(2);
-scene.add(marker);
-
 // ---------- physics ----------
-const GRAV = 30, SPEED = 4.5, SPRINT = 9;
-const TURN_SPEED = 2.2;
+const GRAV = 30;
+const SPEED = 3.2;
+const SPRINT = 5.5;
+
+function groundAt(x, z, y) {
+  try {
+    if (level && typeof level.getSurfaceHeight === 'function') return level.getSurfaceHeight(x, z);
+    if (level && typeof level.groundHeight === 'function') return level.groundHeight(x, z, y);
+    if (level && typeof level.terrainHeight === 'function') return level.terrainHeight(x, z);
+  } catch (e) { /* ignore */ }
+  return 0;
+}
 
 function stepPlayer(dt) {
-  const isSprint = keys.ShiftLeft || keys.ShiftRight;
-  const sp = isSprint ? SPRINT : SPEED;
+  const fwd = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
+  const strafe = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+  const sprint = keys.ShiftLeft || keys.ShiftRight;
+  const sp = sprint ? SPRINT : SPEED;
 
-  if (!attackLock) {
-    if (keys.KeyA) player.yaw += TURN_SPEED * dt;
-    if (keys.KeyD) player.yaw -= TURN_SPEED * dt;
-  }
-
-  const f = attackLock ? 0 : (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
-  const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
-  player.vel.x = sin * f * sp;
-  player.vel.z = cos * f * sp;
-
+  const sin = Math.sin(player.yaw);
+  const cos = Math.cos(player.yaw);
+  let vx = sin * fwd - cos * strafe;
+  let vz = cos * fwd + sin * strafe;
+  const len = Math.hypot(vx, vz);
+  if (len > 1) { vx /= len; vz /= len; }
+  player.vel.x = vx * sp;
+  player.vel.z = vz * sp;
   player.vel.y -= GRAV * dt;
 
   player.pos.addScaledVector(player.vel, dt);
 
-  let g = 0;
-  try {
-    if (level && typeof level.getSurfaceHeight === 'function') g = level.getSurfaceHeight(player.pos.x, player.pos.z);
-    else if (level && typeof level.groundHeight === 'function') g = level.groundHeight(player.pos.x, player.pos.z, player.pos.y);
-    else if (level && typeof level.terrainHeight === 'function') g = level.terrainHeight(player.pos.x, player.pos.z);
-  } catch (e) { g = 0; }
+  const g = groundAt(player.pos.x, player.pos.z, player.pos.y);
   if (player.pos.y <= g) { player.pos.y = g; player.vel.y = 0; player.grounded = true; }
   else player.grounded = false;
 
@@ -466,109 +407,57 @@ function stepPlayer(dt) {
     const ox = Math.min(pMax.x - c.min.x, c.max.x - pMin.x);
     const oz = Math.min(pMax.z - c.min.z, c.max.z - pMin.z);
     if (ox < oz) player.pos.x += (pMax.x - c.min.x < c.max.x - pMin.x) ? -ox : ox;
-    else         player.pos.z += (pMax.z - c.min.z < c.max.z - pMin.z) ? -oz : oz;
+    else player.pos.z += (pMax.z - c.min.z < c.max.z - pMin.z) ? -oz : oz;
     pMin.set(player.pos.x - player.R, player.pos.y, player.pos.z - player.R);
     pMax.set(player.pos.x + player.R, player.pos.y + player.H, player.pos.z + player.R);
   }
 
   if (player.pos.y < -60) {
     if (level && level.spawn && level.spawn.isVector3) player.pos.copy(level.spawn);
-    else player.pos.set(0, 2, 55);
+    else player.pos.set(0, 1, 2.6);
     player.vel.set(0, 0, 0);
   }
 }
 
 // ---------- loop ----------
 const timer = new THREE.Timer();
-let _rafId = 0;
-let _lastHudString = '';
+let rafId = 0;
 
 function tick() {
-  _rafId = requestAnimationFrame(tick);
+  rafId = requestAnimationFrame(tick);
   timer.update();
   const dt = Math.min(timer.getDelta(), 0.05);
-  const t  = timer.getElapsed();
+  const t = timer.getElapsed();
 
   if (!level) return;
 
-  playerHealth.update(dt);
+  const paused = (menu && menu.paused) || !gameActive;
+  if (!paused) stepPlayer(dt);
 
-  stepPlayer(dt);
-  if (soriniMixer) soriniMixer.update(dt);
-  if (typeof level.update === 'function') {
+  if (window.__scanner) {
+    try { window.__scanner.update(dt, t); } catch (e) { /* ignore */ }
+  }
+
+  if (!paused && typeof level.update === 'function') {
     try { level.update(dt, t, player); }
     catch (e) { console.warn('level.update error', e); }
   }
 
-  const CAM_DIST   = 5.5;
-  const CAM_HEIGHT = 2.8;
-  const CAM_LOOK_UP = 1.2;
-  const camOffX = -Math.sin(player.yaw) * CAM_DIST;
-  const camOffZ = -Math.cos(player.yaw) * CAM_DIST;
-  camera.position.set(
-    player.pos.x + camOffX,
-    player.pos.y + CAM_HEIGHT,
-    player.pos.z + camOffZ
-  );
-  if (level && typeof level.getSurfaceHeight === 'function') {
-    const camGround = level.getSurfaceHeight(camera.position.x, camera.position.z) + 0.5;
-    if (camera.position.y < camGround) camera.position.y = camGround;
+  // compose the interact prompt: scanner target wins, then the level's own
+  let promptLabel = '';
+  if (window.__scanner && window.__scanner.active && window.__scanner.target) {
+    const def = mystery.defs[window.__scanner.target];
+    promptLabel = 'E — Examine: ' + (def ? def.name : 'evidence');
+  } else if (typeof level.getPrompt === 'function') {
+    try { promptLabel = level.getPrompt(player) || ''; } catch (e) { /* ignore */ }
   }
-  camera.lookAt(player.pos.x, player.pos.y + CAM_LOOK_UP, player.pos.z);
+  window.__setPrompt(promptLabel);
 
-  soriniGroup.position.set(player.pos.x, player.pos.y, player.pos.z);
-  soriniGroup.rotation.y = player.yaw;
+  // first person camera sits at eye height and looks along yaw and pitch
+  camera.position.set(player.pos.x, player.pos.y + player.EYE, player.pos.z);
+  camera.rotation.set(player.pitch, player.yaw + Math.PI, 0);
 
-  for (const k of ['f','g','h']) if (attackCooldown[k] > 0) attackCooldown[k] -= dt;
-
-  const isSprint  = keys.ShiftLeft || keys.ShiftRight;
-  const isMovingW = keys.KeyW || keys.KeyS;
-
-  const attackNames = ['punch','kick','hook','jump'];
-  const currentIsAttack = soriniCurrentAction && attackNames.some(
-    n => soriniActions[n] && soriniActions[n] === soriniCurrentAction
-  );
-  const attackStillPlaying = currentIsAttack &&
-    soriniCurrentAction.isRunning() &&
-    soriniCurrentAction.loop === THREE.LoopOnce;
-  attackLock = attackStillPlaying;
-
-  if (soriniMixer && !attackStillPlaying) {
-    if (!player.grounded)             playSoriniAction('jump');
-    else if (isSprint && isMovingW)   playSoriniAction('run');
-    else if (isMovingW)               playSoriniAction('walk');
-    else                              playSoriniAction('idle');
-  }
-
-  marker.position.set(player.pos.x, player.pos.y + 2, player.pos.z);
-  marker.rotation.set(Math.PI / 2, player.yaw, 0);
-
-  const levelName = (level && level.name) ? level.name : `LEVEL ${current}`;
-  const hudStr =
-    `<b>GENESIS — THE DEVICE</b><br>` +
-    `${levelName}${level && level.setPhase ? ' · phase ' + phase : ''}<br>` +
-    `1/2/3 levels · R restart | F punch · G kick · H hook | Shift sprint`;
-  if (hudStr !== _lastHudString) {
-    hud.innerHTML = hudStr;
-    _lastHudString = hudStr;
-  }
-
-  renderer.setScissorTest(false);
-  renderer.setViewport(0, 0, innerWidth, innerHeight);
-  renderer.clear();
   renderer.render(scene, camera);
-
-  const S = 200;
-  renderer.setScissorTest(true);
-  renderer.setViewport(innerWidth - S - 12, 12, S, S);
-  renderer.setScissor(innerWidth - S - 12, 12, S, S);
-  renderer.setClearColor(0x0a0a14, 1);
-  renderer.clearDepth();
-  mini.position.set(player.pos.x, 90, player.pos.z);
-  mini.up.set(0, 0, -1);
-  mini.lookAt(player.pos.x, 0, player.pos.z);
-  renderer.render(scene, mini);
-  renderer.setScissorTest(false);
 }
 
 addEventListener('resize', () => {
@@ -577,17 +466,53 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
+// ---------- start ----------
+let menu = null;
+
+function beginPlay() {
+  gameActive = true;
+  refreshHint();
+}
+
+// Correct order: menu first -> Start Game -> picture story -> Level 1.
+// `?intro=0` still skips the picture story after Start (dev shortcut).
+function startGame() {
+  if (menu) menu.hideAll();
+  if (skipIntro) {
+    beginPlay();
+  } else {
+    new IntroStory({ panels: INTRO_PANELS, onDone: beginPlay }).start();
+  }
+}
+
 switchLevel(1);
 tick();
 
-// ---------- Vite HMR cleanup ----------
+menu = new GameMenu({
+  onStart: startGame,
+  onRestart: () => {
+    menu.setPaused(false);
+    switchLevel(current);
+  },
+  onQuitToMenu: () => {
+    gameActive = false;
+    for (const k of Object.keys(keys)) keys[k] = false;
+    if (document.pointerLockElement) document.exitPointerLock();
+    window.__setPrompt('');
+    menu.showMain();
+    refreshHint();
+  },
+});
+window.__menu = menu;
+
+// ---------- Vite hot reload cleanup ----------
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
-    cancelAnimationFrame(_rafId);
+    cancelAnimationFrame(rafId);
     try {
       renderer.dispose();
       renderer.forceContextLoss();
-      if (renderer.domElement?.parentNode) {
+      if (renderer.domElement && renderer.domElement.parentNode) {
         renderer.domElement.parentNode.removeChild(renderer.domElement);
       }
     } catch (e) { console.warn('HMR renderer dispose failed:', e); }
@@ -596,6 +521,13 @@ if (import.meta.hot) {
     } catch (e) { console.warn('HMR level dispose failed:', e); }
     try {
       if (window.__dialogue) window.__dialogue.dispose();
-    } catch (e) {}
+    } catch (e) { /* ignore */ }
+    try {
+      if (menu) menu.dispose();
+    } catch (e) { /* ignore */ }
+    hint.remove();
+    promptEl.remove();
+    toastEl.remove();
   });
 }
+
