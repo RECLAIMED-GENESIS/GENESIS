@@ -64,5 +64,10 @@ export function loadAllAudio(audioManager) {
   audioManager.loadSound('l2_enforcer_1', { src: './assets/audio/voices/l2_enforcer_1.mp3', volume: 1.0 });
   audioManager.loadSound('l2_enforcer_2', { src: './assets/audio/voices/l2_enforcer_2.mp3', volume: 1.0 });
   audioManager.loadSound('l2_enforcer_3', { src: './assets/audio/voices/l2_enforcer_3.mp3', volume: 1.0 });
+
+    // ── LEVEL 3 ARCHITECT VOICE ──
+  audioManager.loadSound('l3_architect_1', { src: './assets/audio/voices/l3_architect_1.mp3', volume: 1.0 });
+
+  
   console.log('🎵 Audio system ready —', Object.keys(audioManager.sounds).length, 'files registered');
 }

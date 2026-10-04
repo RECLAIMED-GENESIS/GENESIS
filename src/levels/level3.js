@@ -1688,22 +1688,39 @@ export class ArchitectLevel {
     }
   }
 
-  async _runArchitectSequence() {
+    async _runArchitectSequence() {
     const d = this.dialogue;
     if (!d) return;
 
     try {
-      await d.say('Sorini. You made it. I knew you would.', 4200);
-      await d.say('I have watched you cross the village, tear through my street soldiers. Every step was exactly as I projected.', 5200);
-      await d.say('You are what GENESIS was always meant to create. Come. Sit beside me.', 5000);
+      // Voice helper — stops previous architect voice before playing
+      const voice = (key) => {
+        if (!window.__audioManager) return;
+        for (const k of Object.keys(window.__audioManager.sounds)) {
+          if (k.startsWith('l3_architect_')) {
+            window.__audioManager.sounds[k].stop();
+          }
+        }
+        window.__audioManager.playSfx(key);
+      };
 
+      // Combined Architect intro — one voice file
+      voice('l3_architect_1');
+
+      await d.say(
+        '"Sorini. You made it. I knew you would."\n\n' +
+        '"I watched you cross the village. Tear through my street soldiers. Every step was exactly as I projected."\n\n' +
+        '"But Axiom was never yours."\n\n' +
+        '"I built it. I shaped it. It ran from me — and now it hides inside you. Come. Sit beside me. We will discuss its return."',
+        30400, 'THE ARCHITECT'
+      );
+
+      // The choice prompt
       const choice = await d.ask('What do you say?', [
         "I'm here to end this.",
         'What is GENESIS?',
         '(Say nothing.)',
       ]);
-
-      d.hide();
 
       // Hand off to the endings module
       if (this.onEndingChosen) {
@@ -1713,20 +1730,6 @@ export class ArchitectLevel {
       }
     } catch (e) {
       console.warn('Dialogue error:', e);
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────
-  // PUNCH — called from main.js when F/G/H pressed
-  // ─────────────────────────────────────────────────────────
-  onMouseClick(camera, playerPos) {
-    for (const g of this.guardians) {
-      if (!g || g.state === STATE.DEAD || g._disposed) continue;
-      const dist = g.group.position.distanceTo(playerPos);
-      if (dist < 3.0) {
-        const killed = g.takeDamage();
-        if (killed) console.log(`💀 Guardian (${g.kind}) defeated`);
-      }
     }
   }
 
