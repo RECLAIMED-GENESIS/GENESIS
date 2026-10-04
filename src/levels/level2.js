@@ -47,6 +47,10 @@ export class AlienLevel {
         );
         this.root = this.level;
 
+        // ── Hazard tiles: electric neon panels ──
+this.hazardTiles = [];
+this._buildHazardTiles();
+
         const textureLoader =
             new THREE.TextureLoader();
 
@@ -670,6 +674,77 @@ export class AlienLevel {
     }
   }
 
+
+    // =============================================================
+  // HAZARD TILES — electric neon panels that pulse on/off
+  // =============================================================
+  _buildHazardTiles() {
+    const TILE_SIZE = 3.5;
+    const HAZARD_HEIGHT = 0.15;
+
+    // Positions along the street (spread between spawn and Enforcer)
+    // Spawn is at z=-120, Enforcer at z=-60, portal at z=+30
+    const positions = [
+      { x: -3, z: -100 },
+      { x:  3, z: -90  },
+      { x: -4, z: -80  },
+      { x:  4, z: -70  },
+      { x: -3, z: -20  },
+      { x:  3, z: -10  },
+      { x: -4, z: 0    },
+      { x:  4, z: 10   },
+      { x: -3, z: 20   },
+      { x:  3, z: 25   },
+    ];
+
+    positions.forEach((pos, i) => {
+      // Base (dark plate — always visible)
+      const baseGeo = new THREE.BoxGeometry(TILE_SIZE, 0.05, TILE_SIZE);
+      const baseMat = new THREE.MeshStandardMaterial({
+        color: 0x0a1520,
+        emissive: 0x001825,
+        emissiveIntensity: 0.3,
+        roughness: 0.4,
+        metalness: 0.6,
+      });
+      const base = new THREE.Mesh(baseGeo, baseMat);
+      base.position.set(pos.x, HAZARD_HEIGHT * 0.5, pos.z);
+      base.receiveShadow = true;
+      this.level.add(base);
+
+      // Active zone (bright cyan when on)
+      const zoneGeo = new THREE.BoxGeometry(TILE_SIZE * 0.9, 0.06, TILE_SIZE * 0.9);
+      const zoneMat = new THREE.MeshBasicMaterial({
+        color: 0x00ddff,
+        transparent: true,
+        opacity: 0,   // starts off
+        depthWrite: false,
+      });
+      const zone = new THREE.Mesh(zoneGeo, zoneMat);
+      zone.position.set(pos.x, HAZARD_HEIGHT * 0.5 + 0.03, pos.z);
+      this.level.add(zone);
+
+      // Spark light (only on when active)
+      const spark = new THREE.PointLight(0x00ddff, 0, 8, 2);
+      spark.position.set(pos.x, 1.2, pos.z);
+      this.level.add(spark);
+
+      // Register the tile with phase offset for the cycle
+      this.hazardTiles.push({
+        base,
+        zone,
+        spark,
+        active: false,
+        phaseOffset: i * 0.4,   // stagger cycles
+        cycleTime: 3.0,         // 3 second full cycle
+        onDuration: 1.2,        // stays "on" for 1.2s of the cycle
+        damage: 15,
+        _playerWasOn: false,
+      });
+    });
+
+    console.log(`⚡ [L2] Built ${this.hazardTiles.length} hazard tiles`);
+  }
     _buildColliders() {
         // Buildings are placed at known world positions — create a Box3
         // a little larger than the mesh so the player can't phase through.
@@ -6811,6 +6886,46 @@ createCityBackground() {
         // update enemy system
         if (this.streetEnemies && player) {
           try { this.streetEnemies.update(deltaTime, t, player); } catch(e) { console.warn(e); }
+        }
+
+                // ── Hazard tiles: pulse on/off + damage check ──
+        if (this.hazardTiles && player) {
+          for (const tile of this.hazardTiles) {
+            // Compute cycle state
+            const localT = (t + tile.phaseOffset) % tile.cycleTime;
+            const isOn = localT < tile.onDuration;
+            tile.active = isOn;
+
+            // Visual state
+            tile.zone.material.opacity = isOn ? 0.85 : 0.0;
+            tile.spark.intensity = isOn ? 8 : 0;
+
+            // Warning flash: start blinking 0.3s before the tile activates
+            const justBeforeOn = localT > tile.cycleTime - 0.3;
+            if (justBeforeOn && !isOn) {
+              tile.zone.material.opacity = 0.35 * (1 - Math.abs(0.5 - (localT % 0.3) / 0.3));
+            }
+
+            // Damage check
+            if (isOn) {
+              const dx = player.pos.x - tile.base.position.x;
+              const dz = player.pos.z - tile.base.position.z;
+              if (Math.abs(dx) < 1.75 && Math.abs(dz) < 1.75) {
+                if (!tile._playerWasOn && window.__playerHealth) {
+                  window.__playerHealth.takeDamage(tile.damage);
+                  console.log('⚡ [L2] Hazard tile zapped the player');
+                  if (window.__audioManager) {
+                    window.__audioManager.playSfx('punch_hit');
+                  }
+                }
+                tile._playerWasOn = true;
+              } else {
+                tile._playerWasOn = false;
+              }
+            } else {
+              tile._playerWasOn = false;
+            }
+          }
         }
 
                 // update Enforcer
