@@ -62,8 +62,15 @@ export class Dialogue {
 
   // Show a line of dialogue. Returns a promise that resolves
   // after the line has been displayed for `duration` ms.
-  say(text, duration = 4000) {
+    say(text, duration = 4000) {
     return new Promise((resolve) => {
+      // Guard: if disposed, resolve immediately
+      if (!this.container || !this.textEl) {
+        this.active = false;
+        resolve();
+        return;
+      }
+
       this.container.style.display = 'block';
       this.active = true;
       this.textEl.style.opacity = '0';
@@ -72,10 +79,15 @@ export class Dialogue {
 
       // Fade in
       requestAnimationFrame(() => {
-        this.textEl.style.opacity = '1';
+        if (this.textEl) this.textEl.style.opacity = '1';
       });
 
       setTimeout(() => {
+        // Guard again — the dialogue may have been disposed mid-line
+        if (!this.textEl) {
+          resolve();
+          return;
+        }
         this.textEl.style.opacity = '0';
         setTimeout(() => resolve(), 500);
       }, duration);

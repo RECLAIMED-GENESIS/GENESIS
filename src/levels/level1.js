@@ -275,7 +275,7 @@ export class StreetLevel {
     console.log('🎬 [L1] Intro complete — input unlocked');
 
     setTimeout(() => {
-      this._startNextWave();
+      if(this.grunts) this._startNextWave();
     }, 1500);
   }
 
@@ -283,6 +283,7 @@ export class StreetLevel {
   // WAVE SYSTEM
   // =========================================================
   _startNextWave() {
+    if (!this.grunts) return; 
     if (this.waveIndex >= this.waves.length) {
       console.log('⚔️ [L1] All waves cleared — calling Commander');
       this._spawnCommander();
@@ -309,6 +310,7 @@ export class StreetLevel {
 
   _checkWaveStatus() {
     if (!this.waveActive) return;
+    if (!this.grunts) return;
     if (this.waveSpawnPending > 0) return;
     if (this.grunts.grunts.length === 0 && this.waveIndex > 0) {
       this.waveActive = false;

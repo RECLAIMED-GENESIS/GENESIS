@@ -53,7 +53,7 @@ export class AlienLevel {
         // Banner texture for the street lights
         this.bannerTexture =
             textureLoader.load(
-                '/assets/textures/burner.png'
+                './assets/textures/burner.png'
             );
 
         this.bannerTexture.colorSpace =
@@ -74,7 +74,7 @@ export class AlienLevel {
 
         const skyTexture =
             textureLoader.load(
-                '/assets/textures/skybox1.png'
+                './assets/textures/skybox1.png'
             );
 
         skyTexture.colorSpace =
@@ -201,7 +201,7 @@ export class AlienLevel {
 
         const roadTexture =
             textureLoader.load(
-                '/assets/textures/Road.png'
+                './assets/textures/Road.png'
             );
 
         roadTexture.wrapS =
@@ -251,7 +251,7 @@ export class AlienLevel {
 
         const groundTexture =
             textureLoader.load(
-                '/assets/textures/ground.png'
+                './assets/textures/ground.png'
             );
 
         groundTexture.wrapS =
@@ -739,7 +739,7 @@ createStreetLights() {
     const loader = new GLTFLoader();
 
     loader.load(
-        '/assets/models/light.glb',
+        './assets/models/light.glb',
 
         (gltf) => {
 
@@ -977,7 +977,7 @@ createStreetLights() {
 
 const brickTexture =
     textureLoader.load(
-        '/assets/textures/brick.png'
+        './assets/textures/brick.png'
     );
 
 brickTexture.wrapS =
@@ -1033,7 +1033,7 @@ building.add(
 
 const bannerTexture =
     textureLoader.load(
-        '/assets/textures/poster.png'
+        './assets/textures/poster.png'
     );
 
 // sRGB so the artwork keeps its real colours

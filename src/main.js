@@ -11,6 +11,11 @@ import { AudioManager } from './audio/AudioManager.js';
 import { loadAllAudio } from './audio/loadAudio.js';
 import { Dialogue } from './ui/dialogue.js';
 import { endingAttack, endingLearn, endingSilence } from './player/endings.js';
+import { UIManager } from './ui/UIManager.js';
+import { createMainMenu } from './ui/MainMenu.js';
+import { createHUD } from './ui/HUD.js';
+import { createLoadingScreen, updateLoadingScreen } from './ui/LoadingScreen.js';
+
 
 // ---------- renderer ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -629,8 +634,156 @@ Object.defineProperty(window, '__level', {
   configurable: true,
 });
 
-switchLevel(1);
-tick();
+// ============================================================
+// UI SYSTEM — Main Menu, Loading Screen, HUD
+// ============================================================
+const uiManager = new UIManager();
+
+// HUD — hidden until the game starts
+const hudElement = createHUD();
+uiManager.registerScreen('hud', hudElement);
+
+// Loading Screen — shows between menu and gameplay
+const loadingScreenElement = createLoadingScreen();
+uiManager.registerScreen('loading', loadingScreenElement);
+
+// Credits overlay — reuses the same inline block as main
+function showCreditsOverlay() {
+  const creditsDiv = document.createElement('div');
+  creditsDiv.id = 'credits-overlay';
+  creditsDiv.style.cssText = `
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-family: 'Courier New', monospace;
+    z-index: 200;
+    overflow-y: auto;
+    padding: 20px;
+  `;
+  creditsDiv.innerHTML = `
+    <h1 style="color: #00ffff; font-size: 36px; margin-bottom: 30px;">CREDITS</h1>
+    <div style="text-align: left; font-size: 16px; line-height: 2; color: #aaa; max-width: 600px;">
+      <h2 style="color: #ffffff; font-size: 20px; margin-bottom: 10px;">LIBRARIES</h2>
+      <p>● Three.js (MIT) - <a href="https://threejs.org" style="color: #00ffff;">threejs.org</a></p>
+      <p>● Cannon-es (MIT) - <a href="https://github.com/pmndrs/cannon-es" style="color: #00ffff;">pmndrs/cannon-es</a></p>
+      <p>● Howler.js (MIT) - <a href="https://howlerjs.com" style="color: #00ffff;">howlerjs.com</a></p>
+      <p>● Vite (MIT) - <a href="https://vitejs.dev" style="color: #00ffff;">vitejs.dev</a></p>
+
+      <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">MUSIC & SOUND EFFECTS (OpenGameArt)</h2>
+      <p>● Sci-Fi Drone by jdagenet (CC-BY 4.0) - <a href="https://opengameart.org/content/sci-fi-drone" style="color: #00ffff;">Ship hum</a></p>
+      <p>● Punch SFX by DavidW (CC-BY 3.0) - <a href="https://opengameart.org/content/punch-sfx" style="color: #00ffff;">Link</a></p>
+      <p>● Spell Sounds Starter Pack by p0ss (CC-BY-SA 3.0) - <a href="https://opengameart.org/content/spell-sounds-starter-pack" style="color: #00ffff;">Link</a></p>
+      <p>● A Kinda Cool Sound Effect by Spring Spring (CC0) - <a href="https://opengameart.org/content/a-kinda-cool-sound-effect" style="color: #00ffff;">Link</a></p>
+      <p>● Tactical Weapons and Tactics Sound Pack by XCVG (CC-BY 3.0) - <a href="https://opengameart.org/content/tactical-weapons-and-tactics-sound-pack" style="color: #00ffff;">Link</a></p>
+      <p>● 37 hits/punches by independent.nu (CC-BY 3.0) - <a href="https://opengameart.org/content/37-hitspunches" style="color: #00ffff;">Link</a></p>
+
+      <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">MODELS</h2>
+      <p>● Kachujin (Sorini) — Mixamo</p>
+      <p>● X_Bot (Grunts) — Mixamo</p>
+
+      <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">TEAM MEMBERS</h2>
+      <p>● Banele — UI, Audio, Deployment</p>
+      <p>● Busisiwe — Shaders</p>
+      <p>● Pumelela — Environment, Art</p>
+      <p>● Sibusiso — Player, Controls, Physics</p>
+    </div>
+    <button id="credits-back" style="
+      margin-top: 40px;
+      background: #00ffff;
+      border: none;
+      color: #000;
+      padding: 12px 40px;
+      font-size: 18px;
+      font-family: 'Courier New', monospace;
+      cursor: pointer;
+      border-radius: 8px;
+    ">BACK</button>
+  `;
+  document.body.appendChild(creditsDiv);
+  document.getElementById('credits-back').addEventListener('click', () => {
+    creditsDiv.remove();
+  });
+}
+
+// Main Menu — with PLAY and CREDITS callbacks
+const gameStarted = { value: false };
+
+const mainMenuElement = createMainMenu(
+  // PLAY
+  () => {
+    console.log('🎮 PLAY clicked');
+    audioManager.playMusic('level_1_chiptune');
+
+    // Show loading screen with simulated progress
+    uiManager.showScreen('loading');
+    updateLoadingScreen(
+      'LEVEL 1',
+      'THE GROVE VILLAGE',
+      'Sorini awakens in an unfamiliar land. Fight your way through the villagers\' shadows and find the Warden.',
+      0,
+      'Initializing...'
+    );
+
+    let progress = 0;
+    const loadInterval = setInterval(() => {
+      progress += Math.random() * 15 + 5;
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(loadInterval);
+        updateLoadingScreen(
+          'LEVEL 1',
+          'THE GROVE VILLAGE',
+          'Sorini awakens in an unfamiliar land. Fight your way through the villagers\' shadows and find the Warden.',
+          100,
+          'Ready!',
+          true
+        );
+
+        // Wire the CONTINUE button (created by LoadingScreen.js)
+        const continueBtn = document.getElementById('continueBtn');
+        if (continueBtn) {
+          continueBtn.onclick = () => {
+            uiManager.hideAllScreens();
+            uiManager.showHUD();
+            if (!gameStarted.value) {
+              gameStarted.value = true;
+              switchLevel(1);
+              tick();
+            } else {
+              switchLevel(1);
+            }
+          };
+        }
+      } else {
+        const statuses = ['Loading assets...', 'Building world...', 'Spawning enemies...', 'Almost ready...'];
+        const statusIndex = Math.floor(Math.random() * statuses.length);
+        updateLoadingScreen(
+          'LEVEL 1',
+          'THE GROVE VILLAGE',
+          'Sorini awakens in an unfamiliar land. Fight your way through the villagers\' shadows and find the Warden.',
+          progress,
+          statuses[statusIndex % statuses.length]
+        );
+      }
+    }, 200);
+  },
+  // CREDITS
+  () => {
+    console.log('📋 CREDITS clicked');
+    showCreditsOverlay();
+  }
+);
+
+uiManager.registerScreen('main-menu', mainMenuElement);
+
+// Show the menu on boot
+uiManager.showScreen('main-menu');
 
 // ---------- Vite HMR cleanup ----------
 if (import.meta.hot) {
