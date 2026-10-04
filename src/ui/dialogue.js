@@ -15,7 +15,7 @@ export class Dialogue {
     this._build();
   }
 
-  _build() {
+    _build() {
     this.container = document.createElement('div');
     this.container.id = 'dialogueOverlay';
     Object.assign(this.container.style, {
@@ -32,6 +32,21 @@ export class Dialogue {
       display: 'none',
       textAlign: 'center',
     });
+
+    // ← NEW: speaker name element
+    this.speakerEl = document.createElement('div');
+    Object.assign(this.speakerEl.style, {
+      maxWidth: '760px',
+      margin: '0 auto 8px',
+      fontSize: '1rem',
+      letterSpacing: '3px',
+      textTransform: 'uppercase',
+      color: '#88ddff',
+      textShadow: '0 0 12px rgba(100,200,255,0.6)',
+      transition: 'opacity 0.5s',
+      opacity: '0',
+    });
+    this.container.appendChild(this.speakerEl);
 
     this.textEl = document.createElement('div');
     Object.assign(this.textEl.style, {
@@ -62,34 +77,46 @@ export class Dialogue {
 
   // Show a line of dialogue. Returns a promise that resolves
   // after the line has been displayed for `duration` ms.
-    say(text, duration = 4000) {
+      say(text, duration = 4000, speaker = null) {
     return new Promise((resolve) => {
-      // Guard: if disposed, resolve immediately
       if (!this.container || !this.textEl) {
         this.active = false;
         resolve();
         return;
       }
 
+      // Store a skip hook so external code can fast-forward this line
+      let resolved = false;
+      const finish = () => {
+        if (resolved) return;
+        resolved = true;
+        this._skipResolve = null;
+        resolve();
+      };
+      this._skipResolve = finish;
+
       this.container.style.display = 'block';
       this.active = true;
+
+      if (this.speakerEl) {
+        this.speakerEl.style.opacity = '0';
+        this.speakerEl.innerText = speaker || '';
+      }
+
       this.textEl.style.opacity = '0';
       this.textEl.innerText = text;
       this.choicesEl.innerHTML = '';
 
-      // Fade in
       requestAnimationFrame(() => {
+        if (this.speakerEl && speaker) this.speakerEl.style.opacity = '1';
         if (this.textEl) this.textEl.style.opacity = '1';
       });
 
       setTimeout(() => {
-        // Guard again — the dialogue may have been disposed mid-line
-        if (!this.textEl) {
-          resolve();
-          return;
-        }
+        if (!this.textEl) { finish(); return; }
+        if (this.speakerEl) this.speakerEl.style.opacity = '0';
         this.textEl.style.opacity = '0';
-        setTimeout(() => resolve(), 500);
+        setTimeout(finish, 500);
       }, duration);
     });
   }
@@ -158,6 +185,7 @@ export class Dialogue {
 
   hide() {
     this.container.style.display = 'none';
+    if (this.speakerEl) this.speakerEl.innerText = '';
     this.textEl.innerText = '';
     this.choicesEl.innerHTML = '';
     this.active = false;
@@ -171,5 +199,14 @@ export class Dialogue {
     this.container = null;
     this.textEl = null;
     this.choicesEl = null;
+  }
+
+    // Resolve the currently pending line early (used for skip)
+  skip() {
+    if (this._skipResolve) {
+      const r = this._skipResolve;
+      this._skipResolve = null;
+      r();
+    }
   }
 }

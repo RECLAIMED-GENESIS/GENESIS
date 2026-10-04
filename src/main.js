@@ -109,6 +109,39 @@ window.__playerHealth = playerHealth;
 const soriniGroup = new THREE.Group();
 scene.add(soriniGroup);
 
+// ── Axiom (the artifact) — a glowing point at Sorini's chest ──
+const axiomLight = new THREE.PointLight(0x88ddff, 0, 6, 2);
+axiomLight.position.set(0, 1.1, 0.3);
+soriniGroup.add(axiomLight);
+
+const axiomMesh = new THREE.Mesh(
+  new THREE.OctahedronGeometry(0.12, 0),
+  new THREE.MeshStandardMaterial({
+    color: 0x88ddff,
+    emissive: 0x88ddff,
+    emissiveIntensity: 0,
+    transparent: true,
+    opacity: 0,
+  })
+);
+axiomMesh.position.set(0, 1.1, 0.3);
+soriniGroup.add(axiomMesh);
+
+window.__axiom = {
+  light: axiomLight,
+  mesh: axiomMesh,
+  activate() {
+    axiomLight.intensity = 0;
+    axiomMesh.material.opacity = 0;
+    axiomMesh.material.emissiveIntensity = 0;
+  },
+  setIntensity(v) {
+    axiomLight.intensity = v;
+    axiomMesh.material.opacity = Math.min(1, v);
+    axiomMesh.material.emissiveIntensity = v * 3;
+  },
+};
+
 let soriniMixer  = null;
 let soriniActions = {};
 let soriniCurrentAction = null;
@@ -186,6 +219,12 @@ let attackLock = false;
 
 addEventListener('keydown', e => {
   if (window.__dialogue && window.__dialogue.active) {
+    // Space/Enter skips the current line
+    if (e.code === 'Space' || e.code === 'Enter') {
+      e.preventDefault();
+      if (typeof window.__dialogue.skip === 'function') window.__dialogue.skip();
+      return;
+    }
     window.__dialogue.handleKey(e.code);
     return;
   }

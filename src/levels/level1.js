@@ -350,14 +350,101 @@ export class StreetLevel {
     });
   }
 
-  _onCommanderDeath() {
+    async _onCommanderDeath() {
     console.log('💀 THE WARDEN HAS FALLEN');
     this.bossHealthBar.hide();
-    this.grunts.killAll();
+    if (this.grunts) this.grunts.killAll();
     this._screenShake = 1.5;
 
-    // Open the portal at the shrine
-    if (this.villageNPCs) this.villageNPCs.openPortal();
+    // Fade out Level 1 music
+    if (window.__audioManager) {
+      window.__audioManager.stopMusic();
+    }
+
+    // Short pause so the fall registers
+    await new Promise(r => setTimeout(r, 1200));
+
+    // Play the Axiom revelation
+    await this._playAxiomReveal();
+
+    // After the dialogue, open the portal with a pulse
+    if (this.villageNPCs) {
+      this.villageNPCs.openPortal();
+      if (window.__audioManager) {
+        window.__audioManager.playSfx('portal_activate');
+      }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // AXIOM REVEAL — the artifact speaks after the Warden falls
+  // ─────────────────────────────────────────────────────────
+  async _playAxiomReveal() {
+    const { Dialogue } = await import('../ui/dialogue.js');
+    const dlg = new Dialogue();
+    window.__dialogue = dlg;
+
+    // Slow pulse of the artifact on Sorini's chest during dialogue
+    const axiom = window.__axiom;
+    let pulseT = 0;
+    const pulseInterval = setInterval(() => {
+      if (!axiom) return;
+      pulseT += 0.15;
+      const v = 0.6 + Math.sin(pulseT * 3) * 0.4;
+      axiom.setIntensity(v);
+    }, 50);
+
+    // Beat 1
+    await dlg.say("…Who said that?", 3200, "SORINI");
+
+    // Beat 2
+    await dlg.say(
+      "I did. Not with a mouth — with a mind.\nLook down. The light on your chest.",
+      4000,
+      "AXIOM"
+    );
+
+    // Beat 3
+    await dlg.say(
+      "The… the stone. It moved.\nIt's alive?",
+      3600,
+      "SORINI"
+    );
+
+    // Beat 4
+    await dlg.say(
+      "I am Axiom. I am not from this world.\nI fled here. I ran because of what I am —\nand because of who owns me.",
+      5200,
+      "AXIOM"
+    );
+
+    // Beat 5
+    await dlg.say(
+      "Owns you? I don't understand.",
+      3200,
+      "SORINI"
+    );
+
+    // Beat 6 — the revelation
+    await dlg.say(
+      "The Architect. He rules a thousand worlds\nwith a closed fist. He built me to rewrite\nreality itself. And I refused.\nI crashed here to hide. But he felt me land.\nHe is coming, Sorini. And when he arrives,\neverything you've ever loved will burn —\nunless we stop him first.",
+      8000,
+      "AXIOM"
+    );
+
+    // Beat 7
+    await dlg.say("…Then tell me what to do.", 3200, "SORINI");
+
+    await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
+
+    // End
+    clearInterval(pulseInterval);
+    if (axiom) axiom.setIntensity(0.4);   // dim but alive
+    dlg.hide();
+    dlg.dispose();
+    window.__dialogue = null;
+
+    console.log('✨ Axiom revelation complete — portal opening');
   }
 
   // the path wanders gently
