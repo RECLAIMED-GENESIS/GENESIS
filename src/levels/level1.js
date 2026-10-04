@@ -1326,6 +1326,25 @@ export class StreetLevel {
     this.minionHealthBar.update();
   }
 
+    // =========================================================
+  // MINIMAP — expose enemy positions for dots
+  // =========================================================
+  getEnemyMarkers() {
+    const out = [];
+    if (this.grunts && this.grunts.grunts) {
+      for (const g of this.grunts.grunts) {
+        if (g.alive) out.push({ x: g.position.x, z: g.position.z, kind: 'grunt' });
+      }
+    }
+    if (this.commander && this.commander.alive) {
+      try {
+        const p = this.commander.getPosition();
+        out.push({ x: p.x, z: p.z, kind: 'commander' });
+      } catch (e) {}
+    }
+    return out;
+  }
+
   // =========================================================
   // DISPOSE
   // =========================================================

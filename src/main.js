@@ -72,18 +72,35 @@ const player = {
 // =====================================================
 // PLAYER HEALTH — shared across all levels
 // =====================================================
+// Cache the last death position so respawn happens in place
+let _lastDeathPos = null;
+
 const playerHealth = new PlayerHealth({
   onDeath: () => {
     console.log('💀 Sorini has fallen');
+    // Remember where she fell
+    _lastDeathPos = player.pos.clone();
   },
   onRespawn: (spawnPos) => {
     console.log('✨ Sorini has respawned');
+    // Priority: explicit spawn → death position → level spawn
+    let target = null;
     if (spawnPos && spawnPos.isVector3) {
-      player.pos.copy(spawnPos);
+      target = spawnPos;
+    } else if (_lastDeathPos) {
+      target = _lastDeathPos;
     } else if (level && level.spawn) {
-      player.pos.copy(level.spawn);
+      target = level.spawn;
+    }
+    if (target) {
+      player.pos.copy(target);
+      // Nudge her up slightly so she doesn't spawn inside terrain
+      player.pos.y = (level && level.getSurfaceHeight)
+        ? level.getSurfaceHeight(player.pos.x, player.pos.z) + 0.2
+        : player.pos.y + 0.2;
     }
     player.vel.set(0, 0, 0);
+    _lastDeathPos = null;   // clear after use
   }
 });
 window.__playerHealth = playerHealth;
@@ -313,6 +330,7 @@ function switchLevel(n) {
   } catch (e) { console.warn('renderer cache flush failed:', e); }
 
   current = n; phase = 1;
+  _lastDeathPos = null;
 
   try {
     level = new LEVELS[n](scene, renderer);
@@ -417,6 +435,22 @@ const marker = new THREE.Mesh(
 marker.rotation.order = 'YXZ';
 marker.layers.set(2);
 scene.add(marker);
+
+// ── Minimap enemy dot pool ──
+const MAX_DOTS = 32;
+const enemyDots = [];
+const gruntDotMat = new THREE.MeshBasicMaterial({ color: 0xff3a3a });   // red = grunt
+const bossDotMat  = new THREE.MeshBasicMaterial({ color: 0xffaa00 });   // orange = boss
+const dotGeo = new THREE.CircleGeometry(1.6, 12);
+
+for (let i = 0; i < MAX_DOTS; i++) {
+  const dot = new THREE.Mesh(dotGeo, gruntDotMat);
+  dot.rotation.x = -Math.PI / 2;   // lie flat for top-down view
+  dot.layers.set(1);               // visible only to minimap camera
+  dot.visible = false;
+  scene.add(dot);
+  enemyDots.push(dot);
+}
 
 // ---------- physics ----------
 const GRAV = 30, SPEED = 4.5, SPRINT = 9;
@@ -535,6 +569,22 @@ function tick() {
 
   marker.position.set(player.pos.x, player.pos.y + 2, player.pos.z);
   marker.rotation.set(Math.PI / 2, player.yaw, 0);
+    // ── Update minimap enemy dots ──
+  const enemies = (level && typeof level.getEnemyMarkers === 'function')
+    ? level.getEnemyMarkers()
+    : [];
+
+  for (let i = 0; i < MAX_DOTS; i++) {
+    const dot = enemyDots[i];
+    if (i < enemies.length) {
+      const e = enemies[i];
+      dot.position.set(e.x, 1, e.z);
+      dot.material = (e.kind === 'commander') ? bossDotMat : gruntDotMat;
+      dot.visible = true;
+    } else if (dot.visible) {
+      dot.visible = false;
+    }
+  }
 
   const levelName = (level && level.name) ? level.name : `LEVEL ${current}`;
   const hudStr =
