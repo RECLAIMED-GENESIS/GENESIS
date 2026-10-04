@@ -519,35 +519,52 @@ this._buildHazardTiles();
         // =========================================================
     // LEVEL 2 INTRO DIALOGUE — The Enforcer speaks
     // =========================================================
-    async _playIntroDialogue() {
-        // Import Dialogue class
+        async _playIntroDialogue() {
         const { Dialogue } = await import('../ui/dialogue.js');
-
         const dlg = new Dialogue();
         this._introDialogue = dlg;
+        window.__dialogue = dlg;
 
-        // Line 1
-        await dlg.say('...\n\n"An anomaly was detected in the lower tiers. One of our cores — stolen."', 4000);
+        // Stop any previously playing voice before starting
+        const voice = (key) => {
+            if (!window.__audioManager) return;
+            for (const k of Object.keys(window.__audioManager.sounds)) {
+                if (k.startsWith('l2_enforcer_')) {
+                    window.__audioManager.sounds[k].stop();
+                }
+            }
+            window.__audioManager.playSfx(key);
+        };
 
-        // Line 2
-        await dlg.say('"The report says a mortal is carrying it. In her chest. As if the core chose her."', 4000);
+        // Beat 1 — Enforcer opening speech
+        voice('l2_enforcer_1');
+        await dlg.say(
+            '"An anomaly was detected in the lower tiers. One of our cores — stolen."\n\n' +
+            '"The report says a mortal is carrying it. In her chest. As if the core chose her."\n\n' +
+            '"Sorini."\n\n"You carry something that does not belong to you."\n\n' +
+            '"Hand it over. The core. Now."\n\n"And I will let you live."',
+            20800, 'ENFORCER'
+        );
 
-        // Line 3 — Enforcer directly
-        await dlg.say('"Sorini."\n\n"You carry something that does not belong to you."', 4000);
+        // Beat 2 — Sorini refuses
+        voice('l2_enforcer_2');
+        await dlg.say(
+            '"...I can\'t. It chose me. It doesn\'t want to go back."',
+            4100, 'SORINI'
+        );
 
-        // Line 4 — Enforcer demands
-        await dlg.say('"Hand it over. The core. Now."\n\n"And I will let you live."', 4000);
-
-        // Line 5 — Sorini refuses
-        await dlg.say('Sorini:\n\n"...I can\'t. It chose me. It doesn\'t want to go back."', 4000);
-
-        // Line 6 — Enforcer threatens
-        await dlg.say('"Then the Enforcer will take it by force."\n\n"Minions — unleash."', 4000);
+        // Beat 3 — Enforcer threatens
+        voice('l2_enforcer_3');
+        await dlg.say(
+            '"Then the Enforcer will take it by force."\n\n"Minions — unleash."',
+            5200, 'ENFORCER'
+        );
 
         // Hide dialogue, start combat
         dlg.hide();
         dlg.dispose();
         this._introDialogue = null;
+        window.__dialogue = null;
 
         // Trigger combat
         this.triggerCombat();
