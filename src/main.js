@@ -35,10 +35,11 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1200);
 camera.rotation.order = 'YXZ';
 window.__camera = camera;
+
 // ---------- audio ----------
 const audioManager = new AudioManager();
 loadAllAudio(audioManager);
-window.__audioManager = audioManager;  // expose for levels to use
+window.__audioManager = audioManager;
 console.log('🎵 Audio manager initialized');
 
 // ---------- root motion fix ----------
@@ -74,7 +75,6 @@ const player = {
 const playerHealth = new PlayerHealth({
   onDeath: () => {
     console.log('💀 Sorini has fallen');
-    // TODO: show lose screen
   },
   onRespawn: (spawnPos) => {
     console.log('✨ Sorini has respawned');
@@ -185,7 +185,7 @@ addEventListener('keydown', e => {
     level.setPhase(phase, timer.getElapsed());
   }
 
-  // Jump — lock prevents key-repeat from retriggering
+  // Jump
   if (e.code === 'Space' && player.grounded && !attackLock && !keys._spaceConsumed) {
     player.vel.y = 12;
     keys._spaceConsumed = true;
@@ -249,8 +249,6 @@ addEventListener('keyup', e => {
 renderer.domElement.addEventListener('click', () => {
   renderer.domElement.requestPointerLock();
 
-  // Browser requires user gesture before audio can play.
-  // Force-resume Howler's global AudioContext.
   if (window.Howler && window.Howler.ctx && window.Howler.ctx.state === 'suspended') {
     window.Howler.ctx.resume().then(() => {
       console.log('🔊 AudioContext resumed');
@@ -259,16 +257,11 @@ renderer.domElement.addEventListener('click', () => {
 
   if (window.__audioManager) {
     const firstSound = window.__audioManager.sounds['ship_hum'];
-    console.log('🎵 Ship hum sound object:', firstSound);
-    console.log('🎵 Ship hum state:', firstSound ? firstSound.state() : 'none');
-
     if (firstSound && current === 1) {
-      const id = firstSound.play();
-      console.log('🎵 Ship hum playing, id:', id);
+      firstSound.play();
       firstSound.volume(0.3);
     }
 
-    // Restart music if not playing
     if (!audioManager.currentMusic) {
       const musicMap = { 1: 'level_1_chiptune', 2: 'level_2_orchestral', 3: 'level_3_electronic' };
       const track = musicMap[current];
@@ -276,6 +269,7 @@ renderer.domElement.addEventListener('click', () => {
     }
   }
 });
+
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
   const msg = document.getElementById('msg');
@@ -350,7 +344,6 @@ function switchLevel(n) {
   }
 
   // ── Wire player damage callback ──
-  // Any level can call `level.onDamagePlayer(dmg)` to hurt Sorini.
   if (level) {
     level.onDamagePlayer = (dmg) => {
       playerHealth.takeDamage(dmg);
@@ -383,7 +376,6 @@ function switchLevel(n) {
     try { level.spawn = level.getSpawn(); } catch (e) { console.warn('getSpawn failed:', e); }
   }
 
-  // ── Level 2 arrival sequence ──
   if (n === 2 && typeof level.startIntroSequence === 'function') {
     level.startIntroSequence();
   }
@@ -406,7 +398,7 @@ function switchLevel(n) {
   player.vel.set(0, 0, 0);
   player.yaw   = (typeof level.spawnYaw === 'number') ? level.spawnYaw : Math.PI;
   player.pitch = 0;
-    // ── Switch music by level ──
+
   const musicMap = { 1: 'level_1_chiptune', 2: 'level_2_orchestral', 3: 'level_3_electronic' };
   const track = musicMap[n];
   if (track) audioManager.playMusic(track);

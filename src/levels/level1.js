@@ -236,18 +236,16 @@ export class StreetLevel {
       if (this.playerHealth) this.playerHealth.takeDamage(dmg);
     };
     // ── Spawn initial aliens from the portal at level start ──
-    setTimeout(() => {
-      const sx = this.pathX(-58);
-      const sz = -58;
-      const sy = this._h(sx, sz);
-      const portalPos = new THREE.Vector3(sx, sy, sz);
-
-      console.log('👽 Initial alien wave incoming...');
-      this.grunts.spawnWave(portalPos, 1);
-      for (const g of this.grunts.grunts) {
-        this.minionHealthBar.register(g);
-      }
-    }, 2000);
+        // ── Wave system starts after intro monologue ──
+    // (see _playIntroMonologue which calls _startNextWave on completion)
+    this.waveSpawnPending = 0;
+    this.waveIndex = 0;
+    this.waveActive = false;
+    this.waves = [
+      { count: 3, types: ['normal', 'normal', 'normal'] },
+      { count: 4, types: ['normal', 'normal', 'fast', 'fast'] },
+      { count: 5, types: ['normal', 'fast', 'fast', 'heavy', 'heavy'] },
+    ];
 
         // Play the intro monologue after the level is built
     setTimeout(() => {
@@ -291,15 +289,62 @@ export class StreetLevel {
     );
 
     // Short pause, then the sky lights up with the crash
+     // Short pause, then the sky lights up with the crash
     await dlg.say("...", 800);
 
+    // End the dialogue — release input control
     dlg.hide();
+    dlg.active = false;
     dlg.dispose();
     window.__dialogue = null;
 
-    console.log('🎬 [L1] Intro monologue complete');
+    console.log('🎬 [L1] Intro complete — input unlocked');
+
+    // Start the combat waves
+    setTimeout(() => {
+      this._startNextWave();
+    }, 1500);
   }
   
+
+    // =========================================================
+  // WAVE SYSTEM — grunts pour out of the crashed ship
+  // =========================================================
+   _startNextWave() {
+    if (this.waveIndex >= this.waves.length) {
+      console.log('⚔️ [L1] All waves cleared — calling Commander');
+      this._spawnCommander();
+      return;
+    }
+
+    const wave = this.waves[this.waveIndex];
+    this.waveIndex++;
+    this.waveActive = true;
+    this.waveSpawnPending = wave.count;   // ← KEY FIX: track pending spawns
+
+    console.log(`👽 [L1] Wave ${this.waveIndex} starting — ${wave.count} enemies`);
+
+    const shipPos = new THREE.Vector3(24, this._h(24, 24), 24);
+    for (let i = 0; i < wave.count; i++) {
+      setTimeout(() => {
+        this.grunts.spawnWave(shipPos, 1);
+        const newGrunt = this.grunts.grunts[this.grunts.grunts.length - 1];
+        if (newGrunt) this.minionHealthBar.register(newGrunt);
+        this.waveSpawnPending--;
+      }, i * 400);
+    }
+  }
+
+  _checkWaveStatus() {
+    if (!this.waveActive) return;
+    // Wait until all spawns are done
+    if (this.waveSpawnPending > 0) return;
+    if (this.grunts.grunts.length === 0 && this.waveIndex > 0) {
+      this.waveActive = false;
+      console.log(`✅ [L1] Wave ${this.waveIndex} cleared`);
+      setTimeout(() => this._startNextWave(), 2000);
+    }
+  }
 
   // the path wanders gently; everything aligns to it
     // ── Commander spawn ──
@@ -1520,6 +1565,8 @@ export class StreetLevel {
   update(deltaTime, t, player) {
     this.time += deltaTime;
     for (const m of this.timeMats) m.uniforms.uTime.value = this.time;
+
+    this._checkWaveStatus();
 
     // ── Crashed ship smoke rising ──
     if (this._shipSmoke) {
