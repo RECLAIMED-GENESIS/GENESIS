@@ -13,9 +13,8 @@ import { Dialogue } from './ui/dialogue.js';
 import { endingAttack, endingLearn, endingSilence } from './player/endings.js';
 import { UIManager } from './ui/UIManager.js';
 import { createMainMenu } from './ui/MainMenu.js';
-import { createHUD } from './ui/HUD.js';
+import { createHUD, updateHUD } from './ui/HUD.js';   // ← ADDED updateHUD
 import { createLoadingScreen, updateLoadingScreen } from './ui/LoadingScreen.js';
-
 
 // ---------- renderer ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -77,18 +76,15 @@ const player = {
 // =====================================================
 // PLAYER HEALTH — shared across all levels
 // =====================================================
-// Cache the last death position so respawn happens in place
 let _lastDeathPos = null;
 
 const playerHealth = new PlayerHealth({
   onDeath: () => {
     console.log('💀 Sorini has fallen');
-    // Remember where she fell
     _lastDeathPos = player.pos.clone();
   },
   onRespawn: (spawnPos) => {
     console.log('✨ Sorini has respawned');
-    // Priority: explicit spawn → death position → level spawn
     let target = null;
     if (spawnPos && spawnPos.isVector3) {
       target = spawnPos;
@@ -99,13 +95,12 @@ const playerHealth = new PlayerHealth({
     }
     if (target) {
       player.pos.copy(target);
-      // Nudge her up slightly so she doesn't spawn inside terrain
       player.pos.y = (level && level.getSurfaceHeight)
         ? level.getSurfaceHeight(player.pos.x, player.pos.z) + 0.2
         : player.pos.y + 0.2;
     }
     player.vel.set(0, 0, 0);
-    _lastDeathPos = null;   // clear after use
+    _lastDeathPos = null;
   }
 });
 window.__playerHealth = playerHealth;
@@ -157,7 +152,6 @@ function loadSoriniAnim(path, key, onDone) {
   }, undefined, (e) => console.warn('sorini anim failed:', path, e));
 }
 
-// Load Sorini model
 new FBXLoader().load('./assets/models/player/sorini.fbx', (fbx) => {
   fbx.scale.setScalar(0.013);
   fbx.position.y = -0.13;
@@ -207,7 +201,6 @@ addEventListener('keydown', e => {
     level.setPhase(phase, timer.getElapsed());
   }
 
-  // Jump
   if (e.code === 'Space' && player.grounded && !attackLock && !keys._spaceConsumed) {
     player.vel.y = 12;
     keys._spaceConsumed = true;
@@ -247,7 +240,6 @@ function _triggerAttack() {
 function _damageEnemiesIfClose(damage) {
   if (!level) return;
 
-  // Level 1: Commander + Grunts
   if (level.commander && level.commander.alive) {
     const dist = level.commander.getPosition().distanceTo(player.pos);
     if (dist < 2.5) level.commander.takeDamage(damage);
@@ -256,7 +248,6 @@ function _damageEnemiesIfClose(damage) {
     level.grunts.checkHit(player.pos, 2.2, damage);
   }
 
-  // Level 2: Enforcer
   if (level.enforcer && level.enforcer.alive) {
     const dist = level.enforcer.getPosition().distanceTo(player.pos);
     if (dist < 2.0) level.enforcer.takeDamage(damage);
@@ -307,7 +298,6 @@ addEventListener('mousemove', e => {
 // ---------- levels ----------
 const LEVELS = { 1: StreetLevel, 2: AlienLevel, 3: ArchitectLevel };
 let level = null, current = 1, phase = 1;
-const hud = document.getElementById('hud');
 
 function switchLevel(n) {
   if (level) {
@@ -339,7 +329,6 @@ function switchLevel(n) {
 
   try {
     level = new LEVELS[n](scene, renderer);
-    
 
     if (n === 3 && level instanceof ArchitectLevel) {
       const dialogue = new Dialogue();
@@ -367,7 +356,7 @@ function switchLevel(n) {
     try { level = new LEVELS[n](scene); } catch (e2) { level = new LEVELS[n](); }
   }
 
-  // ── Wire player damage callback ──
+  // Wire player damage callback
   if (level) {
     level.onDamagePlayer = (dmg) => {
       playerHealth.takeDamage(dmg);
@@ -441,17 +430,16 @@ marker.rotation.order = 'YXZ';
 marker.layers.set(2);
 scene.add(marker);
 
-// ── Minimap enemy dot pool ──
 const MAX_DOTS = 32;
 const enemyDots = [];
-const gruntDotMat = new THREE.MeshBasicMaterial({ color: 0xff3a3a });   // red = grunt
-const bossDotMat  = new THREE.MeshBasicMaterial({ color: 0xffaa00 });   // orange = boss
+const gruntDotMat = new THREE.MeshBasicMaterial({ color: 0xff3a3a });
+const bossDotMat  = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
 const dotGeo = new THREE.CircleGeometry(1.6, 12);
 
 for (let i = 0; i < MAX_DOTS; i++) {
   const dot = new THREE.Mesh(dotGeo, gruntDotMat);
-  dot.rotation.x = -Math.PI / 2;   // lie flat for top-down view
-  dot.layers.set(1);               // visible only to minimap camera
+  dot.rotation.x = -Math.PI / 2;
+  dot.layers.set(1);
   dot.visible = false;
   scene.add(dot);
   enemyDots.push(dot);
@@ -513,7 +501,6 @@ function stepPlayer(dt) {
 // ---------- loop ----------
 const timer = new THREE.Timer();
 let _rafId = 0;
-let _lastHudString = '';
 
 function tick() {
   _rafId = requestAnimationFrame(tick);
@@ -531,6 +518,19 @@ function tick() {
     try { level.update(dt, t, player); }
     catch (e) { console.warn('level.update error', e); }
   }
+
+  // ── Update HUD every frame (health, wave counter, level name) ──
+  const waveCurrent = (typeof level.waveIndex === 'number') ? level.waveIndex : 0;
+  const waveTotal   = (level.waves ? level.waves.length : 3);
+  updateHUD(
+    playerHealth.hp,
+    playerHealth.maxHp,
+    0,           // fragments — unused
+    0,           // fragments — unused
+    waveCurrent,
+    waveTotal,
+    level.name || 'LEVEL 1'
+  );
 
   const CAM_DIST   = 5.5;
   const CAM_HEIGHT = 2.8;
@@ -574,7 +574,8 @@ function tick() {
 
   marker.position.set(player.pos.x, player.pos.y + 2, player.pos.z);
   marker.rotation.set(Math.PI / 2, player.yaw, 0);
-    // ── Update minimap enemy dots ──
+
+  // ── Update minimap enemy dots ──
   const enemies = (level && typeof level.getEnemyMarkers === 'function')
     ? level.getEnemyMarkers()
     : [];
@@ -589,16 +590,6 @@ function tick() {
     } else if (dot.visible) {
       dot.visible = false;
     }
-  }
-
-  const levelName = (level && level.name) ? level.name : `LEVEL ${current}`;
-  const hudStr =
-    `<b>GENESIS — THE DEVICE</b><br>` +
-    `${levelName}${level && level.setPhase ? ' · phase ' + phase : ''}<br>` +
-    `1/2/3 levels · R restart | F punch · G kick · H hook | Shift sprint`;
-  if (hudStr !== _lastHudString) {
-    hud.innerHTML = hudStr;
-    _lastHudString = hudStr;
   }
 
   renderer.setScissorTest(false);
@@ -625,10 +616,9 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// ---------- debug globals (for console inspection) ----------
+// ---------- debug globals ----------
 window.__player = player;
 
-// Note: `level` gets reassigned in switchLevel, so expose a getter
 Object.defineProperty(window, '__level', {
   get() { return level; },
   configurable: true,
@@ -639,15 +629,13 @@ Object.defineProperty(window, '__level', {
 // ============================================================
 const uiManager = new UIManager();
 
-// HUD — hidden until the game starts
 const hudElement = createHUD();
 uiManager.registerScreen('hud', hudElement);
 
-// Loading Screen — shows between menu and gameplay
 const loadingScreenElement = createLoadingScreen();
 uiManager.registerScreen('loading', loadingScreenElement);
 
-// Credits overlay — reuses the same inline block as main
+// Credits overlay
 function showCreditsOverlay() {
   const creditsDiv = document.createElement('div');
   creditsDiv.id = 'credits-overlay';
@@ -720,7 +708,6 @@ const mainMenuElement = createMainMenu(
     console.log('🎮 PLAY clicked');
     audioManager.playMusic('level_1_chiptune');
 
-    // Show loading screen with simulated progress
     uiManager.showScreen('loading');
     updateLoadingScreen(
       'LEVEL 1',
@@ -745,7 +732,6 @@ const mainMenuElement = createMainMenu(
           true
         );
 
-        // Wire the CONTINUE button (created by LoadingScreen.js)
         const continueBtn = document.getElementById('continueBtn');
         if (continueBtn) {
           continueBtn.onclick = () => {
@@ -781,8 +767,6 @@ const mainMenuElement = createMainMenu(
 );
 
 uiManager.registerScreen('main-menu', mainMenuElement);
-
-// Show the menu on boot
 uiManager.showScreen('main-menu');
 
 // ---------- Vite HMR cleanup ----------

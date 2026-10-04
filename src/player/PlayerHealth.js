@@ -4,19 +4,19 @@
 
 export class PlayerHealth {
     constructor(callbacks = {}) {
-        this.maxHp = 100;
-        this.hp = 100;
-        this.dead = false;
-        this.respawnTimer = 0;
-        this._hurtCooldown = 0;      // i-frames window
-        this._iframeDuration = 0.7;  // seconds of invulnerability after a hit
-        this._respawnDelay = 2.5;
-        this.callbacks = callbacks;
+    this.maxHp = 100;
+    this.hp = 100;
+    this.dead = false;
+    this.respawnTimer = 0;
+    this._hurtCooldown = 0;
+    this._iframeDuration = 0.7;
+    this._respawnDelay = 2.5;
+    this.callbacks = callbacks;
 
-        // DOM health bar (top-left of screen)
-        this._ensureHudBar();
-        this._updateBar();
-    }
+    // HUD bar disabled — HUD.js now owns the health bar
+    // this._ensureHudBar();
+    // this._updateBar();
+}
 
     // =========================================================
     // HUD
