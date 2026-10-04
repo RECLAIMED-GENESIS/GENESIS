@@ -120,7 +120,7 @@ export class Commander {
       const base = './assets/models/enemy/';
       const animPaths = {
         idle:      base + 'Idle.fbx',
-        walk:      base + 'Mutant Walking.fbx',
+                walk:      base + 'enforcer_walk.fbx',
         run:       base + 'Running.fbx',
         punch:     base + 'Mutant_Punch.fbx',
         roar:      base + 'Mutant_Roaring.fbx',

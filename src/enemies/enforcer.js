@@ -153,7 +153,8 @@ export class Enforcer {
   }
 
   _playAction(name, loop = true) {
-      
+      // Once dead, lock to the death animation — nothing else can override
+    if (!this.alive && name !== 'die') return;
     console.log('🎬 [Enforcer] playAction:', name, '| loop:', loop, '| exists:', !!this.actions[name]);
     
   
