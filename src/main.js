@@ -316,6 +316,7 @@ function switchLevel(n) {
 
   try {
     level = new LEVELS[n](scene, renderer);
+    
 
     if (n === 3 && level instanceof ArchitectLevel) {
       const dialogue = new Dialogue();
@@ -567,6 +568,15 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+});
+
+// ---------- debug globals (for console inspection) ----------
+window.__player = player;
+
+// Note: `level` gets reassigned in switchLevel, so expose a getter
+Object.defineProperty(window, '__level', {
+  get() { return level; },
+  configurable: true,
 });
 
 switchLevel(1);

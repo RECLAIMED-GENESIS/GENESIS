@@ -276,15 +276,17 @@ export class GruntManager {
   getAlive() { return this.grunts.filter(g => g.alive); }
 
   checkHit(attackerPos, range, damage) {
-    for (const g of this.grunts) {
-      if (!g.alive) continue;
-      if (g.position.distanceTo(attackerPos) < range) {
-        g.takeDamage(damage);
-        return g;
-      }
+  for (const g of this.grunts) {
+    if (!g.alive) continue;
+    const dx = g.position.x - attackerPos.x;
+    const dz = g.position.z - attackerPos.z;
+    if (Math.hypot(dx, dz) < range) {
+      g.takeDamage(damage);
+      return g;
     }
-    return null;
   }
+  return null;
+}
 
   get count() { return this.grunts.length; }
 }

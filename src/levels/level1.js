@@ -1,23 +1,5 @@
 // ============================================================
-// LEVEL 1 — THE GROVE VILLAGE (twilight blossom garden)
-// Sorini arrives at a Japanese village at twilight.
-// He must find 5 hidden GENESIS fragments by exploring the
-// village and talking to its inhabitants. Once all 5 are
-// collected, a portal tears open at the shrine.
-//
-// What's here:
-//   * custom dusk sky shader (gradient + stars + moon + clouds)
-//   * rolling terrain with a winding stepping-stone path
-//   * torii gates aligned to the path tangent
-//   * instanced blossom trees (one draw call for all canopies)
-//   * stone lanterns with warm flickering lights
-//   * koi pond with a custom ripple/water shader
-//   * fireflies (GPU-animated point shader)
-//   * falling blossom petals (instanced, animated on CPU)
-//   * shrine platform at the end of the path
-//   * Japanese house, 3 market stalls, 5 NPCs with hints
-//   * 5 glowing GENESIS fragments to collect
-//   * portal that opens at the shrine once all 5 are found
+// LEVEL 1 — THE GROVE VILLAGE
 // ============================================================
 import * as THREE from 'three';
 import { VillageNPCs } from '../player/villageNPCs.js';
@@ -181,7 +163,7 @@ export class StreetLevel {
     this.timeMats = [];
     this.lanternMats = [];
     this.spawn = new THREE.Vector3(0, this._h(0, 62), 62);
-    this.spawnYaw = Math.PI;   // face down the path (toward -z)
+    this.spawnYaw = Math.PI;
 
     this.createSky();
     this.createLighting();
@@ -198,29 +180,24 @@ export class StreetLevel {
     this.createFireflies();
     this.createPetals();
     this._buildColliders();
-    
 
-    // shadows on everything built so far
     this.level.traverse((o) => {
       if (o.isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; }
     });
 
-    // ── Village NPCs, stalls, house, fragments, portal ──────
-    // switchLevel is exposed on window by main.js so the portal
-    // callback can trigger level 2 from inside villageNPCs.js
-      this.villageNPCs = new VillageNPCs(
+    // Village NPCs, stalls, house, portal
+    this.villageNPCs = new VillageNPCs(
       this.level,
       this._h.bind(this),
       this.pathX.bind(this),
       () => {
-        // Called when player walks into the portal
         setTimeout(() => {
           if (typeof window.__switchLevel === 'function') window.__switchLevel(2);
         }, 1200);
       }
     );
 
-    // ── Commander + Minions ──
+    // Commander + Minions
     this.commander = null;
     this.grunts = new GruntManager(this.level);
     this.bossHealthBar = new BossHealthBar();
@@ -228,16 +205,13 @@ export class StreetLevel {
     this.commanderSpawned = false;
     this.keySpawned = false;
 
-    // Expose spawnCommander so villageNPCs.js can trigger it
-        // Expose spawnCommander so villageNPCs.js can trigger it
     window.__spawnCommander = () => this._spawnCommander();
-        // Wire grunt damage to the global playerHealth (set by main.js)
+
     this._onDamagePlayer = (dmg) => {
       if (this.playerHealth) this.playerHealth.takeDamage(dmg);
     };
-    // ── Spawn initial aliens from the portal at level start ──
-        // ── Wave system starts after intro monologue ──
-    // (see _playIntroMonologue which calls _startNextWave on completion)
+
+    // Wave system
     this.waveSpawnPending = 0;
     this.waveIndex = 0;
     this.waveActive = false;
@@ -247,20 +221,23 @@ export class StreetLevel {
       { count: 5, types: ['normal', 'fast', 'fast', 'heavy', 'heavy'] },
     ];
 
-        // Play the intro monologue after the level is built
+    // Intro monologue — guarded so it only plays once per instance
+    this._introPlayed = false;
     setTimeout(() => {
-      this._playIntroMonologue();
+      if (!this._introPlayed) {
+        this._introPlayed = true;
+        this._playIntroMonologue();
+      }
     }, 800);
   }
 
-    // =========================================================
-  // INTRO MONOLOGUE — Sorini's confused inner voice
+  // =========================================================
+  // INTRO MONOLOGUE
   // =========================================================
   async _playIntroMonologue() {
     const { Dialogue } = await import('../ui/dialogue.js');
     const dlg = new Dialogue();
 
-    // Don't allow player input while intro plays
     if (window.__dialogue) {
       try { window.__dialogue.dispose(); } catch(e){}
     }
@@ -288,11 +265,8 @@ export class StreetLevel {
       4200
     );
 
-    // Short pause, then the sky lights up with the crash
-     // Short pause, then the sky lights up with the crash
     await dlg.say("...", 800);
 
-    // End the dialogue — release input control
     dlg.hide();
     dlg.active = false;
     dlg.dispose();
@@ -300,17 +274,15 @@ export class StreetLevel {
 
     console.log('🎬 [L1] Intro complete — input unlocked');
 
-    // Start the combat waves
     setTimeout(() => {
       this._startNextWave();
     }, 1500);
   }
-  
 
-    // =========================================================
-  // WAVE SYSTEM — grunts pour out of the crashed ship
   // =========================================================
-   _startNextWave() {
+  // WAVE SYSTEM
+  // =========================================================
+  _startNextWave() {
     if (this.waveIndex >= this.waves.length) {
       console.log('⚔️ [L1] All waves cleared — calling Commander');
       this._spawnCommander();
@@ -320,7 +292,7 @@ export class StreetLevel {
     const wave = this.waves[this.waveIndex];
     this.waveIndex++;
     this.waveActive = true;
-    this.waveSpawnPending = wave.count;   // ← KEY FIX: track pending spawns
+    this.waveSpawnPending = wave.count;
 
     console.log(`👽 [L1] Wave ${this.waveIndex} starting — ${wave.count} enemies`);
 
@@ -337,7 +309,6 @@ export class StreetLevel {
 
   _checkWaveStatus() {
     if (!this.waveActive) return;
-    // Wait until all spawns are done
     if (this.waveSpawnPending > 0) return;
     if (this.grunts.grunts.length === 0 && this.waveIndex > 0) {
       this.waveActive = false;
@@ -346,8 +317,7 @@ export class StreetLevel {
     }
   }
 
-  // the path wanders gently; everything aligns to it
-    // ── Commander spawn ──
+  // ── Commander spawn ──
   _spawnCommander() {
     if (this.commanderSpawned) return;
     this.commanderSpawned = true;
@@ -356,25 +326,18 @@ export class StreetLevel {
     const sz = -58;
     const sy = this._h(sx, sz);
 
-    // Spawn opposite end of shrine
     const spawnPos = new THREE.Vector3(sx, sy, sz);
 
     console.log('⚔️ THE WARDEN AWAKENS');
-
-    // Screen shake
     this._screenShake = 0.8;
-
-    // Boss HP bar
     this.bossHealthBar.show();
 
-    // Spawn Commander
     this.commander = new Commander(this.level, spawnPos, {
       onDamagePlayer: (dmg) => {
         if (this._onDamagePlayer) this._onDamagePlayer(dmg);
       },
       onMinionSpawn: (count) => {
         this.grunts.spawnWave(spawnPos, count);
-        // Register each new grunt with the minion HP bar
         for (const g of this.grunts.grunts) {
           this.minionHealthBar.register(g);
         }
@@ -389,51 +352,16 @@ export class StreetLevel {
     console.log('💀 THE WARDEN HAS FALLEN');
     this.bossHealthBar.hide();
     this.grunts.killAll();
-
-    // Screen shake + slowmo feel
     this._screenShake = 1.5;
 
-    // Drop key at commander's last position
-    const keyPos = this.commander.getPosition();
-    this._spawnKey(keyPos);
+    // Open the portal at the shrine
+    if (this.villageNPCs) this.villageNPCs.openPortal();
   }
 
-  _spawnKey(pos) {
-    this.keySpawned = true;
-    const keyGroup = new THREE.Group();
-
-    // Simple key: golden box + ring
-    const goldMat = new THREE.MeshStandardMaterial({
-      color: 0xffcc44,
-      emissive: 0xffaa00,
-      emissiveIntensity: 1.2,
-      metalness: 0.9,
-      roughness: 0.2
-    });
-
-    const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.6, 0.15), goldMat);
-    const head  = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.06, 8, 16), goldMat);
-    head.rotation.x = Math.PI / 2;
-    head.position.y = 0.4;
-
-    keyGroup.add(shaft);
-    keyGroup.add(head);
-    keyGroup.position.set(pos.x, this._h(pos.x, pos.z) + 1.2, pos.z);
-
-    // Light
-    const light = new THREE.PointLight(0xffcc44, 5, 8, 2);
-    keyGroup.add(light);
-
-    this.level.add(keyGroup);
-    this.keyMesh = keyGroup;
-
-    console.log('🔑 KEY DROPPED');
-  }
-
-  // the path wanders gently; everything aligns to it
+  // the path wanders gently
   pathX(z) { return Math.sin(z * 0.03) * 8; }
 
-  // ONE analytic height function — terrain mesh AND gameplay use it
+  // height function
   _h(x, z) {
     let h = (fbm(x * 0.02 + 3.1, z * 0.02 + 7.7) - 0.5) * 2.4;
     h += (fbm(x * 0.08, z * 0.08, 2) - 0.5) * 0.4;
@@ -445,6 +373,7 @@ export class StreetLevel {
     h = h * (1 - sstep(10, 5, Math.hypot(x - this.pathX(-58), z + 58))) + 0.1 * sstep(10, 5, Math.hypot(x - this.pathX(-58), z + 58));
     return h;
   }
+
   _addBoxCollider(cx, cz, hw, hd, h, baseY = 0) {
     this.colliders.push(new THREE.Box3(
       new THREE.Vector3(cx - hw, baseY, cz - hd),
@@ -452,7 +381,6 @@ export class StreetLevel {
   }
 
   _buildColliders() {
-    // torii gate pillars (aligned with the gate rotation in createToriiGates)
     for (const gz of [42, 16, -12, -38]) {
       const gx = this.pathX(gz);
       const dz = 0.6;
@@ -463,31 +391,18 @@ export class StreetLevel {
         this._addBoxCollider(px, pz, 0.4, 0.4, 4.4, this._h(gx, gz));
       }
     }
-    // koi pond — keep Sorini out of the water
-    // koi pond — only block the deepest center (smaller collider)
-// so player can walk to the water's edge
     this._addBoxCollider(14, 18, 5.5, 5.5, 1.2, -1.0);
-    // Japanese house
     const hx = this.pathX(40) - 9;
     this._addBoxCollider(hx, 40, 3.7, 3.2, 4, this._h(hx, 40));
-    // market stalls
     const s1x = this.pathX(30) - 5;
     this._addBoxCollider(s1x, 30, 1.8, 1.0, 3, this._h(s1x, 30));
     const s2x = this.pathX(18) + 5;
     this._addBoxCollider(s2x, 18, 1.8, 1.0, 3, this._h(s2x, 18));
     const s3x = this.pathX(6) + 5;
     this._addBoxCollider(s3x, 6, 1.8, 1.0, 3, this._h(s3x, 6));
-    // shrine pillars only — the centre stays open so the portal/altar are reachable
     const sx = this.pathX(-58), sz = -58, sy = this._h(sx, sz);
     for (const [cx, cz] of [[-2.8, -2.3], [2.8, -2.3], [-2.8, 2.3], [2.8, 2.3]]) {
       this._addBoxCollider(sx + cx, sz + cz, 0.4, 0.4, 4, sy);
-    }
-    // NPCs
-    for (const [nx, nz] of [
-      [this.pathX(30) - 6, 30], [this.pathX(18) + 6, 18], [this.pathX(6) + 6, 6],
-      [this.pathX(-10) - 4, -10], [this.pathX(-48) + 3, -48],
-    ]) {
-      this._addBoxCollider(nx, nz, 0.45, 0.45, 2.2, this._h(nx, nz));
     }
   }
 
@@ -552,7 +467,7 @@ export class StreetLevel {
   }
 
   // =========================================================
-  // STEPPING-STONE PATH
+  // PATH
   // =========================================================
   createPath() {
     const pts = [];
@@ -612,7 +527,7 @@ export class StreetLevel {
   }
 
   // =========================================================
-  // BLOSSOM TREES
+  // TREES
   // =========================================================
   createTrees() {
     const N = 46;
@@ -649,7 +564,6 @@ export class StreetLevel {
         cans.setMatrixAt(ci++, M);
       }
       placed++;
-      // trunk collider so Sorini can't walk through trees
       this.colliders.push(new THREE.Box3(
         new THREE.Vector3(x - 0.55, y, z - 0.55),
         new THREE.Vector3(x + 0.55, y + 3.4 * s, z + 0.55)));
@@ -659,7 +573,7 @@ export class StreetLevel {
   }
 
   // =========================================================
-  // STONE LANTERNS
+  // LANTERNS
   // =========================================================
   createLanterns() {
     const stone = new THREE.MeshStandardMaterial({ color: 0x8a8496, roughness: 0.8 });
@@ -693,7 +607,7 @@ export class StreetLevel {
   }
 
   // =========================================================
-  // KOI POND
+  // POND
   // =========================================================
   createPond() {
     const px = 14, pz = 18;
@@ -750,83 +664,51 @@ export class StreetLevel {
     this.level.add(light);
   }
 
-    // =========================================================
-  // HOUSES — neighbourhood of 5 Japanese houses
+  // =========================================================
+  // HOUSES
   // =========================================================
   createHouses() {
-    // House definitions: position along the path, side offset, size variation, rotation
     const houses = [
-      // Sorini's house — closest to spawn, faces the path
       { z: 55, side: -8,  scale: 1.15, style: 'main' },
-      // Neighbours — alternating sides, going down the path
       { z: 42, side:  9,  scale: 0.95, style: 'small' },
       { z: 28, side: -10, scale: 1.0,  style: 'medium' },
       { z: 12, side:  10, scale: 0.9,  style: 'small' },
       { z: -8, side: -9,  scale: 1.05, style: 'medium' },
     ];
-
     for (const def of houses) {
       this._makeHouse(def);
     }
   }
 
-  // Builds one Japanese-style house and returns the group
   _makeHouse({ z, side, scale = 1, style = 'medium' }) {
     const x = this.pathX(z) + side;
     const y = this._h(x, z);
-
     const g = new THREE.Group();
 
-    // Materials
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: 0xd9c9a8,           // light beige plaster
-      roughness: 0.9,
-    });
-    const darkWoodMat = new THREE.MeshStandardMaterial({
-      color: 0x3a2218,
-      roughness: 0.85,
-    });
-    const roofMat = new THREE.MeshStandardMaterial({
-      color: 0x1b1b2a,           // near-black roof
-      roughness: 0.7,
-    });
-    const doorMat = new THREE.MeshStandardMaterial({
-      color: 0x2a1a12,
-      roughness: 0.8,
-    });
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0xd9c9a8, roughness: 0.9 });
+    const darkWoodMat = new THREE.MeshStandardMaterial({ color: 0x3a2218, roughness: 0.85 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x1b1b2a, roughness: 0.7 });
+    const doorMat = new THREE.MeshStandardMaterial({ color: 0x2a1a12, roughness: 0.8 });
     const windowMat = new THREE.MeshStandardMaterial({
-      color: 0xf5e6c8,
-      emissive: 0xffcc88,
-      emissiveIntensity: 0.6,
-      roughness: 0.4,
+      color: 0xf5e6c8, emissive: 0xffcc88, emissiveIntensity: 0.6, roughness: 0.4,
     });
 
-    // Sizes (base unit = house body 4 x 2.6 x 3.2)
     const w = 4 * scale;
     const h = 2.6 * scale;
     const d = 3.2 * scale;
 
-    // ---- Foundation: raised wooden platform ----
-    const platform = new THREE.Mesh(
-      new THREE.BoxGeometry(w + 0.4, 0.25, d + 0.4),
-      darkWoodMat
-    );
+    const platform = new THREE.Mesh(new THREE.BoxGeometry(w + 0.4, 0.25, d + 0.4), darkWoodMat);
     platform.position.y = 0.12;
     platform.receiveShadow = true;
     platform.castShadow = true;
     g.add(platform);
 
-    // ---- Body: plaster walls ----
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(w, h, d),
-      wallMat
-    );
+    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
     body.position.y = 0.25 + h / 2;
     body.castShadow = true;
     body.receiveShadow = true;
     g.add(body);
 
-    // ---- Corner posts (dark wood) ----
     const postGeo = new THREE.BoxGeometry(0.15, h, 0.15);
     for (const [cx, cz] of [
       [-w / 2 + 0.08, -d / 2 + 0.08],
@@ -840,76 +722,46 @@ export class StreetLevel {
       g.add(post);
     }
 
-    // ---- Sliding door on the front (facing +z) ----
-    const door = new THREE.Mesh(
-      new THREE.BoxGeometry(w * 0.5, h * 0.85, 0.08),
-      doorMat
-    );
+    const door = new THREE.Mesh(new THREE.BoxGeometry(w * 0.5, h * 0.85, 0.08), doorMat);
     door.position.set(0, 0.25 + h * 0.425, d / 2 + 0.04);
     g.add(door);
 
-    // Two window panels inside the door area
     for (const wx of [-w * 0.13, w * 0.13]) {
-      const win = new THREE.Mesh(
-        new THREE.BoxGeometry(w * 0.15, h * 0.6, 0.05),
-        windowMat
-      );
+      const win = new THREE.Mesh(new THREE.BoxGeometry(w * 0.15, h * 0.6, 0.05), windowMat);
       win.position.set(wx, 0.25 + h * 0.45, d / 2 + 0.09);
       g.add(win);
     }
 
-    // ---- Side window ----
-    const sideWin = new THREE.Mesh(
-      new THREE.BoxGeometry(0.05, h * 0.5, d * 0.4),
-      windowMat
-    );
+    const sideWin = new THREE.Mesh(new THREE.BoxGeometry(0.05, h * 0.5, d * 0.4), windowMat);
     sideWin.position.set(w / 2 + 0.03, 0.25 + h * 0.45, 0);
     g.add(sideWin);
 
-    // ---- Roof: layered low pyramid (hip roof) ----
-    const roof1 = new THREE.Mesh(
-      new THREE.ConeGeometry(w * 0.95, 1.4 * scale, 4),
-      roofMat
-    );
+    const roof1 = new THREE.Mesh(new THREE.ConeGeometry(w * 0.95, 1.4 * scale, 4), roofMat);
     roof1.position.y = 0.25 + h + 0.55 * scale;
     roof1.rotation.y = Math.PI / 4;
     roof1.castShadow = true;
     g.add(roof1);
 
-    // Second layer for the pagoda feel
-    const roof2 = new THREE.Mesh(
-      new THREE.ConeGeometry(w * 0.65, 1.0 * scale, 4),
-      roofMat
-    );
+    const roof2 = new THREE.Mesh(new THREE.ConeGeometry(w * 0.65, 1.0 * scale, 4), roofMat);
     roof2.position.y = 0.25 + h + 1.15 * scale;
     roof2.rotation.y = Math.PI / 4;
     roof2.castShadow = true;
     g.add(roof2);
 
-    // Ridge cap
-    const ridge = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.08, 0.08, w * 0.4, 6),
-      darkWoodMat
-    );
+    const ridge = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, w * 0.4, 6), darkWoodMat);
     ridge.position.y = 0.25 + h + 1.75 * scale;
     g.add(ridge);
 
-    // ---- Warm interior glow (light coming through windows) ----
     const interior = new THREE.PointLight(0xffb070, 3, 10 * scale, 2);
     interior.position.set(0, 0.25 + h * 0.5, 0);
     g.add(interior);
 
-    // ---- Small garden strip in front ----
     const gardenMat = new THREE.MeshStandardMaterial({ color: 0x4a3b28, roughness: 1 });
-    const garden = new THREE.Mesh(
-      new THREE.BoxGeometry(w + 0.8, 0.1, 1.2 * scale),
-      gardenMat
-    );
+    const garden = new THREE.Mesh(new THREE.BoxGeometry(w + 0.8, 0.1, 1.2 * scale), gardenMat);
     garden.position.set(0, 0.05, d / 2 + 0.6 * scale);
     garden.receiveShadow = true;
     g.add(garden);
 
-    // Bamboo shoots in the garden (small vertical cylinders)
     const bambooMat = new THREE.MeshStandardMaterial({ color: 0x6b8f4a, roughness: 0.6 });
     for (let i = 0; i < 5; i++) {
       const b = new THREE.Mesh(
@@ -925,17 +777,11 @@ export class StreetLevel {
       g.add(b);
     }
 
-    // ---- Position + rotate to face path ----
     g.position.set(x, y, z);
-
-    // Face the path (path runs along z; house sits offset on x)
-    // Rotate slightly toward the path
     g.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
-
     this.level.add(g);
 
-    // ---- Colliders: body only (a simple box) ----
-    const halfW = (side > 0 ? d : w) / 2;   // swap because rotation
+    const halfW = (side > 0 ? d : w) / 2;
     const halfD = (side > 0 ? w : d) / 2;
     this.colliders.push(new THREE.Box3(
       new THREE.Vector3(x - halfW, y, z - halfD),
@@ -945,11 +791,10 @@ export class StreetLevel {
     return g;
   }
 
-    // =========================================================
-  // SCENERY — fences, well, pavilion, stream, bamboo, props
+  // =========================================================
+  // SCENERY — fences, well, pavilion, stream, bamboo, props, rocks
   // =========================================================
   createScenery() {
-    // Shared materials
     const woodMat = new THREE.MeshStandardMaterial({ color: 0x5a3a20, roughness: 0.9 });
     const woodDarkMat = new THREE.MeshStandardMaterial({ color: 0x3a2410, roughness: 0.9 });
     const stoneMat = new THREE.MeshStandardMaterial({ color: 0x8a8496, roughness: 0.8 });
@@ -959,9 +804,6 @@ export class StreetLevel {
     const roofMat = new THREE.MeshStandardMaterial({ color: 0x1b1b2a, roughness: 0.7 });
     const paperMat = new THREE.MeshStandardMaterial({ color: 0xf5e6c8, emissive: 0xffcc88, emissiveIntensity: 0.5 });
 
-    // ─────────────────────────────────────────────────────
-    // 1. BAMBOO FENCES along both sides of the path
-    // ─────────────────────────────────────────────────────
     const fenceSections = [
       { z: 58, side: -2.8 }, { z: 52, side: -2.8 },
       { z: 46, side: 3.0 },  { z: 40, side: 3.0 },
@@ -976,38 +818,23 @@ export class StreetLevel {
       this._makeFence(x, y, z, woodMat, bambooMat);
     }
 
-    // ─────────────────────────────────────────────────────
-    // 2. STONE WELL — at village center
-    // ─────────────────────────────────────────────────────
     {
       const wx = this.pathX(20) + 6;
       const wz = 20;
       const wy = this._h(wx, wz);
       const g = new THREE.Group();
 
-      // Circular stone rim
-      const rim = new THREE.Mesh(
-        new THREE.CylinderGeometry(1.0, 1.1, 0.6, 12),
-        stoneMat
-      );
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.1, 0.6, 12), stoneMat);
       rim.position.y = 0.3;
       rim.castShadow = true;
       g.add(rim);
 
-      // Inner dark circle (water)
-      const water = new THREE.Mesh(
-        new THREE.CircleGeometry(0.85, 16),
-        new THREE.MeshStandardMaterial({
-          color: 0x0a2030,
-          emissive: 0x112233,
-          roughness: 0.2,
-        })
-      );
+      const water = new THREE.Mesh(new THREE.CircleGeometry(0.85, 16),
+        new THREE.MeshStandardMaterial({ color: 0x0a2030, emissive: 0x112233, roughness: 0.2 }));
       water.rotation.x = -Math.PI / 2;
       water.position.y = 0.55;
       g.add(water);
 
-      // Wooden posts + roof (Japanese style well cover)
       for (const [px, pz] of [[-0.9, 0], [0.9, 0]]) {
         const post = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.8, 0.15), woodMat);
         post.position.set(px, 0.9, pz);
@@ -1015,20 +842,17 @@ export class StreetLevel {
         g.add(post);
       }
 
-      // Roof beam
       const beam = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.15, 0.2), woodMat);
       beam.position.y = 1.8;
       beam.castShadow = true;
       g.add(beam);
 
-      // Roof
       const roof = new THREE.Mesh(new THREE.ConeGeometry(1.6, 0.6, 4), roofMat);
       roof.position.y = 2.2;
       roof.rotation.y = Math.PI / 4;
       roof.castShadow = true;
       g.add(roof);
 
-      // Bucket
       const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.25, 8), woodDarkMat);
       bucket.position.set(0, 1.3, 0);
       g.add(bucket);
@@ -1045,22 +869,17 @@ export class StreetLevel {
       ));
     }
 
-    // ─────────────────────────────────────────────────────
-    // 3. SMALL PAVILION — resting spot mid-village
-    // ─────────────────────────────────────────────────────
     {
       const px = this.pathX(8) - 7;
       const pz = 8;
       const py = this._h(px, pz);
       const g = new THREE.Group();
 
-      // Stone base
       const base = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.3, 3.2), stoneDarkMat);
       base.position.y = 0.15;
       base.receiveShadow = true;
       g.add(base);
 
-      // 4 wooden pillars
       for (const [cx, cz] of [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]]) {
         const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 2.5, 8), woodMat);
         pillar.position.set(cx, 1.55, cz);
@@ -1068,19 +887,16 @@ export class StreetLevel {
         g.add(pillar);
       }
 
-      // Roof
       const roof = new THREE.Mesh(new THREE.ConeGeometry(2.6, 1.2, 4), roofMat);
       roof.position.y = 3.4;
       roof.rotation.y = Math.PI / 4;
       roof.castShadow = true;
       g.add(roof);
 
-      // Ridge cap
       const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.6, 6), woodDarkMat);
       cap.position.y = 4.1;
       g.add(cap);
 
-      // Glow light under pavilion
       const light = new THREE.PointLight(0xffc880, 4, 8, 2);
       light.position.y = 2.8;
       g.add(light);
@@ -1094,11 +910,7 @@ export class StreetLevel {
       ));
     }
 
-    // ─────────────────────────────────────────────────────
-    // 4. STREAM + WOODEN BRIDGE — crosses the path at z=35
-    // ─────────────────────────────────────────────────────
     {
-      // Stream runs perpendicular to path, from x=-15 to x=+15 at z=35
       const streamZ = 35;
       const streamMat = new THREE.MeshStandardMaterial({
         color: 0x2a5878,
@@ -1112,35 +924,25 @@ export class StreetLevel {
       const streamGeo = new THREE.PlaneGeometry(30, 3, 1, 1);
       const stream = new THREE.Mesh(streamGeo, streamMat);
       stream.rotation.x = -Math.PI / 2;
-      // Sink slightly below terrain
       const streamY = this._h(0, streamZ) - 0.4;
       stream.position.set(0, streamY, streamZ);
       stream.userData.noShadow = true;
       this.level.add(stream);
 
-      // Bridge planks across the path
       const bx = this.pathX(streamZ);
       const by = this._h(bx, streamZ);
       const bridgeGroup = new THREE.Group();
 
-      // Bridge deck (5 wooden planks)
       for (let i = 0; i < 5; i++) {
-        const plank = new THREE.Mesh(
-          new THREE.BoxGeometry(3.5, 0.12, 0.55),
-          woodMat
-        );
+        const plank = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.12, 0.55), woodMat);
         plank.position.set(0, 0.1, -1.1 + i * 0.55);
         plank.castShadow = true;
         plank.receiveShadow = true;
         bridgeGroup.add(plank);
       }
 
-      // Two side rails
       for (const rx of [-1.7, 1.7]) {
-        const rail = new THREE.Mesh(
-          new THREE.BoxGeometry(0.12, 0.8, 3.2),
-          woodMat
-        );
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.8, 3.2), woodMat);
         rail.position.set(rx, 0.6, 0);
         rail.castShadow = true;
         bridgeGroup.add(rail);
@@ -1149,7 +951,6 @@ export class StreetLevel {
       bridgeGroup.position.set(bx, by, streamZ);
       this.level.add(bridgeGroup);
 
-      // Collider prevents falling in — treat stream as invisible walls on either side of bridge
       this.colliders.push(new THREE.Box3(
         new THREE.Vector3(bx - 20, by - 2, streamZ - 1.4),
         new THREE.Vector3(bx - 1.8, by + 1, streamZ + 1.4)
@@ -1160,9 +961,6 @@ export class StreetLevel {
       ));
     }
 
-    // ─────────────────────────────────────────────────────
-    // 5. BAMBOO STANDS — clusters of tall bamboo
-    // ─────────────────────────────────────────────────────
     const bambooClusters = [
       { x: -18, z: 55 }, { x: 20, z: 48 },
       { x: -22, z: 25 }, { x: 25, z: 10 },
@@ -1173,9 +971,6 @@ export class StreetLevel {
       this._makeBambooCluster(x, y, z, bambooMat, bambooDarkMat);
     }
 
-    // ─────────────────────────────────────────────────────
-    // 6. WOOD STACKS & CRATES near houses
-    // ─────────────────────────────────────────────────────
     const propSpots = [
       { x: this.pathX(50) - 6, z: 50 },
       { x: this.pathX(36) + 5, z: 36 },
@@ -1188,9 +983,6 @@ export class StreetLevel {
       this._makeVillageProps(x, y, z, woodMat, woodDarkMat);
     }
 
-    // ─────────────────────────────────────────────────────
-    // 7. ROCK FORMATIONS — natural decoration
-    // ─────────────────────────────────────────────────────
     const rockSpots = [
       { x: -30, z: 40 }, { x: 32, z: 30 },
       { x: -28, z: 0 },  { x: 30, z: -20 },
@@ -1204,29 +996,19 @@ export class StreetLevel {
     console.log('🏘️ Scenery built: fences, well, pavilion, stream, bamboo, props, rocks');
   }
 
-  // ─── Helper: single fence segment (posts + 2 horizontal rails) ───
   _makeFence(x, y, z, woodMat, bambooMat) {
     const g = new THREE.Group();
     const fenceLength = 4;
 
-    // Bamboo posts every 1 unit
     for (let i = -2; i <= 2; i++) {
-      const post = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.07, 0.08, 1.2, 6),
-        bambooMat
-      );
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 1.2, 6), bambooMat);
       post.position.set(i * 1, 0.6, 0);
       post.castShadow = true;
       g.add(post);
     }
 
-    // Two horizontal bamboo rails
-        // Two horizontal bamboo rails
     for (const ry of [0.4, 0.9]) {
-      const rail = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05, 0.05, fenceLength, 5),
-        woodMat
-      );
+      const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, fenceLength, 5), woodMat);
       rail.rotation.z = Math.PI / 2;
       rail.position.set(0, ry, 0);
       rail.castShadow = true;
@@ -1234,12 +1016,10 @@ export class StreetLevel {
     }
 
     g.position.set(x, y, z);
-    // Random slight rotation
     g.rotation.y = (Math.random() - 0.5) * 0.3;
     this.level.add(g);
   }
 
-  // ─── Helper: bamboo cluster ───
   _makeBambooCluster(x, y, z, bambooMat, bambooDarkMat) {
     const g = new THREE.Group();
     const count = 8 + Math.floor(Math.random() * 6);
@@ -1268,28 +1048,19 @@ export class StreetLevel {
     ));
   }
 
-  // ─── Helper: wood stacks + crates ───
   _makeVillageProps(x, y, z, woodMat, woodDarkMat) {
     const g = new THREE.Group();
 
-    // Wood stack (3 logs)
     for (let i = 0; i < 3; i++) {
-      const log = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.15, 0.15, 1.2, 6),
-        woodDarkMat
-      );
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 1.2, 6), woodDarkMat);
       log.rotation.z = Math.PI / 2;
       log.position.set(0, 0.15 + i * 0.3, 0);
       log.castShadow = true;
       g.add(log);
     }
 
-    // Two crates
     for (const [cx, cz] of [[0.8, 0.6], [1.6, -0.3]]) {
-      const crate = new THREE.Mesh(
-        new THREE.BoxGeometry(0.55, 0.55, 0.55),
-        woodMat
-      );
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), woodMat);
       crate.position.set(cx, 0.28, cz);
       crate.castShadow = true;
       crate.rotation.y = Math.random() * 0.4;
@@ -1301,7 +1072,6 @@ export class StreetLevel {
     this.level.add(g);
   }
 
-  // ─── Helper: rock cluster ───
   _makeRockCluster(x, y, z, stoneMat, stoneDarkMat) {
     const g = new THREE.Group();
     const count = 3 + Math.floor(Math.random() * 3);
@@ -1316,11 +1086,7 @@ export class StreetLevel {
         size * 0.4,
         (Math.random() - 0.5) * 2
       );
-      rock.rotation.set(
-        Math.random() * 3,
-        Math.random() * 3,
-        Math.random() * 3
-      );
+      rock.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
       rock.castShadow = true;
       rock.receiveShadow = true;
       g.add(rock);
@@ -1334,44 +1100,22 @@ export class StreetLevel {
     ));
   }
 
-    // =========================================================
-  // CRASHED ALIEN SHIP — near the pond, smoke pouring out
+  // =========================================================
+  // CRASHED SHIP
   // =========================================================
   createCrashedShip() {
-    // Position: near the pond (pond is at x=14, z=18), offset so it doesn't sit in water
     const x = 24;
     const z = 24;
     const y = this._h(x, z);
 
     const g = new THREE.Group();
 
-    // ── Materials ──
-    const hullMat = new THREE.MeshStandardMaterial({
-      color: 0x2a2a3a,
-      roughness: 0.6,
-      metalness: 0.7,
-    });
-    const hullDarkMat = new THREE.MeshStandardMaterial({
-      color: 0x15151c,
-      roughness: 0.8,
-      metalness: 0.6,
-    });
-    const glowMat = new THREE.MeshStandardMaterial({
-      color: 0x00ffff,
-      emissive: 0x00ffff,
-      emissiveIntensity: 3.0,
-    });
-    const emberMat = new THREE.MeshStandardMaterial({
-      color: 0xff6600,
-      emissive: 0xff4400,
-      emissiveIntensity: 2.0,
-    });
+    const hullMat = new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.6, metalness: 0.7 });
+    const hullDarkMat = new THREE.MeshStandardMaterial({ color: 0x15151c, roughness: 0.8, metalness: 0.6 });
+    const glowMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 3.0 });
+    const emberMat = new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4400, emissiveIntensity: 2.0 });
 
-    // ── Main hull — tilted, broken wedge shape ──
-    const hull = new THREE.Mesh(
-      new THREE.BoxGeometry(6, 2.2, 3.5),
-      hullMat
-    );
+    const hull = new THREE.Mesh(new THREE.BoxGeometry(6, 2.2, 3.5), hullMat);
     hull.rotation.z = 0.35;
     hull.rotation.y = 0.4;
     hull.position.y = 1.0;
@@ -1379,42 +1123,26 @@ export class StreetLevel {
     hull.receiveShadow = true;
     g.add(hull);
 
-    // ── Nose cone (front, crushed) ──
-    const nose = new THREE.Mesh(
-      new THREE.ConeGeometry(1.6, 2.5, 6),
-      hullMat
-    );
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(1.6, 2.5, 6), hullMat);
     nose.rotation.z = Math.PI / 2 + 0.3;
     nose.rotation.y = 0.4;
     nose.position.set(3.2, 1.4, 0);
     nose.castShadow = true;
     g.add(nose);
 
-    // ── Tail fin (broken off to the side) ──
-    const fin = new THREE.Mesh(
-      new THREE.BoxGeometry(2.5, 0.3, 0.8),
-      hullDarkMat
-    );
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.3, 0.8), hullDarkMat);
     fin.rotation.z = 0.9;
     fin.rotation.x = 0.3;
     fin.position.set(-4, 1.2, 1.5);
     fin.castShadow = true;
     g.add(fin);
 
-    // ── Cockpit window (dark glass) ──
-    const cockpit = new THREE.Mesh(
-      new THREE.SphereGeometry(0.9, 12, 10),
-      hullDarkMat
-    );
+    const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 10), hullDarkMat);
     cockpit.scale.set(1, 0.6, 1.2);
     cockpit.position.set(2.2, 2.0, 0);
     g.add(cockpit);
 
-    // ── Glowing exposed core (cyan) ──
-    const core = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.55, 1),
-      glowMat
-    );
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 1), glowMat);
     core.position.set(0.5, 2.0, 0.8);
     g.add(core);
 
@@ -1422,47 +1150,29 @@ export class StreetLevel {
     coreLight.position.copy(core.position);
     g.add(coreLight);
 
-    // ── Embers around the wreckage (small orange cubes on the ground) ──
     for (let i = 0; i < 14; i++) {
       const angle = Math.random() * Math.PI * 2;
       const radius = 2 + Math.random() * 4;
-      const ember = new THREE.Mesh(
-        new THREE.BoxGeometry(0.15, 0.15, 0.15),
-        emberMat
-      );
-      ember.position.set(
-        Math.cos(angle) * radius,
-        0.1 + Math.random() * 0.15,
-        Math.sin(angle) * radius * 0.7
-      );
+      const ember = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.15), emberMat);
+      ember.position.set(Math.cos(angle) * radius, 0.1 + Math.random() * 0.15, Math.sin(angle) * radius * 0.7);
       ember.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
       g.add(ember);
     }
 
-    // ── Hull fragments scattered (broken-off panels) ──
     for (let i = 0; i < 5; i++) {
       const angle = Math.random() * Math.PI * 2;
       const radius = 4 + Math.random() * 3;
       const frag = new THREE.Mesh(
-        new THREE.BoxGeometry(
-          0.8 + Math.random() * 0.6,
-          0.15,
-          0.6 + Math.random() * 0.5
-        ),
+        new THREE.BoxGeometry(0.8 + Math.random() * 0.6, 0.15, 0.6 + Math.random() * 0.5),
         hullDarkMat
       );
-      frag.position.set(
-        Math.cos(angle) * radius,
-        0.08,
-        Math.sin(angle) * radius * 0.7
-      );
+      frag.position.set(Math.cos(angle) * radius, 0.08, Math.sin(angle) * radius * 0.7);
       frag.rotation.y = Math.random() * Math.PI;
       frag.rotation.x = (Math.random() - 0.5) * 0.4;
       frag.castShadow = true;
       g.add(frag);
     }
 
-    // ── Smoke particles (rising, fading) ──
     const smokeGeo = new THREE.BufferGeometry();
     const smokeCount = 40;
     const smokePositions = new Float32Array(smokeCount * 3);
@@ -1476,26 +1186,18 @@ export class StreetLevel {
     smokeGeo.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
 
     const smokeMat = new THREE.PointsMaterial({
-      color: 0x333333,
-      size: 1.2,
-      transparent: true,
-      opacity: 0.45,
-      depthWrite: false,
+      color: 0x333333, size: 1.2, transparent: true, opacity: 0.45, depthWrite: false,
     });
 
     const smoke = new THREE.Points(smokeGeo, smokeMat);
     smoke.position.set(0, 2.5, 0);
     g.add(smoke);
 
-    // Store for animation
     this._shipSmoke = { points: smoke, speeds: smokeSpeeds, baseY: 2.5 };
 
-    // ── Position the whole ship ──
     g.position.set(x, y, z);
-
     this.level.add(g);
 
-    // ── Collider (rough box around the wreckage) ──
     this.colliders.push(new THREE.Box3(
       new THREE.Vector3(x - 3.5, y, z - 3),
       new THREE.Vector3(x + 3.5, y + 2.5, z + 3)
@@ -1533,7 +1235,7 @@ export class StreetLevel {
   }
 
   // =========================================================
-  // FALLING BLOSSOM PETALS
+  // PETALS
   // =========================================================
   createPetals() {
     const N = 160;
@@ -1560,7 +1262,7 @@ export class StreetLevel {
   }
 
   // =========================================================
-  // UPDATE — called every frame by main.js as update(dt, t, player)
+  // UPDATE
   // =========================================================
   update(deltaTime, t, player) {
     this.time += deltaTime;
@@ -1568,7 +1270,6 @@ export class StreetLevel {
 
     this._checkWaveStatus();
 
-    // ── Crashed ship smoke rising ──
     if (this._shipSmoke) {
       const { points, speeds } = this._shipSmoke;
       const pos = points.geometry.attributes.position;
@@ -1582,12 +1283,11 @@ export class StreetLevel {
       }
       pos.needsUpdate = true;
     }
-    // lantern candle flicker
+
     for (const l of this.lanternMats) {
       l.mat.emissiveIntensity = 2 + Math.sin(this.time * 6 + l.phase) * 0.35 + Math.sin(this.time * 17 + l.phase * 2) * 0.2;
     }
 
-    // petals drift down and recycle
     for (let i = 0; i < this.petalData.length; i++) {
       const p = this.petalData[i];
       p.y -= p.speed * deltaTime;
@@ -1602,18 +1302,15 @@ export class StreetLevel {
     }
     this.petals.instanceMatrix.needsUpdate = true;
 
-    // village NPCs, fragments and portal
     if (this.villageNPCs && player) {
       this.villageNPCs.update(deltaTime, this.time, player);
     }
 
-    // ── Commander ──
     if (this.commander) {
       this.commander.update(deltaTime, player.pos);
       this.bossHealthBar.setHealth(this.commander.health, this.commander.MAX_HEALTH);
       this.bossHealthBar.setPhase(this.commander.phase);
 
-      // Player attack on Commander
       if (this._playerAttackThisFrame) {
         const dist = this.commander.getPosition().distanceTo(player.pos);
         if (dist < 2.5) {
@@ -1622,36 +1319,18 @@ export class StreetLevel {
       }
     }
 
-    // ── Grunts ──
     this.grunts.update(deltaTime, player.pos, (dmg) => {
       if (this._onDamagePlayer) this._onDamagePlayer(dmg);
     });
 
-    // ── Minion HP bars ──
     this.minionHealthBar.update();
-
-    // ── Key pickup ──
-    if (this.keySpawned && this.keyMesh) {
-      this.keyMesh.rotation.y += deltaTime * 1.5;
-      const dist = this.keyMesh.position.distanceTo(player.pos);
-      if (dist < 2.0) {
-        console.log('🔑 KEY COLLECTED');
-        this.level.remove(this.keyMesh);
-        this.keyMesh = null;
-        // Open the portal!
-        if (this.villageNPCs) this.villageNPCs.openPortal();
-      }
-    }
   }
 
   // =========================================================
   // DISPOSE
   // =========================================================
-    dispose(outerScene = null) {
-    // clean up village system first (removes DOM elements too)
+  dispose(outerScene = null) {
     if (this.villageNPCs) { this.villageNPCs.dispose(); this.villageNPCs = null; }
-
-    // Clean up Commander + minions + HP bars
     if (this.commander) { this.commander.dispose(); this.commander = null; }
     if (this.grunts) { this.grunts.killAll(); this.grunts = null; }
     if (this.bossHealthBar) { this.bossHealthBar.dispose(); this.bossHealthBar = null; }
@@ -1687,7 +1366,5 @@ export class StreetLevel {
     this.colliders = [];
   }
 
-  // legacy arity compat
   _updateLegacy(deltaTime) { return this.update(deltaTime, 0, null); }
 }
-
