@@ -234,39 +234,25 @@ export class StreetLevel {
   // =========================================================
   // INTRO MONOLOGUE
   // =========================================================
-  async _playIntroMonologue() {
+    async _playIntroMonologue() {
     const { Dialogue } = await import('../ui/dialogue.js');
     const dlg = new Dialogue();
-
-    if (window.__dialogue) {
-      try { window.__dialogue.dispose(); } catch(e){}
-    }
     window.__dialogue = dlg;
 
+    // Play the combined voice file
+    if (window.__audioManager) {
+      window.__audioManager.playSfx('l1_intro');
+    }
+
+    // Sync on-screen text to the audio timeline
+    // (times are in ms — approximate match to the generated voice)
     await dlg.say("...", 1200);
+    await dlg.say("Where... where am I?\nThis isn't home.", 3500);
+    await dlg.say("The air tastes strange.\nEverything feels... lighter.", 3500);
+    await dlg.say("And inside me... there's something moving.\nLike a heartbeat that isn't mine.", 4500);
+    await dlg.say("I can feel it. Power. Waiting.\nBut I don't know why it chose me.", 4500);
 
-    await dlg.say(
-      "Where... where am I?\nThis isn't home.",
-      3200
-    );
-
-    await dlg.say(
-      "The air tastes strange. Everything feels... lighter.",
-      3200
-    );
-
-    await dlg.say(
-      "And inside me... there's something moving.\nLike a heartbeat that isn't mine.",
-      4000
-    );
-
-    await dlg.say(
-      "I can feel it. Power. Waiting.\nBut I don't know why it chose me.",
-      4200
-    );
-
-    await dlg.say("...", 800);
-
+    // End dialogue
     dlg.hide();
     dlg.active = false;
     dlg.dispose();
@@ -275,7 +261,7 @@ export class StreetLevel {
     console.log('🎬 [L1] Intro complete — input unlocked');
 
     setTimeout(() => {
-      if(this.grunts) this._startNextWave();
+      if (this.grunts) this._startNextWave();
     }, 1500);
   }
 

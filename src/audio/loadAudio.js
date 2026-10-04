@@ -44,5 +44,10 @@ export function loadAllAudio(audioManager) {
     loop: true, volume: 0.3,
   });
 
+    // ── VOICES ──
+  audioManager.loadSound('l1_intro', {
+    src: './assets/audio/voices/l1_intro.mp3', volume: 1.0,
+  });
+
   console.log('🎵 Audio system ready — all files registered');
 }
