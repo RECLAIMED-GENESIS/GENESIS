@@ -646,6 +646,30 @@ export class AlienLevel {
         console.log('⚔️ [L2] The Enforcer has arrived');
     }
 
+      _onEnforcerDeath() {
+    console.log('💀 [L2] The Enforcer has fallen — opening portal');
+
+    // Hide the boss HP bar
+    if (this.bossHealthBar) this.bossHealthBar.hide();
+
+    // Stop music
+    if (window.__audioManager) {
+      window.__audioManager.stopMusic();
+    }
+
+    // Build the portal at the far end of the street
+    // createPortal puts the portal at (x, y, z-29)
+    // so passing z=59 gives us a portal at (0, 5, 30)
+    if (typeof this.createPortal === 'function' && !this.portal) {
+      this.createPortal(0, 5, 59);
+      console.log('🌀 [L2] Portal to Level 3 opened');
+    }
+
+    if (window.__audioManager) {
+      window.__audioManager.playSfx('portal_activate');
+    }
+  }
+
     _buildColliders() {
         // Buildings are placed at known world positions — create a Box3
         // a little larger than the mesh so the player can't phase through.
@@ -6803,6 +6827,20 @@ createCityBackground() {
 
             this.portal.rotation.z +=
                 deltaTime * 0.8;
+        }
+
+                // ── Player enters the portal → switch to Level 3 ──
+        if (this.portal && player && !this._portalEntered) {
+            const pdx = player.pos.x - this.portal.position.x;
+            const pdz = player.pos.z - this.portal.position.z;
+            const pd = Math.hypot(pdx, pdz);
+            if (pd < 3.0) {
+                this._portalEntered = true;
+                console.log('🌀 [L2] Player entered portal — Level 3');
+                if (typeof window.__switchLevel === 'function') {
+                    window.__switchLevel(3);
+                }
+            }
         }
 
         if (this.portalLight) {

@@ -142,6 +142,55 @@ window.__axiom = {
   },
 };
 
+// ── Axiom Dash trail ──
+const dashTrailPool = [];
+const DASH_TRAIL_COUNT = 6;   // how many ghost sprites left behind
+
+for (let i = 0; i < DASH_TRAIL_COUNT; i++) {
+  const ghost = new THREE.Mesh(
+    new THREE.SphereGeometry(0.6, 8, 6),
+    new THREE.MeshBasicMaterial({
+      color: 0x88ddff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    })
+  );
+  ghost.visible = false;
+  scene.add(ghost);
+  dashTrailPool.push({ mesh: ghost, life: 0 });
+}
+
+function spawnDashTrail(fromPos) {
+  // Find an unused ghost
+  for (const t of dashTrailPool) {
+    if (t.life <= 0) {
+      t.mesh.position.copy(fromPos);
+      t.mesh.position.y += 1.0;
+      t.mesh.visible = true;
+      t.mesh.material.opacity = 0.7;
+      t.mesh.scale.setScalar(1.0);
+      t.life = 0.4;   // seconds
+      return;
+    }
+  }
+}
+
+function updateDashTrails(dt) {
+  for (const t of dashTrailPool) {
+    if (t.life > 0) {
+      t.life -= dt;
+      const progress = Math.max(0, t.life / 0.4);
+      t.mesh.material.opacity = 0.7 * progress;
+      t.mesh.scale.setScalar(1.0 + (1 - progress) * 1.5);
+      if (t.life <= 0) {
+        t.mesh.visible = false;
+        t.mesh.material.opacity = 0;
+      }
+    }
+  }
+}
+
 let soriniMixer  = null;
 let soriniActions = {};
 let soriniCurrentAction = null;
@@ -217,6 +266,17 @@ let locked = false;
 const attackCooldown = { f: 0, g: 0, h: 0 };
 let attackLock = false;
 
+// ── Axiom Dash state ──
+const dash = {
+  cooldown: 0,        // seconds remaining
+  maxCooldown: 1.5,   // 1.5s cooldown
+  duration: 0.15,     // how long the snap-dash lasts
+  distance: 12,        // world units to travel
+  activeTimer: 0,
+  iframeDuration: 0.4,
+  enabled: false,     // disabled until Level 2+
+};
+
 addEventListener('keydown', e => {
   if (window.__dialogue && window.__dialogue.active) {
     // Space/Enter skips the current line
@@ -231,6 +291,16 @@ addEventListener('keydown', e => {
 
   keys[e.code] = true;
   if (e.code === 'Space') e.preventDefault();
+
+    // ── Axiom Dash: Shift + Space ──
+  if ((e.code === 'Space') &&
+      (keys.ShiftLeft || keys.ShiftRight) &&
+      dash.enabled &&
+      dash.cooldown <= 0 &&
+      player.grounded) {
+    _triggerDash();
+    return;   // consume the space so it doesn't also trigger a jump
+  }
   if (e.code === 'KeyR') switchLevel(current);
   if (e.code === 'Digit1') switchLevel(1);
   if (e.code === 'Digit2') switchLevel(2);
@@ -240,7 +310,8 @@ addEventListener('keydown', e => {
     level.setPhase(phase, timer.getElapsed());
   }
 
-  if (e.code === 'Space' && player.grounded && !attackLock && !keys._spaceConsumed) {
+    if (e.code === 'Space' && player.grounded && !attackLock && !keys._spaceConsumed
+      && !keys.ShiftLeft && !keys.ShiftRight) {
     player.vel.y = 12;
     keys._spaceConsumed = true;
   }
@@ -321,6 +392,62 @@ renderer.domElement.addEventListener('click', () => {
     }
   }
 });
+
+function _triggerDash() {
+  dash.cooldown = dash.maxCooldown;
+  dash.activeTimer = dash.duration;
+
+  // Direction: where the player is currently moving (WASD) or facing
+  const f = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
+  const r = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+  let dirX, dirZ;
+
+  if (f === 0 && r === 0) {
+    // Not moving — dash forward in facing direction
+    dirX = Math.sin(player.yaw);
+    dirZ = Math.cos(player.yaw);
+  } else {
+    // Movement direction — combine forward + strafe, normalize
+    const fwdX = Math.sin(player.yaw);
+    const fwdZ = Math.cos(player.yaw);
+    const rgtX = Math.cos(player.yaw);
+    const rgtZ = -Math.sin(player.yaw);
+    dirX = fwdX * f + rgtX * r;
+    dirZ = fwdZ * f + rgtZ * r;
+    const len = Math.hypot(dirX, dirZ) || 1;
+    dirX /= len;
+    dirZ /= len;
+  }
+
+    // Leave a trail behind at the OLD position
+  if (typeof spawnDashTrail === 'function') {
+    spawnDashTrail(player.pos.clone());
+  }
+
+  // Snap position forward
+  player.pos.x += dirX * dash.distance;
+  player.pos.z += dirZ * dash.distance;
+
+  // I-frames — mark player invincible
+  if (window.__playerHealth) {
+    window.__playerHealth._hurtCooldown = dash.iframeDuration;
+  }
+
+  // Axiom glow flash
+  if (window.__axiom) {
+    window.__axiom.setIntensity(3.0);
+    setTimeout(() => {
+      if (window.__axiom) window.__axiom.setIntensity(0.4);
+    }, 300);
+  }
+
+  // Sound
+  if (window.__audioManager) {
+    window.__audioManager.playSfx('punch_hit');
+  }
+
+  console.log('⚡ Axiom Dash!');
+}
 
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
@@ -450,6 +577,10 @@ function switchLevel(n) {
   player.vel.set(0, 0, 0);
   player.yaw   = (typeof level.spawnYaw === 'number') ? level.spawnYaw : Math.PI;
   player.pitch = 0;
+
+  // Axiom Dash unlocks from Level 2 onward
+dash.enabled = (n >= 2);
+console.log(`⚡ Axiom Dash: ${dash.enabled ? 'ENABLED' : 'disabled'}`);
 
   const musicMap = { 1: 'level_1_chiptune', 2: 'level_2_orchestral', 3: 'level_3_electronic' };
   const track = musicMap[n];
@@ -591,6 +722,10 @@ function tick() {
   soriniGroup.rotation.y = player.yaw;
 
   for (const k of ['f','g','h']) if (attackCooldown[k] > 0) attackCooldown[k] -= dt;
+  if (dash.cooldown > 0) dash.cooldown -= dt;
+  if (dash.activeTimer > 0) dash.activeTimer -= dt;
+
+  updateDashTrails(dt);
 
   const isSprint  = keys.ShiftLeft || keys.ShiftRight;
   const isMovingW = keys.KeyW || keys.KeyS;
