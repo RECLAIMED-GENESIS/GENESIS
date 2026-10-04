@@ -49,5 +49,16 @@ export function loadAllAudio(audioManager) {
     src: './assets/audio/voices/l1_intro.mp3', volume: 1.0,
   });
 
-  console.log('🎵 Audio system ready — all files registered');
+    // ── AXIOM REVELATION VOICES ──
+  audioManager.loadSound('l1_axiom_1', { src: './assets/audio/voices/l1_axiom_1.mp3', volume: 1.0 });
+  audioManager.loadSound('l1_axiom_2', { src: './assets/audio/voices/l1_axiom_2.mp3', volume: 1.0 });
+  audioManager.loadSound('l1_axiom_3', { src: './assets/audio/voices/l1_axiom_3.mp3', volume: 1.0 });
+  audioManager.loadSound('l1_axiom_4', { src: './assets/audio/voices/l1_axiom_4.mp3', volume: 1.0 });
+  audioManager.loadSound('l1_axiom_5', { src: './assets/audio/voices/l1_axiom_5.mp3', volume: 1.0 });
+  audioManager.loadSound('l1_axiom_6', { src: './assets/audio/voices/l1_axiom_6.mp3', volume: 1.0 });
+  audioManager.loadSound('l1_axiom_7', { src: './assets/audio/voices/l1_axiom_7.mp3', volume: 1.0 });
+  audioManager.loadSound('l1_axiom_8', { src: './assets/audio/voices/l1_axiom_8.mp3', volume: 1.0 });
+  audioManager.loadSound('l1_axiom_9', { src: './assets/audio/voices/l1_axiom_9.mp3', volume: 1.0 });
+
+  console.log('🎵 Audio system ready —', Object.keys(audioManager.sounds).length, 'files registered');
 }

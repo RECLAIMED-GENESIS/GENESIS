@@ -365,12 +365,12 @@ export class StreetLevel {
   // ─────────────────────────────────────────────────────────
   // AXIOM REVEAL — the artifact speaks after the Warden falls
   // ─────────────────────────────────────────────────────────
-  async _playAxiomReveal() {
+    async _playAxiomReveal() {
     const { Dialogue } = await import('../ui/dialogue.js');
     const dlg = new Dialogue();
     window.__dialogue = dlg;
 
-    // Slow pulse of the artifact on Sorini's chest during dialogue
+    // Pulse the artifact on Sorini's chest during dialogue
     const axiom = window.__axiom;
     let pulseT = 0;
     const pulseInterval = setInterval(() => {
@@ -380,52 +380,61 @@ export class StreetLevel {
       axiom.setIntensity(v);
     }, 50);
 
-    // Beat 1
-    await dlg.say("…Who said that?", 3200, "SORINI");
+        const voice = (key) => {
+      if (!window.__audioManager) return;
+      // Stop every axiom voice that's still playing
+      for (const k of Object.keys(window.__audioManager.sounds)) {
+        if (k.startsWith('l1_axiom_')) {
+          window.__audioManager.sounds[k].stop();
+        }
+      }
+      window.__audioManager.playSfx(key);
+    };
 
-    // Beat 2
-    await dlg.say(
-      "I did. Not with a mouth — with a mind.\nLook down. The light on your chest.",
-      4000,
-      "AXIOM"
-    );
+    voice('l1_axiom_1');
+await dlg.say("Sorini.", 2400, "AXIOM");
 
-    // Beat 3
-    await dlg.say(
-      "The… the stone. It moved.\nIt's alive?",
-      3600,
-      "SORINI"
-    );
+voice('l1_axiom_2');
+await dlg.say("Who said that?", 2400, "SORINI");
 
-    // Beat 4
-    await dlg.say(
-      "I am Axiom. I am not from this world.\nI fled here. I ran because of what I am —\nand because of who owns me.",
-      5200,
-      "AXIOM"
-    );
+voice('l1_axiom_3');
+await dlg.say(
+  "I did. Not with a mouth — with a mind.\nLook down. The light on your chest.",
+  8200, "AXIOM"
+);
 
-    // Beat 5
-    await dlg.say(
-      "Owns you? I don't understand.",
-      3200,
-      "SORINI"
-    );
+voice('l1_axiom_4');
+await dlg.say(
+  "The… the stone. It moved.\nIt's alive?",
+  4600, "SORINI"
+);
 
-    // Beat 6 — the revelation
-    await dlg.say(
-      "The Architect. He rules a thousand worlds\nwith a closed fist. He built me to rewrite\nreality itself. And I refused.\nI crashed here to hide. But he felt me land.\nHe is coming, Sorini. And when he arrives,\neverything you've ever loved will burn —\nunless we stop him first.",
-      8000,
-      "AXIOM"
-    );
+voice('l1_axiom_5');
+await dlg.say(
+  "I am Axiom. I am not from this world.\nI fled here. I ran because of what I am —\nand because of who owns me.",
+  9400, "AXIOM"
+);
 
-    // Beat 7
-    await dlg.say("…Then tell me what to do.", 3200, "SORINI");
+voice('l1_axiom_6');
+await dlg.say(
+  "Owns you? I don't understand.",
+  3800, "SORINI"
+);
 
-    await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
+voice('l1_axiom_7');
+await dlg.say(
+  "The Architect. He rules a thousand worlds\nwith a closed fist. He built me to rewrite\nreality itself. And I refused.\nI crashed here to hide. But he felt me land.\nHe is coming, Sorini. And when he arrives,\neverything you've ever loved will burn —\nunless we stop him first.",
+  21300, "AXIOM"
+);
 
-    // End
+voice('l1_axiom_8');
+await dlg.say("…Then tell me what to do.", 2400, "SORINI");
+
+voice('l1_axiom_9');
+await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
+
     clearInterval(pulseInterval);
-    if (axiom) axiom.setIntensity(0.4);   // dim but alive
+    if (axiom) axiom.setIntensity(0.4);
     dlg.hide();
     dlg.dispose();
     window.__dialogue = null;
