@@ -187,7 +187,7 @@ export class StreetLevel {
     this._prevBg = this.scene.background;
     this._prevFog = this.scene.fog;
     this.scene.background = new THREE.Color(0x05060a);
-    this.scene.fog = new THREE.FogExp2(0x07080d, 0.045);
+    this.scene.fog = new THREE.FogExp2(0x07080d, 0.025);
 
     this.name = "LEVEL 1 — THE VICTIM'S OFFICE";
     this.colliders = [];
@@ -196,11 +196,14 @@ export class StreetLevel {
     this.scene.add(this.level);
 
     this.time = 0;
-    this.spawn = new THREE.Vector3(3.5, 0, 3.3);
-    this.spawnYaw = Math.PI; // face into the room (toward -z), same convention as before
+    this.spawn = new THREE.Vector3(6.5, 0, 5.0);
+    this.spawnYaw = Math.PI;
 
     // room: x -6..6, z -4.5..4.5, height 3.4
-    this.W = 12; this.D = 9; this.H = 3.4;
+    // Larger office: x -9..9, z -6.5..6.5, height 3.6
+        this.W = 18;
+        this.D = 13;
+        this.H = 3.6;
 
     this.clues = [];
     this.movables = [];
@@ -391,32 +394,105 @@ export class StreetLevel {
   // =========================================================
   // LIGHTING — dim; the desk lamp, a cold window and the door leak
   // =========================================================
-  _buildLighting() {
-    this.level.add(new THREE.HemisphereLight(0x1d2740, 0x0b0907, 0.5));
+_buildLighting() {
+  // ----------------------------------------------------------
+  // General nighttime atmosphere
+  // ----------------------------------------------------------
+  this.level.add(
+    new THREE.HemisphereLight(
+      0x263653,   // cool blue sky/night light
+      0x100c09,   // warm/dark ground bounce
+      0.75
+    )
+  );
 
-    // desk lamp (main warm light)
-    this.lamp = new THREE.PointLight(0xffc27a, 6, 9, 1.6);
-    this.lamp.position.set(-0.8, 1.35, -3.15);
-    this.lamp.castShadow = true;
-    this.lamp.shadow.mapSize.set(512, 512);
-    this.lamp.shadow.bias = -0.003;
-    this.level.add(this.lamp);
+  // Very soft overall fill so corners are still visible
+  this.roomFill = new THREE.PointLight(
+    0x7187b5,
+    1.8,
+    18,
+    2
+  );
+  this.roomFill.position.set(0, 2.8, 0);
+  this.level.add(this.roomFill);
 
-    // moonlight / street light through the window
-    this.moon = new THREE.SpotLight(0x6384c0, 16, 14, Math.PI / 3.2, 0.85, 1.2);
-    this.moon.position.set(3.8, 2.2, -4.2);
-    this.moon.target.position.set(1.0, 0, 0);
-    this.level.add(this.moon, this.moon.target);
+  // ----------------------------------------------------------
+  // Desk lamp — warm focal light
+  // ----------------------------------------------------------
+  this.lamp = new THREE.PointLight(
+    0xffc27a,
+    7,
+    10,
+    1.5
+  );
 
-    // light leaking under the door
-    const leak = new THREE.PointLight(0x9fc0ff, 1.4, 4.5, 2);
-    leak.position.set(3.5, 0.2, 4.0);
-    this.level.add(leak);
+  this.lamp.position.set(-0.8, 1.35, -3.15);
+  this.lamp.castShadow = true;
+  this.lamp.shadow.mapSize.set(512, 512);
+  this.lamp.shadow.bias = -0.003;
 
-    // UV torch (follows the camera, off by default)
-    this.uvLight = new THREE.SpotLight(0x7a3cff, 0, 9, 0.42, 0.55, 1.4);
-    this.level.add(this.uvLight, this.uvLight.target);
-  }
+  this.level.add(this.lamp);
+
+  // ----------------------------------------------------------
+  // Moonlight coming through the window
+  // ----------------------------------------------------------
+  this.moon = new THREE.SpotLight(
+    0x6384c0,
+    20,
+    18,
+    Math.PI / 3.0,
+    0.85,
+    1.2
+  );
+
+  this.moon.position.set(3.8, 3.0, -5.5);
+  this.moon.target.position.set(0, 0, 0);
+
+  this.moon.castShadow = true;
+  this.moon.shadow.mapSize.set(512, 512);
+
+  this.level.add(this.moon, this.moon.target);
+
+  // ----------------------------------------------------------
+  // Soft secondary blue light deeper in the room
+  // ----------------------------------------------------------
+  this.backFill = new THREE.PointLight(
+    0x4d638f,
+    1.5,
+    11,
+    2
+  );
+
+  this.backFill.position.set(-4.5, 2.0, -1.5);
+  this.level.add(this.backFill);
+
+  // ----------------------------------------------------------
+  // Light leaking under the door
+  // ----------------------------------------------------------
+  const leak = new THREE.PointLight(
+    0x9fc0ff,
+    1.8,
+    5.5,
+    2
+  );
+
+  leak.position.set(3.5, 0.2, 5.7);
+  this.level.add(leak);
+
+  // ----------------------------------------------------------
+  // UV torch
+  // ----------------------------------------------------------
+  this.uvLight = new THREE.SpotLight(
+    0x7a3cff,
+    0,
+    10,
+    0.42,
+    0.55,
+    1.4
+  );
+
+  this.level.add(this.uvLight, this.uvLight.target);
+}
 
   // =========================================================
   // FURNITURE
@@ -547,29 +623,226 @@ export class StreetLevel {
   // =========================================================
   // THE BODY (stylised, no gore)
   // =========================================================
-  _buildBody() {
-    const g = new THREE.Group();
-    const suit = new THREE.MeshStandardMaterial({ color: 0x2a2f3b, roughness: 0.9 });
-    const shirt = new THREE.MeshStandardMaterial({ color: 0xc9c9c0, roughness: 0.9 });
-    const skin = new THREE.MeshStandardMaterial({ color: 0x6d4a38, roughness: 0.8 });
-    const shoe = new THREE.MeshStandardMaterial({ color: 0x120e0c, roughness: 0.4 });
-    this._box(g, 0.5, 0.2, 0.62, suit, 0, 0.11, 0);
-    this._box(g, 0.2, 0.01, 0.3, shirt, 0, 0.215, -0.12);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 12), skin);
-    head.position.set(0.02, 0.13, -0.48); g.add(head);
-    this._box(g, 0.17, 0.14, 0.7, suit, -0.12, 0.08, 0.62);
-    this._box(g, 0.17, 0.14, 0.7, suit, 0.14, 0.08, 0.66);
-    this._box(g, 0.14, 0.08, 0.26, shoe, -0.12, 0.05, 1.05);
-    this._box(g, 0.14, 0.08, 0.26, shoe, 0.14, 0.05, 1.08);
-    const arm = this._box(g, 0.12, 0.12, 0.55, suit, 0.42, 0.07, -0.1); arm.rotation.y = -0.6;
-    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 8), skin);
-    hand.position.set(0.66, 0.06, -0.33); g.add(hand);
-    const arm2 = this._box(g, 0.12, 0.12, 0.45, suit, -0.36, 0.07, 0.0); arm2.rotation.y = 0.3;
-    g.position.set(-1.0, 0, -0.45);
-    g.rotation.y = 0.35;
-    this.level.add(g);
-    this._static(-1.0, -0.15, 0.5, 0.95, 0.3);
-  }
+_buildBody() {
+  const g = new THREE.Group();
+
+  // ----------------------------------------------------------
+  // Materials
+  // ----------------------------------------------------------
+  const suit = new THREE.MeshStandardMaterial({
+    color: 0x252b36,
+    roughness: 0.82
+  });
+
+  const suitDark = new THREE.MeshStandardMaterial({
+    color: 0x171c24,
+    roughness: 0.9
+  });
+
+  const shirt = new THREE.MeshStandardMaterial({
+    color: 0xd5d4cc,
+    roughness: 0.88
+  });
+
+  const skin = new THREE.MeshStandardMaterial({
+    color: 0x6d4a38,
+    roughness: 0.72
+  });
+
+  const skinDark = new THREE.MeshStandardMaterial({
+    color: 0x563829,
+    roughness: 0.8
+  });
+
+  const shoe = new THREE.MeshStandardMaterial({
+    color: 0x100d0c,
+    roughness: 0.35,
+    metalness: 0.05
+  });
+
+  const hair = new THREE.MeshStandardMaterial({
+    color: 0x17120f,
+    roughness: 0.95
+  });
+
+  // ----------------------------------------------------------
+  // Torso
+  // ----------------------------------------------------------
+  const torso = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.28, 0.55, 6, 12),
+    suit
+  );
+
+  torso.scale.set(1.0, 0.55, 1.25);
+  torso.position.set(0, 0.23, 0);
+  torso.rotation.x = Math.PI / 2;
+  g.add(torso);
+
+  // Shirt visible at chest
+  const shirtPanel = new THREE.Mesh(
+    new THREE.BoxGeometry(0.22, 0.035, 0.34),
+    shirt
+  );
+
+  shirtPanel.position.set(0, 0.43, -0.13);
+  g.add(shirtPanel);
+
+  // Tie
+  const tie = new THREE.Mesh(
+    new THREE.BoxGeometry(0.055, 0.035, 0.22),
+    new THREE.MeshStandardMaterial({
+      color: 0x222b3d,
+      roughness: 0.8
+    })
+  );
+
+  tie.position.set(0, 0.45, -0.18);
+  g.add(tie);
+
+  // ----------------------------------------------------------
+  // Neck
+  // ----------------------------------------------------------
+  const neck = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.075, 0.085, 0.12, 12),
+    skin
+  );
+
+  neck.position.set(0, 0.25, -0.43);
+  neck.rotation.x = Math.PI / 2;
+  g.add(neck);
+
+  // ----------------------------------------------------------
+  // Head
+  // ----------------------------------------------------------
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.16, 18, 14),
+    skin
+  );
+
+  head.scale.set(0.9, 1.0, 1.05);
+  head.position.set(0, 0.25, -0.57);
+  g.add(head);
+
+  // Hair
+  const hairCap = new THREE.Mesh(
+    new THREE.SphereGeometry(0.165, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.52),
+    hair
+  );
+
+  hairCap.position.set(0, 0.29, -0.57);
+  g.add(hairCap);
+
+  // Ear
+  const ear1 = new THREE.Mesh(
+    new THREE.SphereGeometry(0.035, 10, 8),
+    skinDark
+  );
+
+  ear1.position.set(-0.145, 0.25, -0.57);
+  g.add(ear1);
+
+  const ear2 = ear1.clone();
+  ear2.position.x = 0.145;
+  g.add(ear2);
+
+  // ----------------------------------------------------------
+  // Arms
+  // ----------------------------------------------------------
+  const upperArmGeo = new THREE.CapsuleGeometry(0.075, 0.38, 5, 10);
+  const foreArmGeo = new THREE.CapsuleGeometry(0.065, 0.30, 5, 10);
+
+  // Right arm — naturally bent
+  const rightUpper = new THREE.Mesh(upperArmGeo, suit);
+  rightUpper.position.set(0.32, 0.22, -0.03);
+  rightUpper.rotation.z = -0.65;
+  rightUpper.rotation.x = 0.25;
+  g.add(rightUpper);
+
+  const rightFore = new THREE.Mesh(foreArmGeo, suit);
+  rightFore.position.set(0.51, 0.14, -0.20);
+  rightFore.rotation.z = -0.95;
+  rightFore.rotation.x = 0.15;
+  g.add(rightFore);
+
+  const rightHand = new THREE.Mesh(
+    new THREE.SphereGeometry(0.075, 12, 10),
+    skin
+  );
+
+  rightHand.scale.set(0.85, 0.7, 1.0);
+  rightHand.position.set(0.66, 0.08, -0.34);
+  g.add(rightHand);
+
+  // Left arm — resting on the floor
+  const leftUpper = new THREE.Mesh(upperArmGeo, suit);
+  leftUpper.position.set(-0.32, 0.20, 0.02);
+  leftUpper.rotation.z = 0.55;
+  leftUpper.rotation.x = -0.15;
+  g.add(leftUpper);
+
+  const leftFore = new THREE.Mesh(foreArmGeo, suitDark);
+  leftFore.position.set(-0.50, 0.12, 0.04);
+  leftFore.rotation.z = 0.8;
+  g.add(leftFore);
+
+  const leftHand = new THREE.Mesh(
+    new THREE.SphereGeometry(0.075, 12, 10),
+    skin
+  );
+
+  leftHand.position.set(-0.63, 0.065, 0.08);
+  g.add(leftHand);
+
+  // ----------------------------------------------------------
+  // Legs
+  // ----------------------------------------------------------
+  const legGeo = new THREE.CapsuleGeometry(0.095, 0.48, 5, 10);
+
+  const leftLeg = new THREE.Mesh(legGeo, suit);
+  leftLeg.position.set(-0.13, 0.105, 0.55);
+  leftLeg.rotation.x = -0.02;
+  leftLeg.rotation.z = -0.04;
+  g.add(leftLeg);
+
+  const rightLeg = new THREE.Mesh(legGeo, suit);
+  rightLeg.position.set(0.13, 0.105, 0.60);
+  rightLeg.rotation.x = 0.04;
+  rightLeg.rotation.z = 0.05;
+  g.add(rightLeg);
+
+  // ----------------------------------------------------------
+  // Shoes
+  // ----------------------------------------------------------
+  const leftShoe = new THREE.Mesh(
+    new THREE.SphereGeometry(0.11, 12, 8),
+    shoe
+  );
+
+  leftShoe.scale.set(0.85, 0.45, 1.35);
+  leftShoe.position.set(-0.13, 0.055, 0.91);
+  g.add(leftShoe);
+
+  const rightShoe = leftShoe.clone();
+  rightShoe.position.set(0.14, 0.055, 0.97);
+  g.add(rightShoe);
+
+  // ----------------------------------------------------------
+  // Put the victim into the scene
+  // ----------------------------------------------------------
+  g.position.set(-1.0, 0, -0.45);
+  g.rotation.y = 0.35;
+
+  this.level.add(g);
+
+  // Collider around the body
+  this._static(
+    -1.0,
+    -0.15,
+    0.58,
+    0.95,
+    0.38
+  );
+}
 
   // =========================================================
   // CLUES
@@ -1062,4 +1335,4 @@ export class StreetLevel {
   _updateLegacy(deltaTime) { return this.update(deltaTime, 0, null); }
 }
 
-const W_HALF = 6; // half room width (used by furniture placement)
+const W_HALF = 9;; // half room width (used by furniture placement)
