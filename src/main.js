@@ -828,7 +828,7 @@ function showCreditsOverlay() {
     overflow-y: auto;
     padding: 20px;
   `;
-  creditsDiv.innerHTML = `
+    creditsDiv.innerHTML = `
     <h1 style="color: #00ffff; font-size: 36px; margin-bottom: 30px;">CREDITS</h1>
     <div style="text-align: left; font-size: 16px; line-height: 2; color: #aaa; max-width: 600px;">
       <h2 style="color: #ffffff; font-size: 20px; margin-bottom: 10px;">LIBRARIES</h2>
@@ -845,12 +845,20 @@ function showCreditsOverlay() {
       <p>● Tactical Weapons and Tactics Sound Pack by XCVG (CC-BY 3.0) - <a href="https://opengameart.org/content/tactical-weapons-and-tactics-sound-pack" style="color: #00ffff;">Link</a></p>
       <p>● 37 hits/punches by independent.nu (CC-BY 3.0) - <a href="https://opengameart.org/content/37-hitspunches" style="color: #00ffff;">Link</a></p>
 
+      <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">VOICE ACTING (AI-Generated)</h2>
+      <p>● Sorini (Sonia) & Axiom (Brian) — <a href="https://freetts.ai" style="color: #00ffff;">FreeTTS.ai</a></p>
+      <p>● The Enforcer (Darlene, Monster effect) — <a href="https://speechgen.io" style="color: #00ffff;">SpeechGen.io</a></p>
+      <p>● The Architect (Pain) & Narrator (Madara Uchiha V1) — <a href="https://fish.audio" style="color: #00ffff;">Fish Audio</a></p>
+      <p style="font-size: 13px; color: #666; margin-left: 20px;">All voices are AI-generated and used under their respective free-tier terms.</p>
+
       <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">MODELS</h2>
       <p>● Kachujin (Sorini) — Mixamo</p>
       <p>● X_Bot (Grunts) — Mixamo</p>
+      <p>● Dreyar (Architect) — Mixamo</p>
+      <p>● Enforcer (Jones) — Mixamo</p>
 
       <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">TEAM MEMBERS</h2>
-      <p>● Banele — UI, Audio, Deployment</p>
+      <p>● Banele — UI, Audio, Deployment, Voice Direction</p>
       <p>● Busisiwe — Shaders</p>
       <p>● Pumelela — Environment, Art</p>
       <p>● Sibusiso — Player, Controls, Physics</p>
