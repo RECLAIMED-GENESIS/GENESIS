@@ -4,6 +4,17 @@
 // a restart back to Level 1.
 // ============================================================
 
+// ── Voice helper for endings ──
+function endingVoice(key) {
+  if (!window.__audioManager) return;
+  for (const k of Object.keys(window.__audioManager.sounds)) {
+    if (k.startsWith('l3_ending_')) {
+      window.__audioManager.sounds[k].stop();
+    }
+  }
+  window.__audioManager.playSfx(key);
+}
+
 function fadeToBlack(durationMs = 1200) {
   return new Promise((resolve) => {
     let overlay = document.getElementById('endOverlay');
@@ -134,18 +145,18 @@ export async function endingAttack() {
   await new Promise((r) => setTimeout(r, 600));
 
   await fadeToBlack(1400);
+
+  endingVoice('l3_ending_attack');
   await showEndingText([
     'The Architect does not resist.',
     'He only smiles — the same patient, knowing smile he wore the day he made you.',
     'The blade stops an inch from his throat.',
     'It is not courage that holds your hand. It is the question you cannot answer:',
     '"What if he was right?"',
-  ], 8000);
-
-  await showEndingText([
+    '',
     'The Architect\'s final words are lost to the void.',
     'The GENESIS device hums somewhere far below, still waiting.',
-  ], 6000);
+  ], 27000);
 
   await showRestartButton();
 }
@@ -156,15 +167,17 @@ export async function endingAttack() {
 export async function endingLearn(dialogue) {
   await fadeToBlack(1400);
 
+  endingVoice('l3_ending_learn_become_1');
   await showEndingText([
     '"GENESIS is not a weapon," the Architect says.',
     '"It is a seed. Every world it touches learns to want more than it has.',
     'The village. The city. The moon. It has already begun."',
-  ], 8000);
+  ], 14400);
 
+  endingVoice('l3_ending_learn_become_2');
   await showEndingText([
     '"You are the first of them, Sorini. The prototype that survived."',
-  ], 4000);
+  ], 5000);
 
   // Final choice — destroy or become
   dialogue.container.style.zIndex = '700';
@@ -203,6 +216,7 @@ export async function endingLearn(dialogue) {
 
   if (choice === 0) {
     // Destroy GENESIS
+    endingVoice('l3_ending_learn_destroy_3');
     await showEndingText([
       'You raise your hand. The GENESIS core tears itself apart from within.',
       'The Architect closes his eyes.',
@@ -211,12 +225,13 @@ export async function endingLearn(dialogue) {
       '',
       'The moon is silent again. The signal is dead.',
       'Somewhere on Earth, a thousand people wake up missing something they never knew they had.',
-    ], 12000);
+    ], 22000);
     await showEndingText([
       'GENESIS: DESTROYED.',
     ], 4000);
   } else {
     // Become the Architect
+    endingVoice('l3_ending_learn_become_3');
     await showEndingText([
       'You step forward. You sit beside him.',
       'The Architect rests a hand on your shoulder — the first time he has ever touched you.',
@@ -226,7 +241,7 @@ export async function endingLearn(dialogue) {
       'You look out across the lunar plain.',
       'Somewhere on Earth, someone is picking up a weapon against you.',
       'They do not know yet. They will learn.',
-    ], 13000);
+    ], 24000);
     await showEndingText([
       'GENESIS: ASCENDANT.',
     ], 4000);
@@ -244,13 +259,15 @@ export async function endingSilence() {
 
   await fadeToBlack(1600);
 
+  endingVoice('l3_ending_silence_1');
   await showEndingText([
     '"I understand," the Architect says quietly.',
     'He stands. He is not tall. He is not imposing. He is only tired.',
     'He walks past you — close enough that you could touch him.',
     'Neither of you does.',
-  ], 9000);
+  ], 14400);
 
+  endingVoice('l3_ending_silence_2');
   await showEndingText([
     'A door you did not see opens in the back of the throne room.',
     'He steps through. The door closes behind him.',
@@ -258,7 +275,7 @@ export async function endingSilence() {
     'You are alone in the monument.',
     'The throne is empty. The Architect is gone.',
     'The GENESIS device is still running.',
-  ], 11000);
+  ], 16700);
 
   await showEndingText([
     'The Architect is gone. GENESIS remains.',

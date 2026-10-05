@@ -68,6 +68,16 @@ export function loadAllAudio(audioManager) {
     // ── LEVEL 3 ARCHITECT VOICE ──
   audioManager.loadSound('l3_architect_1', { src: './assets/audio/voices/l3_architect_1.mp3', volume: 1.0 });
 
-  
+    // ── LEVEL 3 ENDING VOICES ──
+  audioManager.loadSound('l3_ending_attack',           { src: './assets/audio/voices/l3_ending_attack.mp3',           volume: 1.0 });
+  audioManager.loadSound('l3_ending_learn_become_1',   { src: './assets/audio/voices/l3_ending_learn_become_1.mp3',   volume: 1.0 });
+  audioManager.loadSound('l3_ending_learn_become_2',   { src: './assets/audio/voices/l3_ending_learn_become_2.mp3',   volume: 1.0 });
+  audioManager.loadSound('l3_ending_learn_become_3',   { src: './assets/audio/voices/l3_ending_learn_become_3.mp3',   volume: 1.0 });
+  audioManager.loadSound('l3_ending_learn_destroy_1',  { src: './assets/audio/voices/l3_ending_learn_destroy_1.mp3',  volume: 1.0 });
+  audioManager.loadSound('l3_ending_learn_destroy_2',  { src: './assets/audio/voices/l3_ending_learn_destroy_2.mp3',  volume: 1.0 });
+  audioManager.loadSound('l3_ending_learn_destroy_3',  { src: './assets/audio/voices/l3_ending_learn_destroy_3.mp3',  volume: 1.0 });
+  audioManager.loadSound('l3_ending_silence_1',        { src: './assets/audio/voices/l3_ending_silence_1.mp3',        volume: 1.0 });
+  audioManager.loadSound('l3_ending_silence_2',        { src: './assets/audio/voices/l3_ending_silence_2.mp3',        volume: 1.0 });
+
   console.log('🎵 Audio system ready —', Object.keys(audioManager.sounds).length, 'files registered');
 }
