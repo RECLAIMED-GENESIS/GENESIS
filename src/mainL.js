@@ -2,7 +2,7 @@
 // main.js — bootstrap, player controller, level manager, minimap
 // ============================================================
 import * as THREE from 'three';
-import { StreetLevel } from './levels/level1.js';
+import { StreetLevel } from './levels/lvl1.js';
 import { AlienLevel } from './levels/level2.js';
 import { ArchitectLevel } from './levels/level3.js';
 

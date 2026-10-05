@@ -3,7 +3,7 @@
 // ============================================================
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-import { StreetLevel } from './levels/level1.js';
+import { StreetLevel } from './levels/lvl1.js';
 import { AlienLevel } from './levels/level2.js';
 import { ArchitectLevel } from './levels/level3.js';
 import { Dialogue } from './ui/Dialogue.js';
