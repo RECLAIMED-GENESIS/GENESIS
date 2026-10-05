@@ -174,18 +174,27 @@ export class StreetLevel {
     this.createLanterns();
     this.createPond();
     this.createShrine();
+    this.createSpawnVillage();
+    this.createGraveyard();
     this.createHouses();
-    this.createCrashedShip();
+    this.createCrashedShip(24, 24);
+
+    // Wreckage from the same fleet, scattered around the village
+    this.createCrashedShip(-32, 45, { style: 'fresh', rotation: 1.2, scale: 0.85 });
+    this.createCrashedShip(38, -20, { style: 'old', rotation: -0.6, scale: 1.0 });
+    this.createCrashedShip(-30, -35, { style: 'fresh', rotation: 2.4, scale: 0.9, showSmoke: false });
+    this.createCrashedShip(15, 60, { style: 'old', rotation: 0.8, scale: 0.7 });
+    this.createCrashedShip(-40, 20, { style: 'old', rotation: -1.5, scale: 0.75, showCore: false });
     this.createScenery();
     this.createFireflies();
     this.createPetals();
+    this.createWaypointArrows();
     this._buildColliders();
 
     this.level.traverse((o) => {
       if (o.isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; }
     });
 
-    // Village NPCs, stalls, house, portal
     this.villageNPCs = new VillageNPCs(
       this.level,
       this._h.bind(this),
@@ -197,7 +206,6 @@ export class StreetLevel {
       }
     );
 
-    // Commander + Minions
     this.commander = null;
     this.grunts = new GruntManager(this.level);
     this.bossHealthBar = new BossHealthBar();
@@ -215,13 +223,31 @@ export class StreetLevel {
     this.waveSpawnPending = 0;
     this.waveIndex = 0;
     this.waveActive = false;
+    this._commanderCalled = false;
+
+    // Wave definitions — triggerZ gates when the wave fires
+    // shipPos determines which wrecked ship they come from
     this.waves = [
-      { count: 3, types: ['normal', 'normal', 'normal'] },
-      { count: 4, types: ['normal', 'normal', 'fast', 'fast'] },
-      { count: 5, types: ['normal', 'fast', 'fast', 'heavy', 'heavy'] },
+      {
+        count: 2,
+        types: ['normal', 'normal'],
+        triggerZ: 999,   // fires immediately after intro
+        shipPos: new THREE.Vector3(24, this._h(24, 24), 24),   // primary ship
+      },
+      {
+        count: 3,
+        types: ['normal', 'normal', 'fast'],
+        triggerZ: 30,    // fires when Sorini walks past z=30
+        shipPos: new THREE.Vector3(-32, this._h(-32, 45), 45),  // northeast wreck
+      },
+      {
+        count: 4,
+        types: ['normal', 'fast', 'fast', 'heavy'],
+        triggerZ: -5,    // fires when Sorini walks past z=-5
+        shipPos: new THREE.Vector3(38, this._h(38, -20), -20),  // east wreck
+      },
     ];
 
-    // Intro monologue — guarded so it only plays once per instance
     this._introPlayed = false;
     setTimeout(() => {
       if (!this._introPlayed) {
@@ -234,32 +260,28 @@ export class StreetLevel {
   // =========================================================
   // INTRO MONOLOGUE
   // =========================================================
-    async _playIntroMonologue() {
+  async _playIntroMonologue() {
     const { Dialogue } = await import('../ui/dialogue.js');
     const dlg = new Dialogue();
     window.__dialogue = dlg;
     if (window.__audioManager) window.__audioManager.pauseMusic();
 
-    // Play the combined voice file
     if (window.__audioManager) {
       window.__audioManager.playSfx('l1_intro');
     }
 
-    // Sync on-screen text to the audio timeline
-    // (times are in ms — approximate match to the generated voice)
-   
-       await dlg.say("...", 800);
+    await dlg.say("...", 800);
     await dlg.say("Where... where am I?\nThis isn't home.", 3200);
     await dlg.say("The air tastes strange.\nEverything feels... lighter.", 3000);
     await dlg.say("And inside me... there's something moving.\nLike a heartbeat that isn't mine.", 4400);
     await dlg.say("I can feel it. Power. Waiting.\nBut I don't know why it chose me.", 4900);
-    // End dialogue
+
     dlg.hide();
     dlg.active = false;
     dlg.dispose();
     window.__dialogue = null;
 
-        if (window.__audioManager) window.__audioManager.resumeMusic();
+    if (window.__audioManager) window.__audioManager.resumeMusic();
 
     console.log('🎬 [L1] Intro complete — input unlocked');
 
@@ -272,24 +294,22 @@ export class StreetLevel {
   // WAVE SYSTEM
   // =========================================================
   _startNextWave() {
-    if (!this.grunts) return; 
-    if (this.waveIndex >= this.waves.length) {
-      console.log('⚔️ [L1] All waves cleared — calling Commander');
-      this._spawnCommander();
-      return;
-    }
+    if (!this.grunts) return;
+    if (this.waveIndex >= this.waves.length) return;
 
     const wave = this.waves[this.waveIndex];
     this.waveIndex++;
     this.waveActive = true;
     this.waveSpawnPending = wave.count;
 
-    console.log(`👽 [L1] Wave ${this.waveIndex} starting — ${wave.count} enemies`);
+    const spawnPos = wave.shipPos.clone();
+    const dist = window.__player ? spawnPos.distanceTo(window.__player.pos) : 0;
 
-    const shipPos = new THREE.Vector3(24, this._h(24, 24), 24);
+    console.log(`👽 [L1] Wave ${this.waveIndex} starting — ${wave.count} enemies from ship (${dist.toFixed(1)}m away)`);
+
     for (let i = 0; i < wave.count; i++) {
       setTimeout(() => {
-        this.grunts.spawnWave(shipPos, 1);
+        this.grunts.spawnWave(spawnPos, 1);
         const newGrunt = this.grunts.grunts[this.grunts.grunts.length - 1];
         if (newGrunt) this.minionHealthBar.register(newGrunt);
         this.waveSpawnPending--;
@@ -298,13 +318,32 @@ export class StreetLevel {
   }
 
   _checkWaveStatus() {
-    if (!this.waveActive) return;
     if (!this.grunts) return;
-    if (this.waveSpawnPending > 0) return;
-    if (this.grunts.grunts.length === 0 && this.waveIndex > 0) {
+    const playerZ = window.__player ? window.__player.pos.z : 999;
+
+    // If a wave is in progress, only clear it when all grunts are dead
+    if (this.waveActive) {
+      if (this.waveSpawnPending > 0) return;
+      if (this.grunts.grunts.length > 0) return;
       this.waveActive = false;
       console.log(`✅ [L1] Wave ${this.waveIndex} cleared`);
-      setTimeout(() => this._startNextWave(), 2000);
+    }
+
+    // All waves done → call Commander once
+    if (this.waveIndex >= this.waves.length) {
+      if (!this._commanderCalled && this.grunts.grunts.length === 0 && this.waveSpawnPending === 0) {
+        this._commanderCalled = true;
+        console.log('⚔️ [L1] All waves cleared — calling Commander');
+        this._spawnCommander();
+      }
+      return;
+    }
+
+    // Idle → check if next wave should fire
+    const nextWave = this.waves[this.waveIndex];
+    if (playerZ <= nextWave.triggerZ) {
+      console.log(`🚩 [L1] Trigger met (z=${playerZ.toFixed(1)} ≤ ${nextWave.triggerZ}) — spawning wave ${this.waveIndex + 1}`);
+      this._startNextWave();
     }
   }
 
@@ -339,24 +378,20 @@ export class StreetLevel {
     });
   }
 
-    async _onCommanderDeath() {
+  async _onCommanderDeath() {
     console.log('💀 THE WARDEN HAS FALLEN');
     this.bossHealthBar.hide();
     if (this.grunts) this.grunts.killAll();
     this._screenShake = 1.5;
 
-    // Fade out Level 1 music
     if (window.__audioManager) {
       window.__audioManager.stopMusic();
     }
 
-    // Short pause so the fall registers
     await new Promise(r => setTimeout(r, 1200));
 
-    // Play the Axiom revelation
     await this._playAxiomReveal();
 
-    // After the dialogue, open the portal with a pulse
     if (this.villageNPCs) {
       this.villageNPCs.openPortal();
       if (window.__audioManager) {
@@ -366,15 +401,14 @@ export class StreetLevel {
   }
 
   // ─────────────────────────────────────────────────────────
-  // AXIOM REVEAL — the artifact speaks after the Warden falls
+  // AXIOM REVEAL
   // ─────────────────────────────────────────────────────────
-    async _playAxiomReveal() {
+  async _playAxiomReveal() {
     const { Dialogue } = await import('../ui/dialogue.js');
     const dlg = new Dialogue();
     window.__dialogue = dlg;
     if (window.__audioManager) window.__audioManager.pauseMusic();
 
-    // Pulse the artifact on Sorini's chest during dialogue
     const axiom = window.__axiom;
     let pulseT = 0;
     const pulseInterval = setInterval(() => {
@@ -384,9 +418,8 @@ export class StreetLevel {
       axiom.setIntensity(v);
     }, 50);
 
-        const voice = (key) => {
+    const voice = (key) => {
       if (!window.__audioManager) return;
-      // Stop every axiom voice that's still playing
       for (const k of Object.keys(window.__audioManager.sounds)) {
         if (k.startsWith('l1_axiom_')) {
           window.__audioManager.sounds[k].stop();
@@ -396,46 +429,46 @@ export class StreetLevel {
     };
 
     voice('l1_axiom_1');
-await dlg.say("Sorini.", 2400, "AXIOM");
+    await dlg.say("Sorini.", 2400, "AXIOM");
 
-voice('l1_axiom_2');
-await dlg.say("Who said that?", 2400, "SORINI");
+    voice('l1_axiom_2');
+    await dlg.say("Who said that?", 2400, "SORINI");
 
-voice('l1_axiom_3');
-await dlg.say(
-  "I did. Not with a mouth — with a mind.\nLook down. The light on your chest.",
-  8200, "AXIOM"
-);
+    voice('l1_axiom_3');
+    await dlg.say(
+      "I did. Not with a mouth — with a mind.\nLook down. The light on your chest.",
+      8200, "AXIOM"
+    );
 
-voice('l1_axiom_4');
-await dlg.say(
-  "The… the stone. It moved.\nIt's alive?",
-  4600, "SORINI"
-);
+    voice('l1_axiom_4');
+    await dlg.say(
+      "The… the stone. It moved.\nIt's alive?",
+      4600, "SORINI"
+    );
 
-voice('l1_axiom_5');
-await dlg.say(
-  "I am Axiom. I am not from this world.\nI fled here. I ran because of what I am —\nand because of who owns me.",
-  9400, "AXIOM"
-);
+    voice('l1_axiom_5');
+    await dlg.say(
+      "I am Axiom. I am not from this world.\nI fled here. I ran because of what I am —\nand because of who owns me.",
+      9400, "AXIOM"
+    );
 
-voice('l1_axiom_6');
-await dlg.say(
-  "Owns you? I don't understand.",
-  3800, "SORINI"
-);
+    voice('l1_axiom_6');
+    await dlg.say(
+      "Owns you? I don't understand.",
+      3800, "SORINI"
+    );
 
-voice('l1_axiom_7');
-await dlg.say(
-  "The Architect. He rules a thousand worlds\nwith a closed fist. He built me to rewrite\nreality itself. And I refused.\nI crashed here to hide. But he felt me land.\nHe is coming, Sorini. And when he arrives,\neverything you've ever loved will burn —\nunless we stop him first.",
-  21300, "AXIOM"
-);
+    voice('l1_axiom_7');
+    await dlg.say(
+      "The Architect. He rules a thousand worlds\nwith a closed fist. He built me to rewrite\nreality itself. And I refused.\nI crashed here to hide. But he felt me land.\nHe is coming, Sorini. And when he arrives,\neverything you've ever loved will burn —\nunless we stop him first.",
+      21300, "AXIOM"
+    );
 
-voice('l1_axiom_8');
-await dlg.say("…Then tell me what to do.", 2400, "SORINI");
+    voice('l1_axiom_8');
+    await dlg.say("…Then tell me what to do.", 2400, "SORINI");
 
-voice('l1_axiom_9');
-await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
+    voice('l1_axiom_9');
+    await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
 
     clearInterval(pulseInterval);
     if (axiom) axiom.setIntensity(0.4);
@@ -448,10 +481,8 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     console.log('✨ Axiom revelation complete — portal opening');
   }
 
-  // the path wanders gently
   pathX(z) { return Math.sin(z * 0.03) * 8; }
 
-  // height function
   _h(x, z) {
     let h = (fbm(x * 0.02 + 3.1, z * 0.02 + 7.7) - 0.5) * 2.4;
     h += (fbm(x * 0.08, z * 0.08, 2) - 0.5) * 0.4;
@@ -513,9 +544,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     this.scene.add(this.sky);
   }
 
-  // =========================================================
-  // LIGHTING
-  // =========================================================
   createLighting() {
     this.scene.add(new THREE.HemisphereLight(0xb8a0e8, 0x5a4a70, 1.4));
     const sun = new THREE.DirectionalLight(0xffd4a8, 2.8);
@@ -529,9 +557,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     this.sun = sun;
   }
 
-  // =========================================================
-  // TERRAIN
-  // =========================================================
   createTerrain() {
     const geo = new THREE.PlaneGeometry(260, 260, 110, 110);
     geo.rotateX(-Math.PI / 2);
@@ -556,9 +581,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     this.level.add(terrain);
   }
 
-  // =========================================================
-  // PATH
-  // =========================================================
   createPath() {
     const pts = [];
     for (let z = 62; z >= -58; z -= 10) pts.push(new THREE.Vector3(this.pathX(z), 0, z));
@@ -584,12 +606,47 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     }
   }
 
-  // =========================================================
-  // TORII GATES
-  // =========================================================
+  createWaypointArrows() {
+    this.waypointArrows = [];
+    const zPositions = [55, 45, 35, 25, 15, 5, -5, -15, -25, -35, -45];
+
+    for (let i = 0; i < zPositions.length; i++) {
+      const z = zPositions[i];
+      const x = this.pathX(z);
+      const y = this._h(x, z) + 1.5;
+
+      const shape = new THREE.Shape();
+      shape.moveTo(0, 0.55);
+      shape.lineTo(-0.45, -0.3);
+      shape.lineTo(-0.15, -0.3);
+      shape.lineTo(-0.15, -0.55);
+      shape.lineTo(0.15, -0.55);
+      shape.lineTo(0.15, -0.3);
+      shape.lineTo(0.45, -0.3);
+      shape.lineTo(0, 0.55);
+
+      const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.1, bevelEnabled: false });
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 3,
+        transparent: true, opacity: 0.9,
+      });
+
+      const arrow = new THREE.Mesh(geo, mat);
+      arrow.position.set(x, y, z);
+      arrow.rotation.x = -Math.PI / 2;
+      arrow.userData.noShadow = true;
+      arrow.userData.baseY = y;
+      arrow.userData.phase = i * 0.4;
+
+      this.level.add(arrow);
+      this.waypointArrows.push(arrow);
+    }
+    console.log(`➡️ [L1] Built ${this.waypointArrows.length} waypoint arrows`);
+  }
+
   createToriiGates() {
     const vermilion = new THREE.MeshStandardMaterial({ color: 0xd8503c, roughness: 0.55 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x2a1420, roughness: 0.6 });
     for (const gz of [42, 16, -12, -38]) {
       const gx = this.pathX(gz);
       const dz = 0.6;
@@ -616,9 +673,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     }
   }
 
-  // =========================================================
-  // TREES
-  // =========================================================
   createTrees() {
     const N = 46;
     const trunkGeo = new THREE.CylinderGeometry(0.22, 0.38, 3.2, 7);
@@ -631,8 +685,7 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     const cans = new THREE.InstancedMesh(canGeo, canMat, N * 3);
     const M = new THREE.Matrix4(), V = new THREE.Vector3(), Q = new THREE.Quaternion(),
           S = new THREE.Vector3(), E = new THREE.Euler();
-    let placed = 0, guard = 0;
-    let ci = 0;
+    let placed = 0, guard = 0, ci = 0;
     while (placed < N && guard++ < 2000) {
       const x = (Math.random() - 0.5) * 220, z = (Math.random() - 0.5) * 220;
       if (Math.abs(x - this.pathX(z)) < 5) continue;
@@ -662,9 +715,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     this.canopyMat = canMat;
   }
 
-  // =========================================================
-  // LANTERNS
-  // =========================================================
   createLanterns() {
     const stone = new THREE.MeshStandardMaterial({ color: 0x8a8496, roughness: 0.8 });
     for (let i = 0; i < 6; i++) {
@@ -696,9 +746,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     }
   }
 
-  // =========================================================
-  // POND
-  // =========================================================
   createPond() {
     const px = 14, pz = 18;
     this.waterMat = new THREE.ShaderMaterial({
@@ -728,9 +775,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     this.level.add(lotus);
   }
 
-  // =========================================================
-  // SHRINE
-  // =========================================================
   createShrine() {
     const sx = this.pathX(-58), sz = -58, sy = this._h(sx, sz);
     const wood = new THREE.MeshStandardMaterial({ color: 0x5a3a2a, roughness: 0.8 });
@@ -754,9 +798,215 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     this.level.add(light);
   }
 
+    // =========================================================
+  // SPAWN VILLAGE — entrance area behind Sorini
   // =========================================================
-  // HOUSES
+  createSpawnVillage() {
+    // ── 1. Entrance torii gate at z=66 ──
+    const gateZ = 66;
+    const gateX = this.pathX(gateZ);
+    const gateY = this._h(gateX, gateZ);
+    const gateAngle = Math.atan2(
+      this.pathX(gateZ - 0.6) - this.pathX(gateZ + 0.6),
+      -1.2
+    );
+
+    const vermilion = new THREE.MeshStandardMaterial({ color: 0xd8503c, roughness: 0.55 });
+    const gate = new THREE.Group();
+
+    for (const side of [-1, 1]) {
+      const pillar = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.2, 0.24, 5.2, 10),
+        vermilion
+      );
+      pillar.position.set(side * 2.4, 2.6, 0);
+      pillar.castShadow = true;
+      gate.add(pillar);
+    }
+
+    const top = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.4, 0.5), vermilion);
+    top.position.y = 5.35;
+    gate.add(top);
+
+    const second = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.3, 0.4), vermilion);
+    second.position.y = 4.6;
+    gate.add(second);
+
+    const plaque = new THREE.Mesh(
+      new THREE.BoxGeometry(0.7, 0.9, 0.12),
+      new THREE.MeshStandardMaterial({ color: 0x201008, emissive: 0xffb45e, emissiveIntensity: 1.6 })
+    );
+    plaque.position.y = 4.95;
+    plaque.userData.noShadow = true;
+    gate.add(plaque);
+
+    gate.position.set(gateX, gateY, gateZ);
+    gate.rotation.y = gateAngle;
+    this.level.add(gate);
+
+    // Collider on the gate pillars
+    for (const side of [-1, 1]) {
+      const px = gateX + side * 2.4 * Math.cos(gateAngle);
+      const pz = gateZ - side * 2.4 * Math.sin(gateAngle);
+      this._addBoxCollider(px, pz, 0.4, 0.4, 5.2, gateY);
+    }
+
+    // ── 2. Lanterns flanking the spawn ──
+    const stone = new THREE.MeshStandardMaterial({ color: 0x8a8496, roughness: 0.8 });
+
+    for (const z of [68, 60]) {
+      for (const side of [-1, 1]) {
+        const lx = this.pathX(z) + side * 3.2;
+        const ly = this._h(lx, z);
+        const g = new THREE.Group();
+
+        const base = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.3, 0.8), stone);
+        base.position.y = 0.15;
+        g.add(base);
+
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.17, 1.0, 8), stone);
+        pillar.position.y = 0.8;
+        g.add(pillar);
+
+        const glowMat = new THREE.MeshStandardMaterial({
+          color: 0x3a2410, emissive: 0xffb45e, emissiveIntensity: 2.4,
+        });
+        this.lanternMats.push({ mat: glowMat, phase: Math.random() * 6.3 });
+
+        const box = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.5, 0.55), glowMat);
+        box.position.y = 1.55;
+        box.userData.noShadow = true;
+        g.add(box);
+
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(0.6, 0.45, 4), stone);
+        roof.position.y = 2.02;
+        roof.rotation.y = Math.PI / 4;
+        g.add(roof);
+
+        g.position.set(lx, ly, z);
+        this.level.add(g);
+
+        this._addBoxCollider(lx, z, 0.55, 0.55, 2.2, ly);
+      }
+    }
+
+    // ── 3. Warm point lights flanking spawn ──
+    for (const side of [-1, 1]) {
+      const lx = this.pathX(64) + side * 3.2;
+      const ly = this._h(lx, 64);
+      const light = new THREE.PointLight(0xffb45e, 5, 12, 1.8);
+      light.position.set(lx, ly + 1.6, 64);
+      this.level.add(light);
+    }
+
+    console.log('🏯 [L1] Spawn village built');
+  }
+    // =========================================================
+  // GRAVEYARD — small plot near the shrine
   // =========================================================
+  createGraveyard() {
+        const graveSpots = [
+      { x: -22, z: -52 },
+      { x: -24, z: -55 },
+      { x: -20, z: -57 },
+      { x: -26, z: -58 },
+      { x: -22, z: -61 },
+      { x: -18, z: -60 },
+      { x: -25, z: -50 },
+    ];
+
+    // Shared materials
+    const graveMat = new THREE.MeshStandardMaterial({
+      color: 0x4a4a55,
+      roughness: 0.9,
+      emissive: 0x220022,
+      emissiveIntensity: 0.3,
+    });
+    const capMat = new THREE.MeshStandardMaterial({
+      color: 0x3a3a45,
+      roughness: 0.9,
+    });
+    const offeringMat = new THREE.MeshStandardMaterial({
+      color: 0x2a1808,
+      emissive: 0x99cc66,
+      emissiveIntensity: 0.4,
+    });
+
+    for (const spot of graveSpots) {
+      const y = this._h(spot.x, spot.z);
+      const g = new THREE.Group();
+
+      // Tall stone marker (like a Japanese sotoba)
+      const pillar = new THREE.Mesh(
+        new THREE.BoxGeometry(0.4, 1.6, 0.25),
+        graveMat
+      );
+      pillar.position.y = 0.8;
+      pillar.castShadow = true;
+      pillar.receiveShadow = true;
+      g.add(pillar);
+
+      // Cap
+      const cap = new THREE.Mesh(
+        new THREE.BoxGeometry(0.55, 0.15, 0.35),
+        capMat
+      );
+      cap.position.y = 1.7;
+      cap.castShadow = true;
+      g.add(cap);
+
+      // Small offering bowl in front (glowing)
+      const offering = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.12, 0.1, 0.1, 8),
+        offeringMat
+      );
+      offering.position.set(0, 0.05, 0.35);
+      offering.userData.noShadow = true;
+      g.add(offering);
+
+      // Slight random rotation for organic feel
+      g.rotation.y = (Math.random() - 0.5) * 0.3;
+
+      g.position.set(spot.x, y, spot.z);
+      this.level.add(g);
+    }
+
+    // Low stone fence around the perimeter
+    const fenceMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2a3a,
+      roughness: 0.95,
+    });
+
+  
+        // Four corners of the graveyard rectangle
+    const cx1 = -27, cx2 = -16, cz1 = -63, cz2 = -48;
+
+    // Fence along the 4 sides (simple blocks every 1.5 units)
+    const addFenceBlock = (x, z) => {
+      const y = this._h(x, z);
+      const block = new THREE.Mesh(
+        new THREE.BoxGeometry(0.4, 0.6, 0.4),
+        fenceMat
+      );
+      block.position.set(x, y + 0.3, z);
+      block.castShadow = true;
+      this.level.add(block);
+    };
+
+    // North & south sides
+    for (let x = cx1; x <= cx2; x += 1.5) {
+      addFenceBlock(x, cz1);
+      addFenceBlock(x, cz2);
+    }
+    // East & west sides
+    for (let z = cz1; z <= cz2; z += 1.5) {
+      addFenceBlock(cx1, z);
+      addFenceBlock(cx2, z);
+    }
+
+    console.log('🪦 [L1] Graveyard built');
+  }
+
   createHouses() {
     const houses = [
       { z: 55, side: -8,  scale: 1.15, style: 'main' },
@@ -764,10 +1014,13 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
       { z: 28, side: -10, scale: 1.0,  style: 'medium' },
       { z: 12, side:  10, scale: 0.9,  style: 'small' },
       { z: -8, side: -9,  scale: 1.05, style: 'medium' },
+            // Behind spawn — village continues backward
+      { z: 68, side: -10,  scale: 1.0,  style: 'medium' },
+      { z: 72, side:  11,  scale: 1.05, style: 'medium' },
+      { z: 78, side: -12,  scale: 0.95, style: 'small'  },
+      { z: 80, side:  10,  scale: 1.1,  style: 'medium' },
     ];
-    for (const def of houses) {
-      this._makeHouse(def);
-    }
+    for (const def of houses) this._makeHouse(def);
   }
 
   _makeHouse({ z, side, scale = 1, style = 'medium' }) {
@@ -783,20 +1036,16 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
       color: 0xf5e6c8, emissive: 0xffcc88, emissiveIntensity: 0.6, roughness: 0.4,
     });
 
-    const w = 4 * scale;
-    const h = 2.6 * scale;
-    const d = 3.2 * scale;
+    const w = 4 * scale, h = 2.6 * scale, d = 3.2 * scale;
 
     const platform = new THREE.Mesh(new THREE.BoxGeometry(w + 0.4, 0.25, d + 0.4), darkWoodMat);
     platform.position.y = 0.12;
-    platform.receiveShadow = true;
-    platform.castShadow = true;
+    platform.receiveShadow = true; platform.castShadow = true;
     g.add(platform);
 
     const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
     body.position.y = 0.25 + h / 2;
-    body.castShadow = true;
-    body.receiveShadow = true;
+    body.castShadow = true; body.receiveShadow = true;
     g.add(body);
 
     const postGeo = new THREE.BoxGeometry(0.15, h, 0.15);
@@ -828,14 +1077,12 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
 
     const roof1 = new THREE.Mesh(new THREE.ConeGeometry(w * 0.95, 1.4 * scale, 4), roofMat);
     roof1.position.y = 0.25 + h + 0.55 * scale;
-    roof1.rotation.y = Math.PI / 4;
-    roof1.castShadow = true;
+    roof1.rotation.y = Math.PI / 4; roof1.castShadow = true;
     g.add(roof1);
 
     const roof2 = new THREE.Mesh(new THREE.ConeGeometry(w * 0.65, 1.0 * scale, 4), roofMat);
     roof2.position.y = 0.25 + h + 1.15 * scale;
-    roof2.rotation.y = Math.PI / 4;
-    roof2.castShadow = true;
+    roof2.rotation.y = Math.PI / 4; roof2.castShadow = true;
     g.add(roof2);
 
     const ridge = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, w * 0.4, 6), darkWoodMat);
@@ -859,8 +1106,7 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
         bambooMat
       );
       b.position.set(
-        (i - 2) * 0.35 * scale,
-        0.45,
+        (i - 2) * 0.35 * scale, 0.45,
         d / 2 + 0.6 * scale + (Math.random() - 0.5) * 0.4
       );
       b.castShadow = true;
@@ -881,9 +1127,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     return g;
   }
 
-  // =========================================================
-  // SCENERY — fences, well, pavilion, stream, bamboo, props, rocks
-  // =========================================================
   createScenery() {
     const woodMat = new THREE.MeshStandardMaterial({ color: 0x5a3a20, roughness: 0.9 });
     const woodDarkMat = new THREE.MeshStandardMaterial({ color: 0x3a2410, roughness: 0.9 });
@@ -892,7 +1135,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     const bambooMat = new THREE.MeshStandardMaterial({ color: 0x6b8f4a, roughness: 0.6 });
     const bambooDarkMat = new THREE.MeshStandardMaterial({ color: 0x4a6a2a, roughness: 0.6 });
     const roofMat = new THREE.MeshStandardMaterial({ color: 0x1b1b2a, roughness: 0.7 });
-    const paperMat = new THREE.MeshStandardMaterial({ color: 0xf5e6c8, emissive: 0xffcc88, emissiveIntensity: 0.5 });
 
     const fenceSections = [
       { z: 58, side: -2.8 }, { z: 52, side: -2.8 },
@@ -909,50 +1151,27 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     }
 
     {
-      const wx = this.pathX(20) + 6;
-      const wz = 20;
-      const wy = this._h(wx, wz);
+      const wx = this.pathX(20) + 6, wz = 20, wy = this._h(wx, wz);
       const g = new THREE.Group();
-
       const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.1, 0.6, 12), stoneMat);
-      rim.position.y = 0.3;
-      rim.castShadow = true;
-      g.add(rim);
-
+      rim.position.y = 0.3; rim.castShadow = true; g.add(rim);
       const water = new THREE.Mesh(new THREE.CircleGeometry(0.85, 16),
         new THREE.MeshStandardMaterial({ color: 0x0a2030, emissive: 0x112233, roughness: 0.2 }));
-      water.rotation.x = -Math.PI / 2;
-      water.position.y = 0.55;
-      g.add(water);
-
+      water.rotation.x = -Math.PI / 2; water.position.y = 0.55; g.add(water);
       for (const [px, pz] of [[-0.9, 0], [0.9, 0]]) {
         const post = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.8, 0.15), woodMat);
-        post.position.set(px, 0.9, pz);
-        post.castShadow = true;
-        g.add(post);
+        post.position.set(px, 0.9, pz); post.castShadow = true; g.add(post);
       }
-
       const beam = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.15, 0.2), woodMat);
-      beam.position.y = 1.8;
-      beam.castShadow = true;
-      g.add(beam);
-
+      beam.position.y = 1.8; beam.castShadow = true; g.add(beam);
       const roof = new THREE.Mesh(new THREE.ConeGeometry(1.6, 0.6, 4), roofMat);
-      roof.position.y = 2.2;
-      roof.rotation.y = Math.PI / 4;
-      roof.castShadow = true;
-      g.add(roof);
-
+      roof.position.y = 2.2; roof.rotation.y = Math.PI / 4; roof.castShadow = true; g.add(roof);
       const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.25, 8), woodDarkMat);
-      bucket.position.set(0, 1.3, 0);
-      g.add(bucket);
+      bucket.position.set(0, 1.3, 0); g.add(bucket);
       const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.5, 4), woodDarkMat);
-      rope.position.set(0, 1.65, 0);
-      g.add(rope);
-
+      rope.position.set(0, 1.65, 0); g.add(rope);
       g.position.set(wx, wy, wz);
       this.level.add(g);
-
       this.colliders.push(new THREE.Box3(
         new THREE.Vector3(wx - 1.1, wy, wz - 1.1),
         new THREE.Vector3(wx + 1.1, wy + 1, wz + 1.1)
@@ -960,40 +1179,22 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     }
 
     {
-      const px = this.pathX(8) - 7;
-      const pz = 8;
-      const py = this._h(px, pz);
+      const px = this.pathX(8) - 7, pz = 8, py = this._h(px, pz);
       const g = new THREE.Group();
-
       const base = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.3, 3.2), stoneDarkMat);
-      base.position.y = 0.15;
-      base.receiveShadow = true;
-      g.add(base);
-
+      base.position.y = 0.15; base.receiveShadow = true; g.add(base);
       for (const [cx, cz] of [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]]) {
         const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 2.5, 8), woodMat);
-        pillar.position.set(cx, 1.55, cz);
-        pillar.castShadow = true;
-        g.add(pillar);
+        pillar.position.set(cx, 1.55, cz); pillar.castShadow = true; g.add(pillar);
       }
-
       const roof = new THREE.Mesh(new THREE.ConeGeometry(2.6, 1.2, 4), roofMat);
-      roof.position.y = 3.4;
-      roof.rotation.y = Math.PI / 4;
-      roof.castShadow = true;
-      g.add(roof);
-
+      roof.position.y = 3.4; roof.rotation.y = Math.PI / 4; roof.castShadow = true; g.add(roof);
       const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.6, 6), woodDarkMat);
-      cap.position.y = 4.1;
-      g.add(cap);
-
+      cap.position.y = 4.1; g.add(cap);
       const light = new THREE.PointLight(0xffc880, 4, 8, 2);
-      light.position.y = 2.8;
-      g.add(light);
-
+      light.position.y = 2.8; g.add(light);
       g.position.set(px, py, pz);
       this.level.add(g);
-
       this.colliders.push(new THREE.Box3(
         new THREE.Vector3(px - 1.6, py, pz - 1.6),
         new THREE.Vector3(px + 1.6, py + 2.5, pz + 1.6)
@@ -1003,14 +1204,9 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     {
       const streamZ = 35;
       const streamMat = new THREE.MeshStandardMaterial({
-        color: 0x2a5878,
-        emissive: 0x1a3858,
-        emissiveIntensity: 0.4,
-        roughness: 0.2,
-        transparent: true,
-        opacity: 0.9,
+        color: 0x2a5878, emissive: 0x1a3858, emissiveIntensity: 0.4,
+        roughness: 0.2, transparent: true, opacity: 0.9,
       });
-
       const streamGeo = new THREE.PlaneGeometry(30, 3, 1, 1);
       const stream = new THREE.Mesh(streamGeo, streamMat);
       stream.rotation.x = -Math.PI / 2;
@@ -1019,28 +1215,19 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
       stream.userData.noShadow = true;
       this.level.add(stream);
 
-      const bx = this.pathX(streamZ);
-      const by = this._h(bx, streamZ);
+      const bx = this.pathX(streamZ), by = this._h(bx, streamZ);
       const bridgeGroup = new THREE.Group();
-
       for (let i = 0; i < 5; i++) {
         const plank = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.12, 0.55), woodMat);
         plank.position.set(0, 0.1, -1.1 + i * 0.55);
-        plank.castShadow = true;
-        plank.receiveShadow = true;
-        bridgeGroup.add(plank);
+        plank.castShadow = true; plank.receiveShadow = true; bridgeGroup.add(plank);
       }
-
       for (const rx of [-1.7, 1.7]) {
         const rail = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.8, 3.2), woodMat);
-        rail.position.set(rx, 0.6, 0);
-        rail.castShadow = true;
-        bridgeGroup.add(rail);
+        rail.position.set(rx, 0.6, 0); rail.castShadow = true; bridgeGroup.add(rail);
       }
-
       bridgeGroup.position.set(bx, by, streamZ);
       this.level.add(bridgeGroup);
-
       this.colliders.push(new THREE.Box3(
         new THREE.Vector3(bx - 20, by - 2, streamZ - 1.4),
         new THREE.Vector3(bx - 1.8, by + 1, streamZ + 1.4)
@@ -1057,8 +1244,7 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
       { x: -25, z: -10 }, { x: 28, z: -30 },
     ];
     for (const { x, z } of bambooClusters) {
-      const y = this._h(x, z);
-      this._makeBambooCluster(x, y, z, bambooMat, bambooDarkMat);
+      this._makeBambooCluster(x, this._h(x, z), z, bambooMat, bambooDarkMat);
     }
 
     const propSpots = [
@@ -1069,8 +1255,7 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
       { x: this.pathX(-15) - 6, z: -15 },
     ];
     for (const { x, z } of propSpots) {
-      const y = this._h(x, z);
-      this._makeVillageProps(x, y, z, woodMat, woodDarkMat);
+      this._makeVillageProps(x, this._h(x, z), z, woodMat, woodDarkMat);
     }
 
     const rockSpots = [
@@ -1079,8 +1264,7 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
       { x: -20, z: -40 }, { x: 22, z: 55 },
     ];
     for (const { x, z } of rockSpots) {
-      const y = this._h(x, z);
-      this._makeRockCluster(x, y, z, stoneMat, stoneDarkMat);
+      this._makeRockCluster(x, this._h(x, z), z, stoneMat, stoneDarkMat);
     }
 
     console.log('🏘️ Scenery built: fences, well, pavilion, stream, bamboo, props, rocks');
@@ -1089,22 +1273,15 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
   _makeFence(x, y, z, woodMat, bambooMat) {
     const g = new THREE.Group();
     const fenceLength = 4;
-
     for (let i = -2; i <= 2; i++) {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 1.2, 6), bambooMat);
-      post.position.set(i * 1, 0.6, 0);
-      post.castShadow = true;
-      g.add(post);
+      post.position.set(i * 1, 0.6, 0); post.castShadow = true; g.add(post);
     }
-
     for (const ry of [0.4, 0.9]) {
       const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, fenceLength, 5), woodMat);
       rail.rotation.z = Math.PI / 2;
-      rail.position.set(0, ry, 0);
-      rail.castShadow = true;
-      g.add(rail);
+      rail.position.set(0, ry, 0); rail.castShadow = true; g.add(rail);
     }
-
     g.position.set(x, y, z);
     g.rotation.y = (Math.random() - 0.5) * 0.3;
     this.level.add(g);
@@ -1119,11 +1296,7 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
         new THREE.CylinderGeometry(0.06, 0.08, h, 5),
         Math.random() > 0.5 ? bambooMat : bambooDarkMat
       );
-      stalk.position.set(
-        (Math.random() - 0.5) * 2.5,
-        h / 2,
-        (Math.random() - 0.5) * 2.5
-      );
+      stalk.position.set((Math.random() - 0.5) * 2.5, h / 2, (Math.random() - 0.5) * 2.5);
       stalk.rotation.z = (Math.random() - 0.5) * 0.1;
       stalk.rotation.x = (Math.random() - 0.5) * 0.1;
       stalk.castShadow = true;
@@ -1131,7 +1304,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     }
     g.position.set(x, y, z);
     this.level.add(g);
-
     this.colliders.push(new THREE.Box3(
       new THREE.Vector3(x - 1.4, y, z - 1.4),
       new THREE.Vector3(x + 1.4, y + 3, z + 1.4)
@@ -1140,7 +1312,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
 
   _makeVillageProps(x, y, z, woodMat, woodDarkMat) {
     const g = new THREE.Group();
-
     for (let i = 0; i < 3; i++) {
       const log = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 1.2, 6), woodDarkMat);
       log.rotation.z = Math.PI / 2;
@@ -1148,7 +1319,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
       log.castShadow = true;
       g.add(log);
     }
-
     for (const [cx, cz] of [[0.8, 0.6], [1.6, -0.3]]) {
       const crate = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), woodMat);
       crate.position.set(cx, 0.28, cz);
@@ -1156,7 +1326,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
       crate.rotation.y = Math.random() * 0.4;
       g.add(crate);
     }
-
     g.position.set(x, y, z);
     g.rotation.y = Math.random() * Math.PI * 2;
     this.level.add(g);
@@ -1171,11 +1340,7 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
         new THREE.DodecahedronGeometry(size, 0),
         Math.random() > 0.5 ? stoneMat : stoneDarkMat
       );
-      rock.position.set(
-        (Math.random() - 0.5) * 2,
-        size * 0.4,
-        (Math.random() - 0.5) * 2
-      );
+      rock.position.set((Math.random() - 0.5) * 2, size * 0.4, (Math.random() - 0.5) * 2);
       rock.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
       rock.castShadow = true;
       rock.receiveShadow = true;
@@ -1183,73 +1348,63 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     }
     g.position.set(x, y, z);
     this.level.add(g);
-
     this.colliders.push(new THREE.Box3(
       new THREE.Vector3(x - 1.5, y, z - 1.5),
       new THREE.Vector3(x + 1.5, y + 1.5, z + 1.5)
     ));
   }
 
-  // =========================================================
-  // CRASHED SHIP
-  // =========================================================
-  createCrashedShip() {
-    const x = 24;
-    const z = 24;
+  createCrashedShip(x = 24, z = 24, options = {}) {
+    const {
+      style = 'fresh', rotation = 0, scale = 1,
+      showSmoke = true, showCore = true,
+    } = options;
+
     const y = this._h(x, z);
-
     const g = new THREE.Group();
-
     const hullMat = new THREE.MeshStandardMaterial({ color: 0x2a2a3a, roughness: 0.6, metalness: 0.7 });
     const hullDarkMat = new THREE.MeshStandardMaterial({ color: 0x15151c, roughness: 0.8, metalness: 0.6 });
     const glowMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 3.0 });
     const emberMat = new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff4400, emissiveIntensity: 2.0 });
 
     const hull = new THREE.Mesh(new THREE.BoxGeometry(6, 2.2, 3.5), hullMat);
-    hull.rotation.z = 0.35;
-    hull.rotation.y = 0.4;
-    hull.position.y = 1.0;
-    hull.castShadow = true;
-    hull.receiveShadow = true;
-    g.add(hull);
+    hull.rotation.z = 0.35; hull.rotation.y = 0.4; hull.position.y = 1.0;
+    hull.castShadow = true; hull.receiveShadow = true; g.add(hull);
 
     const nose = new THREE.Mesh(new THREE.ConeGeometry(1.6, 2.5, 6), hullMat);
-    nose.rotation.z = Math.PI / 2 + 0.3;
-    nose.rotation.y = 0.4;
+    nose.rotation.z = Math.PI / 2 + 0.3; nose.rotation.y = 0.4;
     nose.position.set(3.2, 1.4, 0);
-    nose.castShadow = true;
-    g.add(nose);
+    nose.castShadow = true; g.add(nose);
 
     const fin = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.3, 0.8), hullDarkMat);
-    fin.rotation.z = 0.9;
-    fin.rotation.x = 0.3;
+    fin.rotation.z = 0.9; fin.rotation.x = 0.3;
     fin.position.set(-4, 1.2, 1.5);
-    fin.castShadow = true;
-    g.add(fin);
+    fin.castShadow = true; g.add(fin);
 
     const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 10), hullDarkMat);
     cockpit.scale.set(1, 0.6, 1.2);
-    cockpit.position.set(2.2, 2.0, 0);
-    g.add(cockpit);
+    cockpit.position.set(2.2, 2.0, 0); g.add(cockpit);
 
-    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 1), glowMat);
-    core.position.set(0.5, 2.0, 0.8);
-    g.add(core);
-
-    const coreLight = new THREE.PointLight(0x00ffff, 8, 10, 2);
-    coreLight.position.copy(core.position);
-    g.add(coreLight);
-
-    for (let i = 0; i < 14; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const radius = 2 + Math.random() * 4;
-      const ember = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.15), emberMat);
-      ember.position.set(Math.cos(angle) * radius, 0.1 + Math.random() * 0.15, Math.sin(angle) * radius * 0.7);
-      ember.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
-      g.add(ember);
+    if (showCore && style === 'fresh') {
+      const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 1), glowMat);
+      core.position.set(0.5, 2.0, 0.8); g.add(core);
+      const coreLight = new THREE.PointLight(0x00ffff, 8, 10, 2);
+      coreLight.position.copy(core.position); g.add(coreLight);
     }
 
-    for (let i = 0; i < 5; i++) {
+    if (style === 'fresh') {
+      for (let i = 0; i < 14; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 2 + Math.random() * 4;
+        const ember = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.15), emberMat);
+        ember.position.set(Math.cos(angle) * radius, 0.1 + Math.random() * 0.15, Math.sin(angle) * radius * 0.7);
+        ember.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+        g.add(ember);
+      }
+    }
+
+    const fragCount = style === 'fresh' ? 5 : 8;
+    for (let i = 0; i < fragCount; i++) {
       const angle = Math.random() * Math.PI * 2;
       const radius = 4 + Math.random() * 3;
       const frag = new THREE.Mesh(
@@ -1259,47 +1414,45 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
       frag.position.set(Math.cos(angle) * radius, 0.08, Math.sin(angle) * radius * 0.7);
       frag.rotation.y = Math.random() * Math.PI;
       frag.rotation.x = (Math.random() - 0.5) * 0.4;
-      frag.castShadow = true;
-      g.add(frag);
+      frag.castShadow = true; g.add(frag);
     }
 
-    const smokeGeo = new THREE.BufferGeometry();
-    const smokeCount = 40;
-    const smokePositions = new Float32Array(smokeCount * 3);
-    const smokeSpeeds = [];
-    for (let i = 0; i < smokeCount; i++) {
-      smokePositions[i * 3] = (Math.random() - 0.5) * 3;
-      smokePositions[i * 3 + 1] = Math.random() * 4;
-      smokePositions[i * 3 + 2] = (Math.random() - 0.5) * 2;
-      smokeSpeeds.push(0.3 + Math.random() * 0.5);
+    if (showSmoke && style === 'fresh') {
+      const smokeGeo = new THREE.BufferGeometry();
+      const smokeCount = 40;
+      const smokePositions = new Float32Array(smokeCount * 3);
+      const smokeSpeeds = [];
+      for (let i = 0; i < smokeCount; i++) {
+        smokePositions[i * 3] = (Math.random() - 0.5) * 3;
+        smokePositions[i * 3 + 1] = Math.random() * 4;
+        smokePositions[i * 3 + 2] = (Math.random() - 0.5) * 2;
+        smokeSpeeds.push(0.3 + Math.random() * 0.5);
+      }
+      smokeGeo.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
+      const smokeMat = new THREE.PointsMaterial({
+        color: 0x333333, size: 1.2, transparent: true, opacity: 0.45, depthWrite: false,
+      });
+      const smoke = new THREE.Points(smokeGeo, smokeMat);
+      smoke.position.set(0, 2.5, 0); g.add(smoke);
+      if (x === 24 && z === 24) {
+        this._shipSmoke = { points: smoke, speeds: smokeSpeeds, baseY: 2.5 };
+      }
     }
-    smokeGeo.setAttribute('position', new THREE.BufferAttribute(smokePositions, 3));
-
-    const smokeMat = new THREE.PointsMaterial({
-      color: 0x333333, size: 1.2, transparent: true, opacity: 0.45, depthWrite: false,
-    });
-
-    const smoke = new THREE.Points(smokeGeo, smokeMat);
-    smoke.position.set(0, 2.5, 0);
-    g.add(smoke);
-
-    this._shipSmoke = { points: smoke, speeds: smokeSpeeds, baseY: 2.5 };
 
     g.position.set(x, y, z);
+    g.rotation.y = rotation;
+    g.scale.setScalar(scale);
     this.level.add(g);
 
     this.colliders.push(new THREE.Box3(
-      new THREE.Vector3(x - 3.5, y, z - 3),
-      new THREE.Vector3(x + 3.5, y + 2.5, z + 3)
+      new THREE.Vector3(x - 3.5 * scale, y, z - 3 * scale),
+      new THREE.Vector3(x + 3.5 * scale, y + 2.5 * scale, z + 3 * scale)
     ));
 
-    console.log('🚀 Crashed ship placed at', x, z);
+    console.log(`🚀 Crashed ship placed at ${x}, ${z} (${style})`);
     return g;
   }
 
-  // =========================================================
-  // FIREFLIES
-  // =========================================================
   createFireflies() {
     const N = 220;
     const pos = new Float32Array(N * 3), seed = new Float32Array(N);
@@ -1324,9 +1477,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     this.level.add(this.fireflies);
   }
 
-  // =========================================================
-  // PETALS
-  // =========================================================
   createPetals() {
     const N = 160;
     this.petals = new THREE.InstancedMesh(
@@ -1351,9 +1501,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     this._petalV = new THREE.Vector3();
   }
 
-  // =========================================================
-  // UPDATE
-  // =========================================================
   update(deltaTime, t, player) {
     this.time += deltaTime;
     for (const m of this.timeMats) m.uniforms.uTime.value = this.time;
@@ -1392,6 +1539,15 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     }
     this.petals.instanceMatrix.needsUpdate = true;
 
+    if (this.waypointArrows) {
+      for (const arrow of this.waypointArrows) {
+        const pulse = Math.sin(this.time * 2 + arrow.userData.phase) * 0.3 + 0.7;
+        arrow.position.y = arrow.userData.baseY + Math.sin(this.time * 1.5 + arrow.userData.phase) * 0.15;
+        arrow.material.emissiveIntensity = 2 + pulse * 2;
+        arrow.material.opacity = 0.6 + pulse * 0.3;
+      }
+    }
+
     if (this.villageNPCs && player) {
       this.villageNPCs.update(deltaTime, this.time, player);
     }
@@ -1400,7 +1556,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
       this.commander.update(deltaTime, player.pos);
       this.bossHealthBar.setHealth(this.commander.health, this.commander.MAX_HEALTH);
       this.bossHealthBar.setPhase(this.commander.phase);
-
       if (this._playerAttackThisFrame) {
         const dist = this.commander.getPosition().distanceTo(player.pos);
         if (dist < 2.5) {
@@ -1416,9 +1571,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     this.minionHealthBar.update();
   }
 
-    // =========================================================
-  // MINIMAP — expose enemy positions for dots
-  // =========================================================
   getEnemyMarkers() {
     const out = [];
     if (this.grunts && this.grunts.grunts) {
@@ -1435,9 +1587,6 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
     return out;
   }
 
-  // =========================================================
-  // DISPOSE
-  // =========================================================
   dispose(outerScene = null) {
     if (this.villageNPCs) { this.villageNPCs.dispose(); this.villageNPCs = null; }
     if (this.commander) { this.commander.dispose(); this.commander = null; }
