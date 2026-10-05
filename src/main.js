@@ -13,6 +13,7 @@ import { Dialogue } from './ui/dialogue.js';
 import { endingAttack, endingLearn, endingSilence } from './player/endings.js';
 import { UIManager } from './ui/UIManager.js';
 import { createMainMenu } from './ui/MainMenu.js';
+import { MenuScene } from './ui/MenuScene.js';
 import { createHUD, updateHUD } from './ui/HUD.js';   // ← ADDED updateHUD
 import { createLoadingScreen, updateLoadingScreen } from './ui/LoadingScreen.js';
 
@@ -888,6 +889,12 @@ const mainMenuElement = createMainMenu(
   // PLAY
   () => {
     console.log('🎮 PLAY clicked');
+
+        // Hide the menu 3D scene
+    menuCanvas.style.display = 'none';
+    if (menuScene) {
+      menuScene.dispose();
+    }
     audioManager.playMusic('level_1_chiptune');
 
     uiManager.showScreen('loading');
@@ -949,6 +956,23 @@ const mainMenuElement = createMainMenu(
 );
 
 uiManager.registerScreen('main-menu', mainMenuElement);
+
+// ── Main Menu 3D Scene ──
+const menuCanvas = document.createElement('canvas');
+menuCanvas.id = 'menu-canvas';
+menuCanvas.style.cssText = `
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 5;
+  pointer-events: none;
+`;
+document.body.appendChild(menuCanvas);
+
+const menuScene = new MenuScene(menuCanvas);
+menuScene.start();
+
+uiManager.showScreen('main-menu');
 uiManager.showScreen('main-menu');
 
 // ---------- Vite HMR cleanup ----------

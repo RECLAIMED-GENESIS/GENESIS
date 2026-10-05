@@ -6,7 +6,8 @@ export function createMainMenu(onPlayClick, onCreditsClick) {
 
     container.innerHTML = `
         <div class="menu-content" style="
-            background: rgba(0, 0, 0, 0.85);
+            background: rgba(0, 0, 0, 0.55);
+            backdrop-filter: blur(4px);
             padding: 50px 70px;
             border-radius: 16px;
             text-align: center;
@@ -33,7 +34,7 @@ export function createMainMenu(onPlayClick, onCreditsClick) {
                 text-transform: uppercase;
                 opacity: 0.8;
             ">
-                Fight Your Way Into Existence
+                THE BEGINNING CHOSE HER
             </p>
             <button id="playBtn" style="
                 background: #00ffff;
