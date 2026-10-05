@@ -62,6 +62,20 @@ export class AudioManager {
     }
   }
 
+    pauseMusic() {
+    if (this.currentMusic) {
+      this.currentMusic.pause(this.currentMusicId);
+      console.log('🎵 Music paused');
+    }
+  }
+
+  resumeMusic() {
+    if (this.currentMusic) {
+      this.currentMusic.play(this.currentMusicId);
+      console.log('🎵 Music resumed');
+    }
+  }
+
   setMusicVolume(v) {
     this.musicVolume = Math.max(0, Math.min(1, v));
     if (this.currentMusic) this.currentMusic.volume(this.musicVolume);

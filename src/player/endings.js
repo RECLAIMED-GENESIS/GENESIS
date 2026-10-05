@@ -107,7 +107,6 @@ function showRestartButton() {
       btn.style.background = 'transparent';
     });
     btn.addEventListener('click', () => {
-      // Reload the page to restart from Level 1
       window.location.reload();
     });
     overlay.appendChild(btn);
@@ -127,6 +126,9 @@ function clearOverlay() {
 // Player tries to attack the Architect. White flash, then black.
 // ─────────────────────────────────────────────────────────────
 export async function endingAttack() {
+  // Pause music during the ending
+  if (window.__audioManager) window.__audioManager.pauseMusic();
+
   // White flash
   const flash = document.createElement('div');
   Object.assign(flash.style, {
@@ -165,6 +167,9 @@ export async function endingAttack() {
 // ENDING 2 — Learn (with a final destroy/become choice)
 // ─────────────────────────────────────────────────────────────
 export async function endingLearn(dialogue) {
+  // Pause music during the ending
+  if (window.__audioManager) window.__audioManager.pauseMusic();
+
   await fadeToBlack(1400);
 
   endingVoice('l3_ending_learn_become_1');
@@ -255,6 +260,9 @@ export async function endingLearn(dialogue) {
 // Player says nothing. The Architect accepts and leaves.
 // ─────────────────────────────────────────────────────────────
 export async function endingSilence() {
+  // Pause music during the ending
+  if (window.__audioManager) window.__audioManager.pauseMusic();
+
   await new Promise((r) => setTimeout(r, 1500));
 
   await fadeToBlack(1600);

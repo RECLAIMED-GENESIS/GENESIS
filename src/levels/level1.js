@@ -238,6 +238,7 @@ export class StreetLevel {
     const { Dialogue } = await import('../ui/dialogue.js');
     const dlg = new Dialogue();
     window.__dialogue = dlg;
+    if (window.__audioManager) window.__audioManager.pauseMusic();
 
     // Play the combined voice file
     if (window.__audioManager) {
@@ -246,17 +247,19 @@ export class StreetLevel {
 
     // Sync on-screen text to the audio timeline
     // (times are in ms — approximate match to the generated voice)
-    await dlg.say("...", 1200);
-    await dlg.say("Where... where am I?\nThis isn't home.", 3500);
-    await dlg.say("The air tastes strange.\nEverything feels... lighter.", 3500);
-    await dlg.say("And inside me... there's something moving.\nLike a heartbeat that isn't mine.", 4500);
-    await dlg.say("I can feel it. Power. Waiting.\nBut I don't know why it chose me.", 4500);
-
+   
+       await dlg.say("...", 800);
+    await dlg.say("Where... where am I?\nThis isn't home.", 3200);
+    await dlg.say("The air tastes strange.\nEverything feels... lighter.", 3000);
+    await dlg.say("And inside me... there's something moving.\nLike a heartbeat that isn't mine.", 4400);
+    await dlg.say("I can feel it. Power. Waiting.\nBut I don't know why it chose me.", 4900);
     // End dialogue
     dlg.hide();
     dlg.active = false;
     dlg.dispose();
     window.__dialogue = null;
+
+        if (window.__audioManager) window.__audioManager.resumeMusic();
 
     console.log('🎬 [L1] Intro complete — input unlocked');
 
@@ -369,6 +372,7 @@ export class StreetLevel {
     const { Dialogue } = await import('../ui/dialogue.js');
     const dlg = new Dialogue();
     window.__dialogue = dlg;
+    if (window.__audioManager) window.__audioManager.pauseMusic();
 
     // Pulse the artifact on Sorini's chest during dialogue
     const axiom = window.__axiom;
@@ -435,6 +439,8 @@ await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
 
     clearInterval(pulseInterval);
     if (axiom) axiom.setIntensity(0.4);
+
+    if (window.__audioManager) window.__audioManager.resumeMusic();
     dlg.hide();
     dlg.dispose();
     window.__dialogue = null;

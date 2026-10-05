@@ -1692,6 +1692,7 @@ export class ArchitectLevel {
     const d = this.dialogue;
     if (!d) return;
 
+        if (window.__audioManager) window.__audioManager.pauseMusic();
     try {
       // Voice helper — stops previous architect voice before playing
       const voice = (key) => {
@@ -1731,6 +1732,7 @@ export class ArchitectLevel {
     } catch (e) {
       console.warn('Dialogue error:', e);
     }
+    if (window.__audioManager) window.__audioManager.resumeMusic();
   }
 
   // ─────────────────────────────────────────────────────────

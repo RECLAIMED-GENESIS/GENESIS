@@ -525,6 +525,8 @@ this._buildHazardTiles();
         this._introDialogue = dlg;
         window.__dialogue = dlg;
 
+                if (window.__audioManager) window.__audioManager.pauseMusic();
+
         // Stop any previously playing voice before starting
         const voice = (key) => {
             if (!window.__audioManager) return;
@@ -559,6 +561,7 @@ this._buildHazardTiles();
             '"Then the Enforcer will take it by force."\n\n"Minions — unleash."',
             5200, 'ENFORCER'
         );
+                if (window.__audioManager) window.__audioManager.resumeMusic();
 
         // Hide dialogue, start combat
         dlg.hide();
