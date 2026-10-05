@@ -264,6 +264,72 @@ export class StreetLevel {
     const { Dialogue } = await import('../ui/dialogue.js');
     const dlg = new Dialogue();
     window.__dialogue = dlg;
+
+        // ── Cinematic intro shots ──
+    const p = window.__player.pos;
+    const px = p.x;
+    const py = p.y;
+    const pz = p.z;
+
+    if (window.__cinematicCamera) {
+      window.__cinematicCamera.play([
+        // Shot 1 — High wide drone of the village
+        {
+          pos: [px + 15, py + 25, pz + 30],
+          look: [px, py, pz - 30],
+          duration: 2500,
+          transition: 0,
+        },
+        // Shot 2 — Sweep toward the crashed ship (24, 24)
+        {
+          pos: [30, 8, 30],
+          look: [24, 1.5, 24],
+          duration: 2000,
+          transition: 1200,
+          ease: 'in-out',
+        },
+        // Shot 3 — Fly toward Sorini from down the path
+        {
+          pos: [px + 2, py + 3, pz - 30],
+          look: [px, py + 1.2, pz],
+          duration: 2500,
+          transition: 1500,
+          ease: 'in-out',
+        },
+        // Shot 4 — Behind Sorini (gameplay angle)
+        {
+          pos: [px - Math.sin(window.__player.cameraYaw) * 5.5, py + 2.8, pz - Math.cos(window.__player.cameraYaw) * 5.5],
+          look: [px, py + 1.2, pz],
+          duration: 2000,
+          transition: 1500,
+          ease: 'in-out',
+        },
+        // Shot 5 — Over the shoulder looking down the path
+        {
+          pos: [px + 0.5, py + 2.2, pz + 2.5],
+          look: [px, py + 1.0, pz - 15],
+          duration: 3000,
+          transition: 1500,
+          ease: 'in-out',
+        },
+        // Shot 6 — Front view of Sorini
+        {
+          pos: [px - Math.sin(window.__player.yaw) * 4, py + 1.8, pz - Math.cos(window.__player.yaw) * 4],
+          look: [px, py + 1.3, pz],
+          duration: 3500,
+          transition: 1500,
+          ease: 'in-out',
+        },
+        // Shot 7 — Return to gameplay camera
+        {
+          pos: [px - Math.sin(window.__player.cameraYaw) * 5.5, py + 2.8, pz - Math.cos(window.__player.cameraYaw) * 5.5],
+          look: [px, py + 1.2, pz],
+          duration: 2000,
+          transition: 1500,
+          ease: 'in-out',
+        },
+      ]);
+    }
     if (window.__audioManager) window.__audioManager.pauseMusic();
 
     if (window.__audioManager) {
@@ -280,6 +346,7 @@ export class StreetLevel {
     dlg.active = false;
     dlg.dispose();
     window.__dialogue = null;
+        if (window.__cinematicCamera) window.__cinematicCamera.stop();
 
     if (window.__audioManager) window.__audioManager.resumeMusic();
 
@@ -407,6 +474,73 @@ export class StreetLevel {
     const { Dialogue } = await import('../ui/dialogue.js');
     const dlg = new Dialogue();
     window.__dialogue = dlg;
+
+        // ── Cinematic shots for the Axiom reveal ──
+    const px = this.pathX(-58);
+    const pz = -58;   // shrine is here — but Axiom plays wherever the Commander died
+    // Use the actual player position
+    const playerPos = window.__player.pos;
+
+    if (window.__cinematicCamera) {
+      window.__cinematicCamera.play([
+        // Shot 1 — Wide establishing shot of the arena
+        {
+          pos: [playerPos.x + 6, playerPos.y + 8, playerPos.z + 6],
+          look: [playerPos.x, playerPos.y + 1, playerPos.z],
+          duration: 2500,
+          transition: 0,
+        },
+        // Shot 2 — Front view of Sorini (see her chest glow)
+                // Shot 2 — Front view of Sorini (see her chest glow)
+        {
+          pos: [playerPos.x - Math.sin(window.__player.yaw) * 4.5, playerPos.y + 1.8, playerPos.z - Math.cos(window.__player.yaw) * 4.5],
+          look: [playerPos.x, playerPos.y + 1.2, playerPos.z],
+          duration: 5000,
+          transition: 1200,
+          ease: 'in-out',
+        },
+        // Shot 3 — Close-up on her chest (Axiom view)
+        {
+          pos: [playerPos.x + 1.8, playerPos.y + 1.4, playerPos.z + 0.5],
+          look: [playerPos.x, playerPos.y + 1.1, playerPos.z],
+          duration: 5500,
+          transition: 1000,
+          ease: 'in-out',
+        },
+        // Shot 4 — Hero low-angle wide shot
+        {
+          pos: [playerPos.x + 5, playerPos.y + 0.6, playerPos.z + 5],
+          look: [playerPos.x, playerPos.y + 1.5, playerPos.z],
+          duration: 8500,
+          transition: 1500,
+          ease: 'in-out',
+        },
+        // Shot 5 — Pull back as she absorbs it
+        {
+          pos: [playerPos.x, playerPos.y + 3, playerPos.z + 8],
+          look: [playerPos.x, playerPos.y + 1, playerPos.z],
+          duration: 12000,
+          transition: 2500,
+          ease: 'in-out',
+        },
+        // Shot 6 — 3/4 side view as Axiom finishes
+        {
+          pos: [playerPos.x + 3, playerPos.y + 2, playerPos.z - 3],
+          look: [playerPos.x, playerPos.y + 1.2, playerPos.z],
+          duration: 12000,
+          transition: 1500,
+          ease: 'in-out',
+        },
+        // Shot 7 — Return to gameplay camera
+        {
+          pos: [playerPos.x, playerPos.y + 2.8, playerPos.z + 5.5],
+          look: [playerPos.x, playerPos.y + 1.2, playerPos.z],
+          duration: 3800,
+          transition: 1500,
+          ease: 'in-out',
+        },
+      ]);
+    }
     if (window.__audioManager) window.__audioManager.pauseMusic();
 
     const axiom = window.__axiom;
@@ -470,6 +604,8 @@ export class StreetLevel {
     voice('l1_axiom_9');
     await dlg.say("Walk into the light. I will guide you.", 3600, "AXIOM");
 
+
+        if (window.__cinematicCamera) window.__cinematicCamera.stop();
     clearInterval(pulseInterval);
     if (axiom) axiom.setIntensity(0.4);
 

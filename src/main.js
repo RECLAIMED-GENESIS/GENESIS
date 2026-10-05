@@ -14,6 +14,7 @@ import { endingAttack, endingLearn, endingSilence } from './player/endings.js';
 import { UIManager } from './ui/UIManager.js';
 import { createMainMenu } from './ui/MainMenu.js';
 import { MenuScene } from './ui/MenuScene.js';
+import { CinematicCamera } from './ui/CinematicCamera.js';
 import { createHUD, updateHUD } from './ui/HUD.js';   // ← ADDED updateHUD
 import { createLoadingScreen, updateLoadingScreen } from './ui/LoadingScreen.js';
 
@@ -40,6 +41,9 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1200);
 camera.rotation.order = 'YXZ';
 window.__camera = camera;
+
+const cinematicCamera = new CinematicCamera();
+window.__cinematicCamera = cinematicCamera;
 
 // ---------- audio ----------
 const audioManager = new AudioManager();
@@ -68,6 +72,7 @@ const player = {
   pos: new THREE.Vector3(0, 0, 55),
   vel: new THREE.Vector3(),
   yaw: Math.PI,
+  cameraYaw: Math.PI,
   pitch: 0,
   grounded: false,
   EYE: 1.7,
@@ -458,7 +463,7 @@ document.addEventListener('pointerlockchange', () => {
 
 addEventListener('mousemove', e => {
   if (!locked) return;
-  player.yaw -= e.movementX * 0.0022;
+  player.cameraYaw -= e.movementX * 0.0022;
   player.pitch = Math.max(-1.4, Math.min(1.4, player.pitch - e.movementY * 0.0022));
 });
 
@@ -578,6 +583,7 @@ function switchLevel(n) {
   player.vel.set(0, 0, 0);
   player.yaw   = (typeof level.spawnYaw === 'number') ? level.spawnYaw : Math.PI;
   player.pitch = 0;
+    player.cameraYaw = player.yaw;   // start camera behind her facing forward
 
   // Axiom Dash unlocks from Level 2 onward
 dash.enabled = (n >= 2);
@@ -624,20 +630,40 @@ function stepPlayer(dt) {
   const isSprint = keys.ShiftLeft || keys.ShiftRight;
   const sp = isSprint ? SPRINT : SPEED;
 
+  // ── Rotation ──
+  // A/D rotate Sorini ONLY (camera stays put unless mouse-look)
   if (!attackLock) {
     if (keys.KeyA) player.yaw += TURN_SPEED * dt;
     if (keys.KeyD) player.yaw -= TURN_SPEED * dt;
   }
 
-  const f = attackLock ? 0 : (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
+  // S turns her 180° smoothly (over ~0.35s)
+  const fwd = keys.KeyW ? 1 : 0;
+  const back = keys.KeyS ? 1 : 0;
+
+  if (back && !fwd && !attackLock) {
+    // Target yaw: 180° from current
+    const targetYaw = player._sTargetYaw !== undefined
+      ? player._sTargetYaw
+      : (player._sTargetYaw = player.yaw + Math.PI);
+    const diff = ((targetYaw - player.yaw + Math.PI) % (2 * Math.PI)) - Math.PI;
+    player.yaw += diff * Math.min(1, dt * 8);
+  } else {
+    player._sTargetYaw = undefined;   // reset when S released
+  }
+
+  // ── Movement ──
+  // W or S both move her FORWARD in her facing direction
+  // (S already flipped her yaw, so she walks toward where she's facing)
+  const f = attackLock ? 0 : (fwd || back ? 1 : 0);
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
   player.vel.x = sin * f * sp;
   player.vel.z = cos * f * sp;
 
   player.vel.y -= GRAV * dt;
-
   player.pos.addScaledVector(player.vel, dt);
 
+  // ── Ground snap ──
   let g = 0;
   try {
     if (level && typeof level.getSurfaceHeight === 'function') g = level.getSurfaceHeight(player.pos.x, player.pos.z);
@@ -647,6 +673,7 @@ function stepPlayer(dt) {
   if (player.pos.y <= g) { player.pos.y = g; player.vel.y = 0; player.grounded = true; }
   else player.grounded = false;
 
+  // ── Colliders ──
   const colliders = (level && Array.isArray(level.colliders)) ? level.colliders : [];
   const pMin = new THREE.Vector3(player.pos.x - player.R, player.pos.y, player.pos.z - player.R);
   const pMax = new THREE.Vector3(player.pos.x + player.R, player.pos.y + player.H, player.pos.z + player.R);
@@ -659,7 +686,7 @@ function stepPlayer(dt) {
     if (ox < oz) player.pos.x += (pMax.x - c.min.x < c.max.x - pMin.x) ? -ox : ox;
     else         player.pos.z += (pMax.z - c.min.z < c.max.z - pMin.z) ? -oz : oz;
     pMin.set(player.pos.x - player.R, player.pos.y, player.pos.z - player.R);
-    pMax.set(player.pos.x + player.R, player.pos.y + player.H, player.pos.z + player.R);
+    pMax.set(player.pos.x + player.R, player.pos.y, player.pos.z + player.R);
   }
 
   if (player.pos.y < -60) {
@@ -706,13 +733,39 @@ function tick() {
   const CAM_DIST   = 5.5;
   const CAM_HEIGHT = 2.8;
   const CAM_LOOK_UP = 1.2;
-  const camOffX = -Math.sin(player.yaw) * CAM_DIST;
-  const camOffZ = -Math.cos(player.yaw) * CAM_DIST;
+   const camOffX = -Math.sin(player.cameraYaw) * CAM_DIST;
+  const camOffZ = -Math.cos(player.cameraYaw) * CAM_DIST;
   camera.position.set(
     player.pos.x + camOffX,
     player.pos.y + CAM_HEIGHT,
     player.pos.z + camOffZ
   );
+
+    // ── Cinematic camera takes over during dialogue ──
+  if (cinematicCamera.active) {
+    cinematicCamera.update(dt);
+    cinematicCamera.applyTo(camera);
+  } else {
+    // Normal third-person camera
+    const CAM_DIST   = 5.5;
+    const CAM_HEIGHT = 2.8;
+    const CAM_LOOK_UP = 1.2;
+    const camOffX = -Math.sin(player.cameraYaw) * CAM_DIST;
+    const camOffZ = -Math.cos(player.cameraYaw) * CAM_DIST;
+    camera.position.set(
+      player.pos.x + camOffX,
+      player.pos.y + CAM_HEIGHT,
+      player.pos.z + camOffZ
+    );
+    if (level && typeof level.getSurfaceHeight === 'function') {
+      const camGround = level.getSurfaceHeight(camera.position.x, camera.position.z) + 0.5;
+      if (camera.position.y < camGround) camera.position.y = camGround;
+    }
+    camera.lookAt(player.pos.x, player.pos.y + CAM_LOOK_UP, player.pos.z);
+  }
+
+  soriniGroup.position.set(player.pos.x, player.pos.y, player.pos.z);
+  soriniGroup.rotation.y = player.yaw;
   if (level && typeof level.getSurfaceHeight === 'function') {
     const camGround = level.getSurfaceHeight(camera.position.x, camera.position.z) + 0.5;
     if (camera.position.y < camGround) camera.position.y = camGround;
