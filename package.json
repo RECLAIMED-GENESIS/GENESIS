@@ -9,10 +9,11 @@
     "preview": "vite preview"
   },
   "devDependencies": {
-    "vite": "^8.2.2"
+    "vite": "^5.4.21"
   },
   "dependencies": {
     "cannon-es": "^0.20.0",
+    "howler": "^2.2.4",
     "three": "^0.186.0"
   }
 }

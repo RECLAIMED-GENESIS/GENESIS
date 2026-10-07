@@ -1,34 +1,140 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { StreetEnemies } from '../player/streetEnemies.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-export class AlienLevel {
+import {
+    riverVertexShader,
+    riverFragmentShader
+} from '../shaders/river.js';
 
-    constructor(sceneOrRenderer = null, rendererMaybe = null) {
+// Street light colour (bulb glow, halo and light pools)
+//   cyan:                 0x00e5ff
+//   white:                0xffffff
+//   white with cyan tint: 0xe0f7ff
+const STREET_LIGHT_COLOR = 0x00e5ff;
 
-        // =========================================================
-        // SCENE — supports both `new AlienLevel(scene, renderer)` (main.js)
-        // and legacy `new AlienLevel()` (standalone)
-        // =========================================================
-        let outerScene = null;
-        if (sceneOrRenderer && sceneOrRenderer.isScene) outerScene = sceneOrRenderer;
-        // (renderer param ignored — level2 doesn't need PMREM)
-        if (outerScene) {
-            this.scene = outerScene;
-            this.scene.background = new THREE.Color(0x09051c);
-            this.scene.fog = new THREE.Fog(0x10082a, 55, 270);
-        } else {
-            this.scene = new THREE.Scene();
-            this.scene.background = new THREE.Color(0x09051c);
-            this.scene.fog = new THREE.Fog(0x10082a, 55, 270);
+// Ruined building shader patch (see applyRuinShader)
+const RUIN_SHADER_COMMON = /* glsl */ `
+    varying vec3 vRuinWorld;
+    varying vec3 vRuinNormal;
+
+    uniform float uRuinTime;
+    uniform float uGrimeHeight;
+    uniform float uCrack;
+    uniform vec3 uCrackColor;
+    uniform vec2 uPane;
+    uniform vec2 uPaneOffset;
+    uniform float uDead;
+    uniform float uFlicker;
+
+    float ruinHash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+
+    float ruinNoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(
+            mix(ruinHash(i), ruinHash(i + vec2(1.0, 0.0)), f.x),
+            mix(ruinHash(i + vec2(0.0, 1.0)), ruinHash(i + vec2(1.0, 1.0)), f.x),
+            f.y
+        );
+    }
+
+    // World position on the surface's dominant plane; walls keep
+    // world y as their second axis so streaks run downward
+    vec2 ruinPlane() {
+        vec3 n = abs(vRuinNormal);
+        if (n.y > n.x && n.y > n.z) return vRuinWorld.xz;
+        return n.x > n.z ? vRuinWorld.zy : vRuinWorld.xy;
+    }
+
+    // Voronoi cell edges = crack network
+    float ruinCracks(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        float d1 = 8.0;
+        float d2 = 8.0;
+        for (int y = -1; y <= 1; y++) {
+            for (int x = -1; x <= 1; x++) {
+                vec2 g = vec2(float(x), float(y));
+                vec2 o = vec2(ruinHash(i + g), ruinHash(i + g + 17.3));
+                float d = length(g + o - f);
+                if (d < d1) { d2 = d1; d1 = d; }
+                else if (d < d2) { d2 = d; }
+            }
         }
+        float e = d2 - d1;
+        return 1.0 - smoothstep(0.0, fwidth(e) + 0.02, e);
+    }
+`;
 
-        // Contract expected by main.js — must exist before physics runs
-        this.name = 'LEVEL 2 — NEON STREET';
-        this.colliders = [];
-        this.spawn = new THREE.Vector3(0, 0.1, -120);
-        this.spawnYaw = 0;   // face down the street (toward +z, where the enemies are)
-        this.root = null; // will alias to this.level after creation
+const RUIN_SHADER_GRIME = /* glsl */ `
+    #ifdef RUIN_GRIME
+    {
+        vec2 rp = ruinPlane();
+        float rise = smoothstep(0.0, uGrimeHeight, vRuinWorld.y);
+        float streak = ruinNoise(vec2(rp.x * 1.6, rp.y * 0.12));
+        float blotch = ruinNoise(rp * 0.35 + 7.0);
+        diffuseColor.rgb *=
+            mix(0.45, 1.0, rise) *
+            mix(0.72, 1.0, streak) *
+            mix(0.8, 1.0, blotch);
+    }
+    #endif
+`;
+
+const RUIN_SHADER_EMISSIVE = /* glsl */ `
+    #ifdef RUIN_WINDOWS
+    {
+        vec2 cell = floor((ruinPlane() - uPaneOffset) / uPane);
+        float h = ruinHash(cell + 0.37);
+        float lit = step(uDead, h);
+        float flickering = step(1.0 - uFlicker, h);
+        float blink = step(0.35, ruinHash(vec2(floor(uRuinTime * 12.0 + h * 50.0), h)));
+        totalEmissiveRadiance *=
+            lit *
+            mix(1.0, blink, flickering) *
+            (0.55 + 0.45 * ruinHash(cell + 9.1));
+        diffuseColor.rgb *= mix(0.35, 1.0, lit);
+    }
+    #endif
+
+    #ifdef RUIN_CRACKS
+    {
+        vec2 rp = ruinPlane();
+        float crackPatch = smoothstep(0.74, 0.82, ruinNoise(rp * 0.1 + 3.1));
+        float c = ruinCracks(rp * 0.9) * crackPatch;
+        c *= smoothstep(0.4, 0.6, ruinNoise(rp * 1.7 + 11.0));
+        float id = ruinHash(floor(rp * 0.12));
+        float pulse = 0.55 + 0.45 * sin(uRuinTime * 2.3 + id * 40.0);
+        pulse *= step(0.08, ruinHash(vec2(floor(uRuinTime * 9.0), id)));
+        totalEmissiveRadiance += uCrackColor * c * uCrack * pulse;
+        diffuseColor.rgb *= 1.0 - c * 0.6;
+    }
+    #endif
+`;
+
+export class Level2 {
+
+    constructor() {
+
+        // =========================================================
+        // SCENE
+        // =========================================================
+
+        this.scene = new THREE.Scene();
+
+        this.scene.background =
+            new THREE.Color(0x09051c);
+
+        this.scene.fog =
+            new THREE.Fog(
+                0x10082a,
+                55,
+                270
+            );
 
         this.level =
             new THREE.Group();
@@ -36,7 +142,6 @@ export class AlienLevel {
         this.scene.add(
             this.level
         );
-        this.root = this.level;
 
         const textureLoader =
             new THREE.TextureLoader();
@@ -44,19 +149,11 @@ export class AlienLevel {
         // Banner texture for the street lights
         this.bannerTexture =
             textureLoader.load(
-                '/assets/textures/burner.png'
+                './assets/textures/burner.png'
             );
 
         this.bannerTexture.colorSpace =
             THREE.SRGBColorSpace;
-
-        // Living-scene tracking arrays: every point light pushed here
-        // gets a subtle organic flicker in update(); every banner
-        // sways gently; the drift particles are the ambient "living
-        // air" (embers/dust) moving through the whole street.
-        this.livingLights = [];
-        this.banners = [];
-        this.driftParticles = null;
 
 
         // =========================================================
@@ -64,8 +161,8 @@ export class AlienLevel {
         // =========================================================
 
         const skyTexture =
-            textureLoader.load(
-                '/assets/textures/skybox1.png'
+            this.loadTexture(
+                './assets/textures/skybox1.png'
             );
 
         skyTexture.colorSpace =
@@ -95,11 +192,13 @@ export class AlienLevel {
         // LIGHTING
         // =========================================================
 
+        // Lowered from 2.2 so the sunset and street light
+        // pools stand out
         const ambient =
             new THREE.HemisphereLight(
                 0x756fa8,
                 0x171321,
-                2.2
+                1.6
             );
 
         this.level.add(
@@ -107,19 +206,62 @@ export class AlienLevel {
         );
 
 
-        const sunset =
-            new THREE.DirectionalLight(
-                0xffd6cf,
-                1.7
+        // ---------------------------------------------------------
+        // SUNSET SUN
+        // Matches the sun painted in skybox1.png: pixel (998, 431)
+        // of 1774 x 887 = 2.5 degrees above the horizon, towards
+        // (0.92, -0.38) in x/z, i.e. setting over the sea.
+        // Raised to 10 degrees so shadows are long (about 5.7x an
+        // object's height) without putting the whole road in shadow.
+        // ---------------------------------------------------------
+
+        const SUN_ELEVATION = THREE.MathUtils.degToRad(10);
+        const SUN_AZIMUTH = Math.atan2(-0.3844, 0.9221);
+        const SUN_DISTANCE = 250;
+
+        this.sunDirection =
+            new THREE.Vector3(
+                Math.cos(SUN_ELEVATION) * Math.cos(SUN_AZIMUTH),
+                Math.sin(SUN_ELEVATION),
+                Math.cos(SUN_ELEVATION) * Math.sin(SUN_AZIMUTH)
             );
 
-        sunset.position.set(
-            -80,
-            100,
-            -40
+        const sunset =
+            new THREE.DirectionalLight(
+                0xffb46b,
+                2.8
+            );
+
+        // Aim at the middle of the road
+        sunset.target.position.set(
+            0,
+            0,
+            -10
         );
 
+        this.level.add(
+            sunset.target
+        );
+
+        sunset.position
+            .copy(this.sunDirection)
+            .multiplyScalar(SUN_DISTANCE)
+            .add(sunset.target.position);
+
         sunset.castShadow = true;
+
+        // Low sun: bias stops shadow speckle on grazing surfaces
+        sunset.shadow.bias =
+            -0.0005;
+
+        sunset.shadow.normalBias =
+            0.05;
+
+        sunset.shadow.camera.near =
+            1;
+
+        sunset.shadow.camera.far =
+            600;
 
         sunset.shadow.mapSize.width =
             2048;
@@ -127,19 +269,19 @@ export class AlienLevel {
         sunset.shadow.mapSize.height =
             2048;
 
+        // Shadow area fitted to the low sun: wide across the
+        // road's length, shorter vertically
         sunset.shadow.camera.left =
-            -120;
+            -150;
 
         sunset.shadow.camera.right =
-            120;
+            150;
 
         sunset.shadow.camera.top =
-            120;
+            70;
 
         sunset.shadow.camera.bottom =
-            -120;
-
-        sunset.shadow.camera.updateProjectionMatrix();
+            -70;
 
         this.level.add(
             sunset
@@ -163,8 +305,6 @@ export class AlienLevel {
             cyanLight
         );
 
-        this._registerLiving(cyanLight);
-
 
         const purpleLight =
             new THREE.PointLight(
@@ -183,16 +323,14 @@ export class AlienLevel {
             purpleLight
         );
 
-        this._registerLiving(purpleLight);
-
 
         // =========================================================
         // ROAD
         // =========================================================
 
         const roadTexture =
-            textureLoader.load(
-                '/assets/textures/Road.png'
+            this.loadTexture(
+                './assets/textures/Road.png'
             );
 
         roadTexture.wrapS =
@@ -242,7 +380,7 @@ export class AlienLevel {
 
         const groundTexture =
             textureLoader.load(
-                '/assets/textures/ground.png'
+                './assets/textures/ground.png'
             );
 
         groundTexture.wrapS =
@@ -251,8 +389,15 @@ export class AlienLevel {
         groundTexture.wrapT =
             THREE.RepeatWrapping;
 
+        // Ground stops at the road edge on the sea side (x 8)
+        // so the lowered sea and the cliffs are not covered.
+        // Repeat scaled to keep the same texture density.
+        const GROUND_X_MIN = -300;
+        const GROUND_X_MAX = 8;
+        const GROUND_WIDTH = GROUND_X_MAX - GROUND_X_MIN;
+
         groundTexture.repeat.set(
-            80,
+            80 * GROUND_WIDTH / 600,
             80
         );
 
@@ -262,7 +407,7 @@ export class AlienLevel {
         const ground =
             new THREE.Mesh(
                 new THREE.PlaneGeometry(
-                    600,
+                    GROUND_WIDTH,
                     600
                 ),
                 new THREE.MeshStandardMaterial({
@@ -277,7 +422,7 @@ export class AlienLevel {
             -Math.PI / 2;
 
         ground.position.set(
-            0,
+            (GROUND_X_MIN + GROUND_X_MAX) / 2,
             -0.01,
             0
         );
@@ -312,6 +457,9 @@ export class AlienLevel {
             roadNeon
         );
 
+        this.createCoastline();
+
+        this.createRiver();
 
         // =========================================================
         // CENTER ROAD MARKINGS
@@ -348,8 +496,15 @@ export class AlienLevel {
         this.createStreetLights();
 
         // =========================================================
+        // RUINED CITY MATERIALS
+        // Shared by the five -X side buildings
+        // =========================================================
+
+        this.createRuinMaterials();
+
+        // =========================================================
         // CITY BUILDING #1
-        // LEFT
+        // right
         // =========================================================
 
         this.createParkingBuilding(
@@ -360,54 +515,30 @@ export class AlienLevel {
 
         // =========================================================
         // CITY BUILDING #2
-        // RIGHT
+        // Left-comes after stacked building with thinga attached to it 
         // =========================================================
 
         this.createOrganicBuilding(
-            24,
-            -47
-        );
-
-
-        // =========================================================
-        // CITY BUILDING #3
-        // RIGHT SIDE
-        // ALONG THE ROAD
-        // =========================================================
-
-        this.createCubeBuilding(
-            24,
-            -15
+            -24,
+            -117
         );
 
 
         // =========================================================
         // CITY BUILDING #4
-        // LEFT SIDE
+        // right SIDE-comes after parking building 
         // CANTILEVERED GLASS CLUSTER
         // =========================================================
 
         this.createGlassClusterBuilding(
             -24,
-            -47
-        );
-
-
-        // =========================================================
-        // CITY BUILDING #5
-        // RIGHT SIDE
-        // STACKED RING TOWER
-        // =========================================================
-
-        this.createRingTowerBuilding(
-            24,
-            -79
+            -44
         );
 
 
         // =========================================================
         // CITY BUILDING #6
-        // LEFT SIDE
+        // right SIDE
         // GLASS DOME
         // =========================================================
 
@@ -425,39 +556,17 @@ export class AlienLevel {
         // =========================================================
 
         this.createTwinSpireGateway(
-            30
+            20
         );
 
 
         // =========================================================
-        // END OF CITY
-        // =========================================================
-        this.createCityBackground();
-
-        this.createBossArea(
-            125
-        );
-
-
-        // =========================================================
-        // PORTAL
+        // DEFORESTATION BACKGROUND
+        // Behind the buildings on the -X side
         // =========================================================
 
-        this.createPortal(
-            0,
-            5,
-            145
-        );
+        this.createDeforestation();
 
-
-        // =========================================================
-        // ATMOSPHERE
-        // Drifting embers/dust through the whole street corridor -
-        // this is the biggest single fix for a scene that otherwise
-        // has zero moving air.
-        // =========================================================
-
-        this.createAtmosphere();
 
 
         // =========================================================
@@ -480,77 +589,6 @@ export class AlienLevel {
                 }
             }
         );
-
-        // =========================================================
-        // COLLIDERS — AABB boxes for buildings / solid props
-        // This fixes "level.colliders is undefined" and gives the
-        // player something to collide against on the neon street.
-        // =========================================================
-        try { this._buildColliders(); } catch (e) { console.warn('AlienLevel collider build failed', e); }
-
-        // ── Street enemies, waves, health bar, portal ──────────
-        this.streetEnemies = new StreetEnemies(
-          this.level,
-          () => { if (typeof window.__switchLevel === 'function') window.__switchLevel(3); }
-        );
-
-        // Spawn is already set — ensure it sits on flat ground
-        if (typeof this.getSurfaceHeight === 'function') {
-            this.spawn.y = this.getSurfaceHeight(this.spawn.x, this.spawn.z) + 0.1;
-        }
-    }
-
-    _buildColliders() {
-        // Buildings are placed at known world positions — create a Box3
-        // a little larger than the mesh so the player can't phase through.
-        // These are conservative; the visual mesh is a bit smaller inside.
-        const defs = [
-            { x: -24, z: -79, w: 26, d: 30, h: 14 }, // parking building
-            { x:  24, z: -47, w: 26, d: 24, h: 19 }, // organic building
-            { x:  24, z: -15, w: 14, d: 14, h: 16 }, // cube building
-            { x: -24, z: -47, w: 18, d: 18, h: 18 }, // glass cluster
-            { x:  24, z: -79, w: 16, d: 16, h: 20 }, // ring tower
-            { x: -24, z: -15, w: 18, d: 18, h: 16 }, // dome
-            // Gateway twin spires straddle the road at z~30
-            { x: -18, z: 30, w: 10, d: 10, h: 22 },
-            { x:  18, z: 30, w: 10, d: 10, h: 22 },
-        ];
-        this.colliders = [];
-        for (const b of defs) {
-            const min = new THREE.Vector3(b.x - b.w / 2, 0, b.z - b.d / 2);
-            const max = new THREE.Vector3(b.x + b.w / 2, b.h, b.z + b.d / 2);
-            this.colliders.push(new THREE.Box3(min, max));
-        }
-    }
-
-    // main.js expects getSurfaceHeight(x,z) — street is flat at y=0
-    getSurfaceHeight(x, z) { return 0; }
-    groundHeight(x, z, feetY = 0) { return 0; }
-    terrainHeight(x, z) { return 0; }
-
-
-    // =============================================================
-    // REGISTER LIVING LIGHT
-    // Stores a light's base intensity plus a randomized flicker
-    // phase/speed/amplitude so update() can make it breathe subtly
-    // instead of sitting at a dead-flat value all game long.
-    // =============================================================
-
-    _registerLiving(light, options = {}) {
-
-        light.userData.baseIntensity =
-            light.intensity;
-
-        light.userData.flickerAmp =
-            options.amp !== undefined ? options.amp : 0.28;
-
-        light.userData.flickerSpeed =
-            options.speed !== undefined ? options.speed : (1.2 + Math.random() * 2.6);
-
-        light.userData.flickerPhase =
-            Math.random() * Math.PI * 2;
-
-        this.livingLights.push(light);
     }
 
 
@@ -583,6 +621,744 @@ export class AlienLevel {
             line
         );
     }
+
+// =============================================================
+// SEA-SIDE COASTLINE
+// Rocky cliffs between the road edge (x 8) and the sea, loose
+// boulders in the water, a shore-distance map for the surf
+// foam, and an invisible barrier where the old wall stood.
+// =============================================================
+
+createCoastline() {
+
+    // ---------------------------------------------------------
+    // LAYOUT
+    // ---------------------------------------------------------
+    // Road top = y 0, road edge = x 8
+    // Cliff top sits just below road level, the sea is 6 lower.
+    // Land (cliff top) is:
+    //   - a strip from the road edge out to about x 12
+    //   - a headland under the Twin Spire Gateway plaza
+    //     (plaza x 11.5 to 36.5, z 4.5 to 95.5)
+    //   - a ledge under the poster (x 15, z -16 to 14)
+
+    const coast = {
+        seaLevel: -6,
+        topY: -0.05,          // cliff top, just under the road
+        floorY: -9.5,         // rock floor, under the water
+        cliffRun: 3.5,        // metres the face takes to drop
+        xMin: 8,              // never build over the road
+        xMax: 52,
+        zMin: -300,
+        zMax: 300
+    };
+
+    this.coast = coast;
+    this.seaLevel = coast.seaLevel;
+
+
+    // ---------------------------------------------------------
+    // SHARED ROCK MATERIAL
+    // Dark, rough, faceted. Colour comes from vertex colours:
+    // darker and wet near the water, lighter on top.
+    // ---------------------------------------------------------
+
+    const rockMaterial =
+        new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.96,
+            metalness: 0.0,
+            flatShading: true
+        });
+
+    this.rockMaterial = rockMaterial;
+
+
+    this.createCliffs(coast, rockMaterial);
+
+    const boulders =
+        this.createBoulders(coast, rockMaterial);
+
+    this.createShoreDistanceMap(coast, boulders);
+
+    this.createSeaBarrier();
+}
+
+
+// -------------------------------------------------------------
+// SMALL DETERMINISTIC NOISE (same rocks every time)
+// -------------------------------------------------------------
+
+coastHash(x, y) {
+
+    let h =
+        Math.imul(x | 0, 374761393) ^
+        Math.imul(y | 0, 668265263);
+
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    h ^= h >>> 16;
+
+    return (h >>> 0) / 4294967295;
+}
+
+coastNoise(x, y) {
+
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+
+    let fx = x - xi;
+    let fy = y - yi;
+
+    fx = fx * fx * (3 - 2 * fx);
+    fy = fy * fy * (3 - 2 * fy);
+
+    const a = this.coastHash(xi, yi);
+    const b = this.coastHash(xi + 1, yi);
+    const c = this.coastHash(xi, yi + 1);
+    const d = this.coastHash(xi + 1, yi + 1);
+
+    return (
+        a +
+        (b - a) * fx +
+        (c - a) * fy +
+        (a - b - c + d) * fx * fy
+    );
+}
+
+// 0..1 fractal noise
+coastFbm(x, y, octaves = 4) {
+
+    let total = 0;
+    let amplitude = 0.5;
+    let frequency = 1;
+    let norm = 0;
+
+    for (let i = 0; i < octaves; i++) {
+        total += this.coastNoise(x * frequency + i * 17.3, y * frequency - i * 9.1) * amplitude;
+        norm += amplitude;
+        amplitude *= 0.5;
+        frequency *= 2.03;
+    }
+
+    return total / norm;
+}
+
+// Seeded random for boulder placement
+coastRandom(seed) {
+
+    let s = seed >>> 0;
+
+    return () => {
+        s = (s + 0x6D2B79F5) >>> 0;
+        let t = s;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+
+// -------------------------------------------------------------
+// DISTANCE OUTSIDE THE LAND (<= 0 means on the cliff top)
+// -------------------------------------------------------------
+
+coastLandDistance(x, z) {
+
+    // Uneven cliff edge along the road
+    const edgeNoise =
+        (this.coastFbm(z * 0.06, 3.7, 3) - 0.5) * 2.4;
+
+    const strip =
+        x - (12 + edgeNoise);
+
+    // Box distance helper
+    const box = (x0, x1, z0, z1) => {
+        const dx = Math.max(x0 - x, 0, x - x1);
+        const dz = Math.max(z0 - z, 0, z - z1);
+        const outside = Math.hypot(dx, dz);
+        const inside = Math.min(0, Math.max(x0 - x, x - x1, z0 - z, z - z1));
+        return outside + inside;
+    };
+
+    const wobble =
+        (this.coastFbm(x * 0.09, z * 0.09, 3) - 0.5) * 2.0;
+
+    // Headland under the gateway plaza (always >= 1 m beyond it)
+    const headland =
+        box(8, 38.5, 2.5, 97.5) - wobble * 0.5;
+
+    // Ledge under the poster
+    const ledge =
+        box(8, 17.5, -18, 16) - wobble * 0.4;
+
+    return Math.min(strip, headland, ledge);
+}
+
+
+// -------------------------------------------------------------
+// ROCK HEIGHT AT (x, z)
+// -------------------------------------------------------------
+
+coastHeight(x, z) {
+
+    const c = this.coast;
+
+    const d = this.coastLandDistance(x, z);
+
+    // Cliff top: slightly rough, never above the road
+    if (d <= 0) {
+        return c.topY - this.coastFbm(x * 0.8, z * 0.8, 3) * 0.18;
+    }
+
+    // Cliff face: steep drop with jagged ledges
+    const t = Math.min(d / c.cliffRun, 1);
+    const s = t * t * (3 - 2 * t);
+
+    let h = c.topY + (c.floorY - c.topY) * s;
+
+    const faceNoise =
+        (this.coastFbm(x * 0.35, z * 0.35, 4) - 0.5) * 3.0;
+
+    h += faceNoise * Math.sin(Math.PI * t);
+
+    // Rocky shoals just beyond the cliff foot. Some break the
+    // surface so rocks stick out of the water.
+    const beyond = Math.max(d - c.cliffRun, 0);
+
+    const reef =
+        Math.max(this.coastFbm(x * 0.22 + 40, z * 0.22, 4) - 0.52, 0) *
+        18 *
+        Math.exp(-beyond / 7);
+
+    h += reef * (d > c.cliffRun * 0.6 ? 1 : 0.4);
+
+    return Math.min(h, c.topY);
+}
+
+
+// -------------------------------------------------------------
+// CLIFF SURFACE (one mesh)
+// -------------------------------------------------------------
+
+createCliffs(coast, rockMaterial) {
+
+    const step = 0.75;
+
+    const nx = Math.round((coast.xMax - coast.xMin) / step);
+    const nz = Math.round((coast.zMax - coast.zMin) / 0.8);
+
+    const vertexCount = (nx + 1) * (nz + 1);
+
+    const positions = new Float32Array(vertexCount * 3);
+    const colors = new Float32Array(vertexCount * 3);
+
+    const top = new THREE.Color(0x3b3733);
+    const mid = new THREE.Color(0x2a2724);
+    const wet = new THREE.Color(0x141618);
+    const tmp = new THREE.Color();
+
+    let i = 0;
+
+    for (let iz = 0; iz <= nz; iz++) {
+
+        const z = coast.zMin + (iz / nz) * (coast.zMax - coast.zMin);
+
+        for (let ix = 0; ix <= nx; ix++) {
+
+            let x = coast.xMin + (ix / nx) * (coast.xMax - coast.xMin);
+
+            const y = this.coastHeight(x, z);
+
+            // Push face vertices sideways a little so the cliff
+            // does not look like a regular grid. Face vertices stay
+            // at x >= 11 so the street lights' buried poles
+            // (x 7.4 to 10.6, down to y -5.1) stay inside the rock.
+            if (y < coast.topY - 0.3 && ix > 0) {
+                x += (this.coastFbm(x * 0.5, z * 0.5 + 11, 2) - 0.5) * 1.2;
+                x = Math.max(x, 11);
+            }
+
+            positions[i * 3] = x;
+            positions[i * 3 + 1] = y;
+            positions[i * 3 + 2] = z;
+
+            // Colour: wet near the waterline, lighter on top
+            const heightT =
+                THREE.MathUtils.clamp(
+                    (y - (coast.seaLevel + 0.8)) / (coast.topY - coast.seaLevel - 0.8),
+                    0,
+                    1
+                );
+
+            tmp.copy(wet).lerp(mid, THREE.MathUtils.smoothstep(heightT, 0, 0.25));
+            tmp.lerp(top, THREE.MathUtils.smoothstep(heightT, 0.6, 1.0));
+
+            const variation =
+                0.8 + this.coastFbm(x * 0.4 + 5, z * 0.4, 3) * 0.4;
+
+            colors[i * 3] = tmp.r * variation;
+            colors[i * 3 + 1] = tmp.g * variation;
+            colors[i * 3 + 2] = tmp.b * variation;
+
+            i++;
+        }
+    }
+
+    const indices = [];
+
+    for (let iz = 0; iz < nz; iz++) {
+        for (let ix = 0; ix < nx; ix++) {
+
+            const a = iz * (nx + 1) + ix;
+            const b = a + 1;
+            const c = a + (nx + 1);
+            const d = c + 1;
+
+            // Counter-clockwise seen from above
+            indices.push(a, c, b, b, c, d);
+        }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+
+    const cliffs = new THREE.Mesh(geometry, rockMaterial);
+
+    cliffs.receiveShadow = true;
+    cliffs.castShadow = true;
+
+    this.level.add(cliffs);
+
+    this.cliffs = cliffs;
+}
+
+
+// -------------------------------------------------------------
+// BOULDERS IN THE WATER (one InstancedMesh)
+// -------------------------------------------------------------
+
+createBoulders(coast, rockMaterial) {
+
+    // One lumpy rock shape shared by every boulder
+    const geometry =
+        new THREE.IcosahedronGeometry(1, 2);
+
+    const pos = geometry.attributes.position;
+    const v = new THREE.Vector3();
+    const colors = new Float32Array(pos.count * 3);
+    const base = new THREE.Color(0x2c2926);
+    const wet = new THREE.Color(0x151719);
+
+    for (let i = 0; i < pos.count; i++) {
+
+        v.fromBufferAttribute(pos, i).normalize();
+
+        const n =
+            this.coastFbm(v.x * 1.7 + v.z * 0.6 + 3, v.y * 1.7 - v.z * 0.9, 4);
+
+        const radius = 0.72 + n * 0.55;
+
+        pos.setXYZ(i, v.x * radius, v.y * radius * 0.8, v.z * radius);
+
+        // Darker underneath (wet), lighter on top
+        const c = wet.clone().lerp(base, THREE.MathUtils.smoothstep(v.y, -0.2, 0.5));
+        const variation = 0.85 + n * 0.3;
+
+        colors[i * 3] = c.r * variation;
+        colors[i * 3 + 1] = c.g * variation;
+        colors[i * 3 + 2] = c.b * variation;
+    }
+
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geometry.computeVertexNormals();
+
+    const random = this.coastRandom(20260925);
+
+    const count = 70;
+    const boulders = [];
+
+    const matrix = new THREE.Matrix4();
+    const quaternion = new THREE.Quaternion();
+    const euler = new THREE.Euler();
+    const scale = new THREE.Vector3();
+    const position = new THREE.Vector3();
+
+    for (let tries = 0; boulders.length < count && tries < count * 20; tries++) {
+
+        // Most boulders near the playable road stretch
+        const z =
+            random() < 0.8
+                ? -160 + random() * 320
+                : coast.zMin + random() * (coast.zMax - coast.zMin);
+
+        // Find the foot of the cliff at this z
+        let foot = null;
+
+        for (let x = coast.xMin; x < coast.xMax; x += 0.5) {
+            if (this.coastHeight(x, z) < coast.seaLevel - 1.5) {
+                foot = x;
+                break;
+            }
+        }
+
+        if (foot === null) continue;
+
+        const size = 0.8 + Math.pow(random(), 2.2) * 3.2;
+
+        const x = foot - 1 + random() * 13;
+
+        // Keep well clear of the road and the cliff top
+        if (x - size * 1.3 < 13) continue;
+
+        const y =
+            coast.seaLevel - size * (0.1 + random() * 0.5);
+
+        boulders.push({
+            x,
+            y,
+            z,
+            sx: size * (0.8 + random() * 0.5),
+            sy: size * (0.7 + random() * 0.5),
+            sz: size * (0.8 + random() * 0.5),
+            yaw: random() * Math.PI * 2,
+            tilt: (random() - 0.5) * 0.5
+        });
+    }
+
+    const mesh =
+        new THREE.InstancedMesh(geometry, rockMaterial, boulders.length);
+
+    boulders.forEach((b, i) => {
+
+        position.set(b.x, b.y, b.z);
+        euler.set(b.tilt, b.yaw, b.tilt * 0.5);
+        quaternion.setFromEuler(euler);
+        scale.set(b.sx, b.sy, b.sz);
+
+        matrix.compose(position, quaternion, scale);
+        mesh.setMatrixAt(i, matrix);
+    });
+
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    this.level.add(mesh);
+
+    this.boulders = mesh;
+
+    return boulders;
+}
+
+
+// -------------------------------------------------------------
+// SHORE DISTANCE MAP (for the surf foam in river.js)
+// For each point of water near the coast: distance in metres
+// to the nearest rock at sea level, stored 0..10 m as 0..255.
+// -------------------------------------------------------------
+
+createShoreDistanceMap(coast, boulders) {
+
+    const res = 0.5;
+    const maxDistance = 10;
+
+    const x0 = coast.xMin;
+    const z0 = coast.zMin;
+    const width = 72 - x0;
+    const depth = coast.zMax - coast.zMin;
+
+    const W = Math.round(width / res);
+    const H = Math.round(depth / res);
+
+    const dist = new Float32Array(W * H);
+    const BIG = 1e6;
+
+    // 1. Mark rock cells (rock above the water surface)
+    for (let j = 0; j < H; j++) {
+
+        const z = z0 + (j + 0.5) * res;
+
+        for (let i = 0; i < W; i++) {
+
+            const x = x0 + (i + 0.5) * res;
+
+            dist[j * W + i] =
+                this.coastHeight(x, z) > coast.seaLevel ? 0 : BIG;
+        }
+    }
+
+    // Boulders: ellipse where each rock cuts the water surface
+    boulders.forEach((b) => {
+
+        const dy = (coast.seaLevel - b.y) / (b.sy * 0.8);
+
+        if (Math.abs(dy) >= 1) return;
+
+        const r = Math.sqrt(1 - dy * dy);
+        const rx = b.sx * r * 0.95;
+        const rz = b.sz * r * 0.95;
+        const reach = Math.max(rx, rz);
+
+        const cos = Math.cos(b.yaw);
+        const sin = Math.sin(b.yaw);
+
+        const iMin = Math.max(0, Math.floor((b.x - reach - x0) / res));
+        const iMax = Math.min(W - 1, Math.ceil((b.x + reach - x0) / res));
+        const jMin = Math.max(0, Math.floor((b.z - reach - z0) / res));
+        const jMax = Math.min(H - 1, Math.ceil((b.z + reach - z0) / res));
+
+        for (let j = jMin; j <= jMax; j++) {
+            for (let i = iMin; i <= iMax; i++) {
+
+                const px = x0 + (i + 0.5) * res - b.x;
+                const pz = z0 + (j + 0.5) * res - b.z;
+
+                // Into the rock's local frame (yaw only)
+                const lx = px * cos - pz * sin;
+                const lz = px * sin + pz * cos;
+
+                if ((lx * lx) / (rx * rx) + (lz * lz) / (rz * rz) <= 1) {
+                    dist[j * W + i] = 0;
+                }
+            }
+        }
+    });
+
+    // 2. Two-pass chamfer distance transform (in cells)
+    const D1 = 1;
+    const D2 = Math.SQRT2;
+
+    for (let j = 0; j < H; j++) {
+        for (let i = 0; i < W; i++) {
+            const k = j * W + i;
+            let d = dist[k];
+            if (i > 0) d = Math.min(d, dist[k - 1] + D1);
+            if (j > 0) {
+                d = Math.min(d, dist[k - W] + D1);
+                if (i > 0) d = Math.min(d, dist[k - W - 1] + D2);
+                if (i < W - 1) d = Math.min(d, dist[k - W + 1] + D2);
+            }
+            dist[k] = d;
+        }
+    }
+
+    for (let j = H - 1; j >= 0; j--) {
+        for (let i = W - 1; i >= 0; i--) {
+            const k = j * W + i;
+            let d = dist[k];
+            if (i < W - 1) d = Math.min(d, dist[k + 1] + D1);
+            if (j < H - 1) {
+                d = Math.min(d, dist[k + W] + D1);
+                if (i < W - 1) d = Math.min(d, dist[k + W + 1] + D2);
+                if (i > 0) d = Math.min(d, dist[k + W - 1] + D2);
+            }
+            dist[k] = d;
+        }
+    }
+
+    // 3. Pack into a texture
+    const data = new Uint8Array(W * H);
+
+    for (let k = 0; k < W * H; k++) {
+        data[k] = Math.min(255, Math.round((dist[k] * res / maxDistance) * 255));
+    }
+
+    const texture =
+        new THREE.DataTexture(data, W, H, THREE.RedFormat, THREE.UnsignedByteType);
+
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.needsUpdate = true;
+
+    this.shoreDistanceTexture = texture;
+
+    // x0, z0, width, depth of the area the map covers
+    this.shoreDistanceBounds =
+        new THREE.Vector4(x0, z0, width, depth);
+
+    this.shoreDistanceMax = maxDistance;
+}
+
+
+// -------------------------------------------------------------
+// INVISIBLE BARRIER WHERE THE OLD WALL WAS
+// Not rendered. For future player collision:
+//   this.colliders -> array of THREE.Box3
+// -------------------------------------------------------------
+
+createSeaBarrier() {
+
+    const barrier =
+        new THREE.Mesh(
+            new THREE.BoxGeometry(
+                1.2,      // thickness (same as the old wall)
+                3,        // height
+                260       // road length
+            ),
+            new THREE.MeshBasicMaterial()
+        );
+
+    barrier.position.set(
+        9.8,
+        1.5,
+        0
+    );
+
+    barrier.visible = false;
+    barrier.name = 'SeaBarrier';
+
+    this.level.add(barrier);
+
+    this.seaBarrier = barrier;
+
+    this.colliders = this.colliders || [];
+
+    this.colliders.push(
+        new THREE.Box3().setFromCenterAndSize(
+            barrier.position.clone(),
+            new THREE.Vector3(1.2, 3, 260)
+        )
+    );
+}
+
+// =============================================================
+// RIVER
+// =============================================================
+
+createRiver() {
+
+    // ---------------------------------------------------------
+    // SEA TEXTURE
+    // Lives in public/ so it is copied into dist/ on build
+    // ---------------------------------------------------------
+
+    const seaTexture =
+        new THREE.TextureLoader().load(
+            './assets/textures/sea.jpg'
+        );
+
+    seaTexture.colorSpace =
+        THREE.SRGBColorSpace;
+
+    // Mirrored so the photo's edges line up between tiles
+    seaTexture.wrapS =
+        THREE.MirroredRepeatWrapping;
+
+    seaTexture.wrapT =
+        THREE.MirroredRepeatWrapping;
+
+
+    const riverMaterial =
+        new THREE.ShaderMaterial({
+
+            uniforms:
+                THREE.UniformsUtils.merge([
+                    THREE.UniformsLib.fog,
+                    {
+                        uTime: {
+                            value: 0
+                        },
+
+                        uSeaTexture: {
+                            value: null
+                        },
+
+                        // One texture tile = 24 x 16 world units
+                        // (same 3:2 shape as sea.jpg)
+                        uTileSize: {
+                            value: new THREE.Vector2(24, 16)
+                        },
+
+                        // Surf foam: distance to the rocks,
+                        // from createShoreDistanceMap()
+                        uShoreDistance: {
+                            value: null
+                        },
+
+                        uShoreBounds: {
+                            value: this.shoreDistanceBounds.clone()
+                        },
+
+                        uShoreMax: {
+                            value: this.shoreDistanceMax
+                        }
+                    }
+                ]),
+
+            vertexShader:
+                riverVertexShader,
+
+            fragmentShader:
+                riverFragmentShader,
+
+            // Fade into the scene fog so the far edge is hidden
+            fog: true
+        });
+
+    // Set after merge() - merge() clones textures
+    riverMaterial.uniforms.uSeaTexture.value =
+        seaTexture;
+
+    riverMaterial.uniforms.uShoreDistance.value =
+        this.shoreDistanceTexture;
+
+
+    // ---------------------------------------------------------
+    // SEA SIZE
+    // ---------------------------------------------------------
+    // Road = x 0, width 16
+    // Sea = x 10.51 to 310.51, z -300 to 300, so its far edges
+    // sit beyond the fog (270). The part under the cliffs is
+    // hidden by the rock.
+
+    const SEA_START_X = 10.51;
+    const SEA_WIDTH = 300;
+    const SEA_LENGTH = 600;
+
+    const river =
+        new THREE.Mesh(
+
+            new THREE.PlaneGeometry(
+                SEA_WIDTH,
+                SEA_LENGTH,
+                200,    // ~1.5 units per segment
+                400
+            ),
+
+            riverMaterial
+        );
+
+
+    // Lay the plane flat
+    river.rotation.x =
+        -Math.PI / 2;
+
+
+    // Sea level from createCoastline() (y -6, below the cliff
+    // top). Waves move -0.17 to +0.39 around it.
+
+    river.position.set(
+        SEA_START_X + SEA_WIDTH / 2,
+        this.seaLevel,
+        0
+    );
+
+
+    this.level.add(
+        river
+    );
+
+
+    // Save material so update() can animate it
+    this.riverMaterial =
+        riverMaterial;
+}
     // =============================================================
 // STREET LIGHTS
 // Reuses / clones assets/models/light.glb
@@ -593,11 +1369,29 @@ createStreetLights() {
     const loader = new GLTFLoader();
 
     loader.load(
-        '/assets/models/light.glb',
+        './assets/models/light.glb',
 
         (gltf) => {
 
             const originalLight = gltf.scene;
+
+            // -------------------------------------------------
+            // Glowing bulbs
+            // The lamp heads use the model's "Light" material,
+            // shared by every clone, so this lights them all
+            // -------------------------------------------------
+
+            originalLight.traverse((object) => {
+                if (
+                    object.isMesh &&
+                    object.material &&
+                    object.material.name === 'Light'
+                ) {
+                    object.material.emissive =
+                        new THREE.Color(STREET_LIGHT_COLOR);
+                    object.material.emissiveIntensity = 2.5;
+                }
+            });
 
             // -------------------------------------------------
             // Positions along the road
@@ -736,8 +1530,6 @@ createStreetLights() {
 
                 light.add(banner);
 
-                this.banners.push(banner);
-
 
                 // -------------------------------------------------
                 // Banner mounting arm
@@ -776,6 +1568,8 @@ createStreetLights() {
                     light
                 );
 
+                this.addStreetLightBulbs(light);
+
             });
 
         },
@@ -792,6 +1586,429 @@ createStreetLights() {
         }
     );
 }
+
+
+// =============================================================
+// STREET LIGHT BULBS
+// One downward spotlight per lamp head (no shadows) plus a
+// soft additive halo sprite. Bulb positions are read from the
+// model's "Light" meshes, so they follow the model.
+// =============================================================
+
+addStreetLightBulbs(light) {
+
+    if (!this.streetLightHaloMaterial) {
+
+        // Radial glow texture, made once and shared
+        const size = 128;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+
+        const ctx = canvas.getContext('2d');
+        const gradient =
+            ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+
+        gradient.addColorStop(0.0, 'rgba(255,255,255,1)');
+        gradient.addColorStop(0.2, 'rgba(255,255,255,0.55)');
+        gradient.addColorStop(0.5, 'rgba(255,255,255,0.12)');
+        gradient.addColorStop(1.0, 'rgba(255,255,255,0)');
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, size, size);
+
+        this.streetLightHaloMaterial =
+            new THREE.SpriteMaterial({
+                map: new THREE.CanvasTexture(canvas),
+                color: STREET_LIGHT_COLOR,
+                blending: THREE.AdditiveBlending,
+                transparent: true,
+                depthWrite: false
+            });
+
+        this.streetLightSpots = [];
+    }
+
+    light.updateMatrixWorld(true);
+
+    const box = new THREE.Box3();
+
+    light.traverse((object) => {
+
+        if (
+            !object.isMesh ||
+            !object.material ||
+            object.material.name !== 'Light'
+        ) {
+            return;
+        }
+
+        box.setFromObject(object);
+
+        const center = box.getCenter(new THREE.Vector3());
+
+        // -------------------------------------------------
+        // Light pool on the ground below the lamp head
+        // -------------------------------------------------
+
+        const spot =
+            new THREE.SpotLight(
+                STREET_LIGHT_COLOR,
+                3000,                         // candela
+                45,                           // range
+                THREE.MathUtils.degToRad(40), // cone half-angle
+                0.65,                         // soft edge
+                2                             // physical falloff
+            );
+
+        spot.position.set(center.x, box.min.y - 0.1, center.z);
+        spot.target.position.set(center.x, 0, center.z);
+
+        this.level.add(spot);
+        this.level.add(spot.target);
+
+        this.streetLightSpots.push(spot);
+
+        // -------------------------------------------------
+        // Halo around the bulb
+        // -------------------------------------------------
+
+        const halo =
+            new THREE.Sprite(this.streetLightHaloMaterial);
+
+        halo.position.set(center.x, box.min.y + 0.2, center.z);
+        halo.scale.set(5, 5, 1);
+
+        this.level.add(halo);
+    });
+}
+
+
+    // =============================================================
+    // RUINED CITY MATERIALS
+    // An abandoned simulation city that was never finished.
+    // Only brick.png and Road.png (the glass skin) are used, each
+    // loaded once; ageing comes from tinting and the shader patch
+    // below. Every patched material reads the same uTime, so the
+    // flicker costs one uniform update per frame (see update()).
+    // =============================================================
+
+    loadTexture(path) {
+
+        // Road.png and skybox1.png are each used by several
+        // materials with their own repeat, colour space or
+        // mapping. The file is fetched and decoded once; every
+        // user gets its own lightweight Texture on the shared
+        // image, and three.js uploads a shared image to the GPU
+        // only once per identical sampler setup.
+
+        if (!this.textureCache) {
+            this.textureCache = new Map();
+        }
+
+        let entry =
+            this.textureCache.get(path);
+
+        if (!entry) {
+
+            entry = {
+                loaded: false,
+                users: []
+            };
+
+            entry.base =
+                new THREE.TextureLoader().load(
+                    path,
+                    () => {
+
+                        entry.loaded = true;
+
+                        entry.users.forEach((texture) => {
+                            texture.needsUpdate = true;
+                        });
+                    }
+                );
+
+            this.textureCache.set(path, entry);
+        }
+
+        const texture =
+            new THREE.Texture();
+
+        texture.source =
+            entry.base.source;
+
+        if (entry.loaded) {
+            texture.needsUpdate = true;
+        } else {
+            entry.users.push(texture);
+        }
+
+        return texture;
+    }
+
+
+    createRuinMaterials() {
+
+        const textureLoader =
+            new THREE.TextureLoader();
+
+        this.ruinTime =
+            { value: 0 };
+
+        const brickTexture =
+            textureLoader.load(
+                './assets/textures/brick.png'
+            );
+
+        brickTexture.wrapS =
+            THREE.RepeatWrapping;
+
+        brickTexture.wrapT =
+            THREE.RepeatWrapping;
+
+        brickTexture.repeat.set(
+            6,
+            3
+        );
+
+        brickTexture.colorSpace =
+            THREE.SRGBColorSpace;
+
+        const glassTexture =
+            this.loadTexture(
+                './assets/textures/Road.png'
+            );
+
+        glassTexture.wrapS =
+            THREE.RepeatWrapping;
+
+        glassTexture.wrapT =
+            THREE.RepeatWrapping;
+
+        glassTexture.repeat.set(
+            2,
+            2
+        );
+
+        glassTexture.colorSpace =
+            THREE.SRGBColorSpace;
+
+        const ruin = {
+            brickTexture,
+            glassTexture
+        };
+
+        // Weathered panel walls, cyan cracks break through
+        ruin.brick =
+            this.applyRuinShader(
+                new THREE.MeshStandardMaterial({
+                    map: brickTexture,
+                    color: 0xb3aca6,
+                    roughness: 0.95,
+                    metalness: 0.05
+                }),
+                { grime: 6, crack: 0.9 }
+            );
+
+        // Same texture, cooler grey tint: cast concrete slabs
+        ruin.concrete =
+            this.applyRuinShader(
+                new THREE.MeshStandardMaterial({
+                    map: brickTexture,
+                    color: 0x6f7176,
+                    roughness: 0.9,
+                    metalness: 0.1
+                }),
+                { grime: 5 }
+            );
+
+        // Formerly white structure, now dirty bone
+        ruin.bone =
+            this.applyRuinShader(
+                new THREE.MeshStandardMaterial({
+                    color: 0x6f706c,
+                    roughness: 0.7,
+                    metalness: 0.2
+                }),
+                { grime: 5, crack: 0.7 }
+            );
+
+        // Broken chunks and debris
+        ruin.debris =
+            this.applyRuinShader(
+                new THREE.MeshStandardMaterial({
+                    color: 0x4a4c50,
+                    roughness: 0.9,
+                    metalness: 0.15
+                }),
+                { grime: 3 }
+            );
+
+        // Smudged glass: Road.png's streaks read as dirt
+        ruin.glass =
+            this.applyRuinShader(
+                new THREE.MeshStandardMaterial({
+                    map: glassTexture,
+                    color: 0x6f8a90,
+                    roughness: 0.3,
+                    metalness: 0.35,
+                    transparent: true,
+                    opacity: 0.78
+                }),
+                { grime: 5 }
+            );
+
+        // Broken / blacked-out panes
+        ruin.deadGlass =
+            new THREE.MeshStandardMaterial({
+                map: glassTexture,
+                color: 0x1a1f22,
+                roughness: 0.5,
+                metalness: 0.3,
+                transparent: true,
+                opacity: 0.92
+            });
+
+        // Glitch accent, same cyan as the street lights
+        ruin.glitch =
+            new THREE.MeshStandardMaterial({
+                color: STREET_LIGHT_COLOR,
+                emissive: STREET_LIGHT_COLOR,
+                emissiveIntensity: 1.5,
+                roughness: 0.3,
+                metalness: 0.2
+            });
+
+        // Parts the simulation never finished rendering
+        ruin.wire =
+            new THREE.MeshBasicMaterial({
+                color: STREET_LIGHT_COLOR,
+                wireframe: true,
+                transparent: true,
+                opacity: 0.35,
+                depthWrite: false
+            });
+
+        this.ruin = ruin;
+    }
+
+
+    // =============================================================
+    // RUIN WINDOWS
+    // Emissive glass split into a world-space pane grid: each pane
+    // is lit, dead or flickering. pane / offset line the grid up
+    // with the building's mullions, so each building gets its own
+    // material (they still share one shader program).
+    // =============================================================
+
+    createRuinWindows(
+        color,
+        pane,
+        offset,
+        dead = 0.3,
+        flicker = 0.12
+    ) {
+
+        return this.applyRuinShader(
+            new THREE.MeshStandardMaterial({
+                map: this.ruin.glassTexture,
+                color: 0x2a3a40,
+                emissive: color,
+                emissiveIntensity: 0.9,
+                roughness: 0.3,
+                metalness: 0.3,
+                transparent: true,
+                opacity: 0.9
+            }),
+            {
+                grime: 5,
+                window: { pane, offset, dead, flicker }
+            }
+        );
+    }
+
+
+    // =============================================================
+    // RUIN SHADER PATCH
+    // grime:  darkens toward the base up to this height (m), with
+    //         vertical streaks and blotches
+    // crack:  strength of glowing cyan voronoi cracks, in patches
+    // window: per-pane lit / dead / flicker states
+    // All patterns are in world space on the surface's dominant
+    // plane, so no UVs or extra textures are needed.
+    // =============================================================
+
+    applyRuinShader(
+        material,
+        {
+            grime = 0,
+            crack = 0,
+            window = null
+        } = {}
+    ) {
+
+        material.defines = {
+            ...material.defines,
+            RUIN: ''
+        };
+
+        if (grime > 0) material.defines.RUIN_GRIME = '';
+        if (crack > 0) material.defines.RUIN_CRACKS = '';
+        if (window) material.defines.RUIN_WINDOWS = '';
+
+        const uniforms = {
+            uRuinTime: this.ruinTime,
+            uGrimeHeight: { value: grime },
+            uCrack: { value: crack },
+            uCrackColor: { value: new THREE.Color(STREET_LIGHT_COLOR) },
+            uPane: { value: new THREE.Vector2(...(window ? window.pane : [1, 1])) },
+            uPaneOffset: { value: new THREE.Vector2(...(window ? window.offset : [0, 0])) },
+            uDead: { value: window ? window.dead : 0 },
+            uFlicker: { value: window ? window.flicker : 0 }
+        };
+
+        material.onBeforeCompile = (shader) => {
+
+            Object.assign(
+                shader.uniforms,
+                uniforms
+            );
+
+            shader.vertexShader = shader.vertexShader
+                .replace(
+                    '#include <common>',
+                    `#include <common>
+                    varying vec3 vRuinWorld;
+                    varying vec3 vRuinNormal;`
+                )
+                .replace(
+                    '#include <project_vertex>',
+                    `#include <project_vertex>
+                    vRuinWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
+                    vRuinNormal = normalize(mat3(modelMatrix) * objectNormal);`
+                );
+
+            shader.fragmentShader = shader.fragmentShader
+                .replace(
+                    '#include <common>',
+                    `#include <common>
+                    ${RUIN_SHADER_COMMON}`
+                )
+                .replace(
+                    '#include <color_fragment>',
+                    `#include <color_fragment>
+                    ${RUIN_SHADER_GRIME}`
+                )
+                .replace(
+                    '#include <emissivemap_fragment>',
+                    `#include <emissivemap_fragment>
+                    ${RUIN_SHADER_EMISSIVE}`
+                );
+        };
+
+        return material;
+    }
 
 
     // =============================================================
@@ -826,34 +2043,12 @@ createStreetLights() {
 
 
 // =============================================================
-// BRICK TEXTURE
+// BRICK
+// Shared ruined brick: grime at the base, cyan cracks
 // =============================================================
 
-const brickTexture =
-    textureLoader.load(
-        '/assets/textures/brick.png'
-    );
-
-brickTexture.wrapS =
-    THREE.RepeatWrapping;
-
-brickTexture.wrapT =
-    THREE.RepeatWrapping;
-
-brickTexture.repeat.set(
-    6,
-    3
-);
-
-brickTexture.colorSpace =
-    THREE.SRGBColorSpace;
-
 const brickMaterial =
-    new THREE.MeshStandardMaterial({
-        map: brickTexture,
-        roughness: 0.9,
-        metalness: 0.05
-    });
+    this.ruin.brick;
 
 
 // =============================================================
@@ -887,7 +2082,7 @@ building.add(
 
 const bannerTexture =
     textureLoader.load(
-        '/assets/textures/poster.png'
+        './assets/textures/poster.png'
     );
 
 // sRGB so the artwork keeps its real colours
@@ -953,28 +2148,15 @@ building.add(
     posterWash
 );
 
-this._registerLiving(posterWash);
-
-       const concrete =
-    new THREE.MeshStandardMaterial({
-        map: brickTexture,
-        roughness: 0.85,
-        metalness: 0.1
-    });
+        // Ruined city palette (shared, see createRuinMaterials)
+        const concrete =
+            this.ruin.concrete;
 
         const concreteDark =
-            new THREE.MeshStandardMaterial({
-                color: 0x777b80,
-                roughness: 0.72,
-                metalness: 0.28
-            });
+            this.ruin.debris;
 
         const structuralWhite =
-            new THREE.MeshStandardMaterial({
-                color: 0xdcdedb,
-                roughness: 0.4,
-                metalness: 0.35
-            });
+            this.ruin.bone;
 
         const darkInterior =
             new THREE.MeshStandardMaterial({
@@ -984,29 +2166,27 @@ this._registerLiving(posterWash);
             });
 
         const glass =
-            new THREE.MeshStandardMaterial({
-                color: 0x183b48,
-                roughness: 0.12,
-                metalness: 0.75,
-                transparent: true,
-                opacity: 0.68
-            });
+            this.ruin.glass;
 
+        // Floor-height panes lined up with the front columns
+        // (world x = x + i * 2.45, floors every 4 from y 1.9)
         const glassDark =
-            new THREE.MeshStandardMaterial({
-                color: 0x08151d,
-                roughness: 0.1,
-                metalness: 0.85,
-                transparent: true,
-                opacity: 0.8
-            });
+            this.createRuinWindows(
+                0x8fdcff,
+                [2.45, 4],
+                [x - 2.45 * 5, 1.9],
+                0.35,
+                0.15
+            );
 
+        // Red warning bands kept as this building's own colour,
+        // dimmed so they read as accents against the sunset
         const redGlow =
             new THREE.MeshStandardMaterial({
-                color: 0xff2638,
+                color: 0xa81c28,
                 emissive: 0xff1022,
-                emissiveIntensity: 2.5,
-                roughness: 0.25,
+                emissiveIntensity: 0.8,
+                roughness: 0.4,
                 metalness: 0.25
             });
 
@@ -1079,10 +2259,17 @@ this._registerLiving(posterWash);
             );
 
 
+            // Top floor: the last two bays were never rendered
+            const unfinished =
+                floor === 2;
+
+            const glassWidth =
+                unfinished ? 16 : 21;
+
             const frontGlass =
                 new THREE.Mesh(
                     new THREE.BoxGeometry(
-                        21,
+                        glassWidth,
                         2.7,
                         0.12
                     ),
@@ -1090,7 +2277,7 @@ this._registerLiving(posterWash);
                 );
 
             frontGlass.position.set(
-                0,
+                (glassWidth - 21) / 2,
                 y + 1.75,
                 -14.65
             );
@@ -1099,25 +2286,65 @@ this._registerLiving(posterWash);
                 frontGlass
             );
 
+            if (unfinished) {
 
-            const redBand =
-                new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        20,
-                        0.16,
-                        0.18
-                    ),
-                    redGlow
+                const ghostBays =
+                    new THREE.Mesh(
+                        new THREE.BoxGeometry(
+                            5,
+                            2.7,
+                            0.6,
+                            2,
+                            2,
+                            1
+                        ),
+                        this.ruin.wire
+                    );
+
+                ghostBays.position.set(
+                    8,
+                    y + 1.75,
+                    -14.65
                 );
 
-            redBand.position.set(
-                0,
-                y + 0.45,
-                -15.15
-            );
+                ghostBays.userData.noShadow =
+                    true;
 
-            building.add(
-                redBand
+                building.add(
+                    ghostBays
+                );
+            }
+
+
+            // Middle floor band is snapped in two
+            const bandPieces =
+                floor === 1
+                    ? [[-5.5, 9], [7.2, 5.6]]
+                    : [[0, 20]];
+
+            bandPieces.forEach(
+                ([bandX, bandWidth]) => {
+
+                    const redBand =
+                        new THREE.Mesh(
+                            new THREE.BoxGeometry(
+                                bandWidth,
+                                0.16,
+                                0.18
+                            ),
+                            redGlow
+                        );
+
+                    redBand.position.set(
+                        bandX,
+                        y + 0.45,
+                        -15.15
+                    );
+
+                    building.add(
+                        redBand
+                    );
+                }
             );
         }
 
@@ -1221,6 +2448,34 @@ this._registerLiving(posterWash);
             roofEdge
         );
 
+        // A fourth storey the simulation started but never
+        // finished: only its wireframe was generated
+        const ghostStorey =
+            new THREE.Mesh(
+                new THREE.BoxGeometry(
+                    12,
+                    4,
+                    14,
+                    4,
+                    2,
+                    4
+                ),
+                this.ruin.wire
+            );
+
+        ghostStorey.position.set(
+            -6,
+            15.75,
+            5
+        );
+
+        ghostStorey.userData.noShadow =
+            true;
+
+        building.add(
+            ghostStorey
+        );
+
 
         // ---------------------------------------------------------
         // FRONT CURVED FRAME
@@ -1313,10 +2568,12 @@ this._registerLiving(posterWash);
         );
 
 
+        // Dimmed from 10: the emissive windows and cracks
+        // now carry the facade
         const light =
             new THREE.PointLight(
                 0xff2638,
-                10,
+                6,
                 32
             );
 
@@ -1329,8 +2586,6 @@ this._registerLiving(posterWash);
         building.add(
             light
         );
-
-        this._registerLiving(light);
     }
 
 
@@ -1550,11 +2805,7 @@ this._registerLiving(posterWash);
     ) {
 
         const rubbleMaterial =
-            new THREE.MeshStandardMaterial({
-                color: 0x55585b,
-                roughness: 0.9,
-                metalness: 0.15
-            });
+            this.ruin.debris;
 
         for (
             let i = 0;
@@ -1615,62 +2866,52 @@ this._registerLiving(posterWash);
         z
     ) {
 
+        // Formerly bright white shells, now weathered ash.
+        // Colour-only ageing: the brick panels don't suit the
+        // smooth tubes, so grime and cracks come from the shader.
         const shell =
-            new THREE.MeshStandardMaterial({
-                color: 0xd8d9d5,
-                roughness: 0.38,
-                metalness: 0.32
-            });
+            this.applyRuinShader(
+                new THREE.MeshStandardMaterial({
+                    color: 0x8c8a84,
+                    roughness: 0.65,
+                    metalness: 0.2
+                }),
+                { grime: 6, crack: 0.8 }
+            );
 
         const shellBright =
-            new THREE.MeshStandardMaterial({
-                color: 0xf0f0ec,
-                roughness: 0.3,
-                metalness: 0.28
-            });
+            this.applyRuinShader(
+                new THREE.MeshStandardMaterial({
+                    color: 0x9e9b94,
+                    roughness: 0.6,
+                    metalness: 0.2
+                }),
+                { grime: 6, crack: 0.8 }
+            );
 
         const shellDark =
-            new THREE.MeshStandardMaterial({
-                color: 0x8d9295,
-                roughness: 0.5,
-                metalness: 0.35
-            });
+            this.ruin.bone;
 
         const glass =
-            new THREE.MeshStandardMaterial({
-                color: 0x183842,
-                roughness: 0.1,
-                metalness: 0.8,
-                transparent: true,
-                opacity: 0.65
-            });
+            this.ruin.glass;
 
         const darkGlass =
-            new THREE.MeshStandardMaterial({
-                color: 0x08151b,
-                roughness: 0.08,
-                metalness: 0.9,
-                transparent: true,
-                opacity: 0.78
-            });
+            this.ruin.deadGlass;
 
         const cyan =
-            new THREE.MeshStandardMaterial({
-                color: 0x00d9e8,
-                emissive: 0x00cfe0,
-                emissiveIntensity: 2.2,
-                roughness: 0.2,
-                metalness: 0.25
-            });
+            this.ruin.glitch;
 
+        // One warm strip behind each front panel (x every
+        // 1.85, rows centred on y 7.1 and 12.4), some dead,
+        // some flickering
         const warmInterior =
-            new THREE.MeshStandardMaterial({
-                color: 0xc58c72,
-                emissive: 0x5a3023,
-                emissiveIntensity: 0.8,
-                roughness: 0.3,
-                metalness: 0.15
-            });
+            this.createRuinWindows(
+                0xc58c72,
+                [1.85, 5.3],
+                [x - 1.85 * 3.5, 4.45],
+                0.4,
+                0.2
+            );
 
 
         const building =
@@ -2181,136 +3422,135 @@ this._registerLiving(posterWash);
 
         // =========================================================
         // FRONT GLASS PANELS
+        // Two storeys of panels set flush on the glass core's
+        // front face (z -10.5, 13 wide), one storey between each
+        // pair of platforms.
+        // Per slot: dead (blacked out), gone (missing) or
+        // wire (never rendered); anything else is smudged glass
         // =========================================================
 
-        for (
-            let i = -3;
-            i <= 3;
-            i++
-        ) {
+        const coreFrontZ =
+            1 - 23 / 2;
 
-            const panel =
-                new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        2.4,
-                        3.3,
-                        0.12
-                    ),
-                    glass
-                );
+        const panelSpacing =
+            1.85;
 
-            panel.position.set(
-                i * 2.8,
-                7.1,
-                -13.8
-            );
+        const panelRows = [
+            {
+                y: 7.1,
+                height: 3.3,
+                slots: { '-2': 'dead', '1': 'gone', '3': 'wire' }
+            },
+            {
+                y: 12.4,
+                height: 3.0,
+                slots: { '-3': 'gone', '0': 'dead', '2': 'dead' }
+            }
+        ];
 
-            panel.rotation.z =
-                i * 0.012;
+        const panelMaterial = {
+            dead: darkGlass,
+            wire: this.ruin.wire
+        };
 
-            building.add(
-                panel
-            );
-        }
+        panelRows.forEach(
+            (row) => {
 
+                for (
+                    let i = -3;
+                    i <= 3;
+                    i++
+                ) {
 
-        // =========================================================
-        // UPPER GLASS PANELS
-        // =========================================================
+                    const state =
+                        row.slots[i];
 
-        for (
-            let i = -3;
-            i <= 3;
-            i++
-        ) {
+                    // Warm light behind every slot, even missing
+                    // ones, just inside the core glass
+                    const interior =
+                        new THREE.Mesh(
+                            new THREE.BoxGeometry(
+                                0.5,
+                                0.12,
+                                0.08
+                            ),
+                            warmInterior
+                        );
 
-            const panel =
-                new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        2.2,
-                        3.0,
-                        0.12
-                    ),
-                    glass
-                );
-
-            panel.position.set(
-                i * 2.5,
-                12.4,
-                -11.8
-            );
-
-            panel.rotation.z =
-                -i * 0.018;
-
-            building.add(
-                panel
-            );
-        }
-
-
-        // =========================================================
-        // WARM INTERIOR LIGHTS
-        // =========================================================
-
-        for (
-            let floor = 0;
-            floor < 3;
-            floor++
-        ) {
-
-            for (
-                let i = -2;
-                i <= 2;
-                i++
-            ) {
-
-                const interior =
-                    new THREE.Mesh(
-                        new THREE.BoxGeometry(
-                            0.5,
-                            0.12,
-                            0.08
-                        ),
-                        warmInterior
+                    interior.position.set(
+                        i * panelSpacing,
+                        row.y - 0.9,
+                        coreFrontZ + 0.2
                     );
 
-                interior.position.set(
-                    i * 2.4,
-                    6 +
-                    floor * 4,
-                    -14
-                );
+                    building.add(
+                        interior
+                    );
 
-                building.add(
-                    interior
-                );
+                    if (state === 'gone') continue;
+
+                    const panel =
+                        new THREE.Mesh(
+                            new THREE.BoxGeometry(
+                                panelSpacing - 0.1,
+                                row.height,
+                                0.12
+                            ),
+                            panelMaterial[state] || glass
+                        );
+
+                    panel.position.set(
+                        i * panelSpacing,
+                        row.y,
+                        coreFrontZ - 0.08
+                    );
+
+                    panel.userData.noShadow =
+                        state === 'wire';
+
+                    building.add(
+                        panel
+                    );
+                }
             }
-        }
+        );
 
 
         // =========================================================
         // CYAN ARCHITECTURAL LIGHT
+        // Along the front edge of the middle platform, following
+        // its tilt, broken into three pieces with dark gaps
         // =========================================================
 
-        const cyanStrip =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    13,
-                    0.12,
-                    0.15
-                ),
-                cyan
-            );
+        const stripTilt =
+            middlePlatform.rotation.z;
 
-        cyanStrip.position.set(
-            0,
-            9.55,
-            -15.3
-        );
+        [[-4.3, 4.4], [0.9, 3.0], [5.0, 2.8]].forEach(
+            ([stripX, stripWidth]) => {
 
-        building.add(
-            cyanStrip
+                const cyanStrip =
+                    new THREE.Mesh(
+                        new THREE.BoxGeometry(
+                            stripWidth,
+                            0.12,
+                            0.15
+                        ),
+                        cyan
+                    );
+
+                cyanStrip.position.set(
+                    stripX,
+                    9.1 + stripX * Math.sin(stripTilt),
+                    coreFrontZ - 0.1
+                );
+
+                cyanStrip.rotation.z =
+                    stripTilt;
+
+                building.add(
+                    cyanStrip
+                );
+            }
         );
 
 
@@ -2421,10 +3661,12 @@ this._registerLiving(posterWash);
         // BUILDING LIGHT
         // =========================================================
 
+        // Dimmed from 12: the glitch strip and flickering
+        // windows now carry the facade
         const organicLight =
             new THREE.PointLight(
                 0x00d9ff,
-                12,
+                8,
                 45
             );
 
@@ -2437,8 +3679,6 @@ this._registerLiving(posterWash);
         building.add(
             organicLight
         );
-
-        this._registerLiving(organicLight);
     }
 
 
@@ -2504,10 +3744,11 @@ this._registerLiving(posterWash);
                 material
             );
 
+        // Hangs off the core's front-left corner
         broken.position.set(
-            -10,
+            -7.2,
             11,
-            -13.7
+            -10.75
         );
 
         broken.rotation.z =
@@ -2528,11 +3769,7 @@ this._registerLiving(posterWash);
     ) {
 
         const rubbleMaterial =
-            new THREE.MeshStandardMaterial({
-                color: 0x5b5d60,
-                roughness: 0.9,
-                metalness: 0.15
-            });
+            this.ruin.debris;
 
         for (
             let i = 0;
@@ -2580,606 +3817,6 @@ this._registerLiving(posterWash);
         }
     }
 
-
-    // =============================================================
-    // BUILDING #3
-    // FUTURISTIC CUBE STRUCTURE
-    // RIGHT SIDE OF ROAD
-    // =============================================================
-
-    createCubeBuilding(
-        x,
-        z
-    ) {
-
-        const concrete =
-            new THREE.MeshStandardMaterial({
-                color: 0xcfd1cf,
-                roughness: 0.45,
-                metalness: 0.3
-            });
-
-        const concreteDark =
-            new THREE.MeshStandardMaterial({
-                color: 0x686d72,
-                roughness: 0.65,
-                metalness: 0.35
-            });
-
-        const dark =
-            new THREE.MeshStandardMaterial({
-                color: 0x10151c,
-                roughness: 0.35,
-                metalness: 0.7
-            });
-
-        const glass =
-            new THREE.MeshStandardMaterial({
-                color: 0x173944,
-                roughness: 0.08,
-                metalness: 0.8,
-                transparent: true,
-                opacity: 0.7
-            });
-
-        const cyan =
-            new THREE.MeshStandardMaterial({
-                color: 0x00d9ff,
-                emissive: 0x00d9ff,
-                emissiveIntensity: 2.8,
-                roughness: 0.2,
-                metalness: 0.25
-            });
-
-        const building =
-            new THREE.Group();
-
-        building.position.set(
-            x,
-            0,
-            z
-        );
-
-        this.level.add(
-            building
-        );
-
-
-        // ---------------------------------------------------------
-        // MAIN CUBE
-        // ---------------------------------------------------------
-
-        const mainBody =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    24,
-                    20,
-                    28
-                ),
-                dark
-            );
-
-        mainBody.position.set(
-            0,
-            10,
-            0
-        );
-
-        building.add(
-            mainBody
-        );
-
-
-        // ---------------------------------------------------------
-        // OUTER SHELL
-        // ---------------------------------------------------------
-
-        const leftWall =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    1.2,
-                    20,
-                    28
-                ),
-                concrete
-            );
-
-        leftWall.position.set(
-            -12,
-            10,
-            0
-        );
-
-        building.add(
-            leftWall
-        );
-
-
-        const rightWall =
-            leftWall.clone();
-
-        rightWall.position.x =
-            12;
-
-        building.add(
-            rightWall
-        );
-
-
-        const topShell =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    25,
-                    1.2,
-                    29
-                ),
-                concrete
-            );
-
-        topShell.position.set(
-            0,
-            20,
-            0
-        );
-
-        building.add(
-            topShell
-        );
-
-
-        // ---------------------------------------------------------
-        // HORIZONTAL FLOOR BANDS
-        // ---------------------------------------------------------
-
-        for (
-            let floor = 0;
-            floor < 4;
-            floor++
-        ) {
-
-            const y =
-                2 +
-                floor * 5;
-
-            const band =
-                new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        25,
-                        0.45,
-                        29
-                    ),
-                    concrete
-                );
-
-            band.position.set(
-                0,
-                y,
-                0
-            );
-
-            building.add(
-                band
-            );
-        }
-
-
-        // ---------------------------------------------------------
-        // FRONT GLASS GRID
-        // ---------------------------------------------------------
-
-        for (
-            let floor = 0;
-            floor < 4;
-            floor++
-        ) {
-
-            for (
-                let i = -3;
-                i <= 3;
-                i++
-            ) {
-
-                const window =
-                    new THREE.Mesh(
-                        new THREE.BoxGeometry(
-                            2.5,
-                            3.2,
-                            0.16
-                        ),
-                        glass
-                    );
-
-                window.position.set(
-                    i * 3.2,
-                    4.2 +
-                    floor * 5,
-                    -14.55
-                );
-
-                building.add(
-                    window
-                );
-            }
-        }
-
-
-        // ---------------------------------------------------------
-        // FRONT STRUCTURAL FRAME
-        // ---------------------------------------------------------
-
-        for (
-            let i = -4;
-            i <= 4;
-            i++
-        ) {
-
-            const column =
-                new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        0.45,
-                        20.5,
-                        0.6
-                    ),
-                    concrete
-                );
-
-            column.position.set(
-                i * 2.9,
-                10,
-                -14.9
-            );
-
-            building.add(
-                column
-            );
-        }
-
-
-        // ---------------------------------------------------------
-        // SIDE WINDOWS
-        // ---------------------------------------------------------
-
-        for (
-            let floor = 0;
-            floor < 4;
-            floor++
-        ) {
-
-            const sideWindow =
-                new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        0.16,
-                        3,
-                        20
-                    ),
-                    glass
-                );
-
-            sideWindow.position.set(
-                -12.65,
-                4.2 +
-                floor * 5,
-                0
-            );
-
-            building.add(
-                sideWindow
-            );
-        }
-
-
-        // ---------------------------------------------------------
-        // CYAN HORIZONTAL LIGHTS
-        // ---------------------------------------------------------
-
-        for (
-            let floor = 0;
-            floor < 4;
-            floor++
-        ) {
-
-            const strip =
-                new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        20,
-                        0.16,
-                        0.18
-                    ),
-                    cyan
-                );
-
-            strip.position.set(
-                0,
-                2.6 +
-                floor * 5,
-                -15.05
-            );
-
-            building.add(
-                strip
-            );
-        }
-
-
-        // ---------------------------------------------------------
-        // LARGE ROOF FRAME
-        // ---------------------------------------------------------
-
-        const roofFrame =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    27,
-                    1,
-                    31
-                ),
-                concreteDark
-            );
-
-        roofFrame.position.set(
-            0,
-            21,
-            0
-        );
-
-        building.add(
-            roofFrame
-        );
-
-
-        // ---------------------------------------------------------
-        // RAISED ROOF CORE
-        // ---------------------------------------------------------
-
-        const roofCore =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    13,
-                    3,
-                    12
-                ),
-                concrete
-            );
-
-        roofCore.position.set(
-            0,
-            23,
-            2
-        );
-
-        building.add(
-            roofCore
-        );
-
-
-        // ---------------------------------------------------------
-        // ROOF LIGHT
-        // ---------------------------------------------------------
-
-        const roofLight =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    8,
-                    0.2,
-                    8
-                ),
-                cyan
-            );
-
-        roofLight.position.set(
-            0,
-            24.55,
-            2
-        );
-
-        building.add(
-            roofLight
-        );
-
-
-        // ---------------------------------------------------------
-        // ATTACHMENT TO BUILDING #2
-        // ---------------------------------------------------------
-
-        const connector =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    4,
-                    6,
-                    14
-                ),
-                concrete
-            );
-
-        connector.position.set(
-            -13,
-            8,
-            0
-        );
-
-        building.add(
-            connector
-        );
-
-
-        const connectorGlass =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    0.2,
-                    4,
-                    10
-                ),
-                glass
-            );
-
-        connectorGlass.position.set(
-            -15.1,
-            8,
-            0
-        );
-
-        building.add(
-            connectorGlass
-        );
-
-
-        // ---------------------------------------------------------
-        // RUINED CORNER
-        // ---------------------------------------------------------
-
-        const brokenCorner =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    5,
-                    4,
-                    5
-                ),
-                concreteDark
-            );
-
-        brokenCorner.position.set(
-            8,
-            19,
-            -9
-        );
-
-        brokenCorner.rotation.z =
-            -0.12;
-
-        brokenCorner.rotation.x =
-            0.08;
-
-        building.add(
-            brokenCorner
-        );
-
-
-        // ---------------------------------------------------------
-        // BROKEN PANELS
-        // ---------------------------------------------------------
-
-        for (
-            let i = 0;
-            i < 8;
-            i++
-        ) {
-
-            const size =
-                0.35 +
-                Math.random() * 1.1;
-
-            const debris =
-                new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        size * 1.8,
-                        size,
-                        size
-                    ),
-                    concreteDark
-                );
-
-            debris.position.set(
-                -10 +
-                Math.random() * 20,
-
-                20 +
-                Math.random() * 4,
-
-                -12 +
-                Math.random() * 24
-            );
-
-            debris.rotation.set(
-                Math.random() * 1.4,
-                Math.random() * 1.4,
-                Math.random() * 1.4
-            );
-
-            building.add(
-                debris
-            );
-        }
-
-
-        // ---------------------------------------------------------
-        // GROUND RUBBLE
-        // ---------------------------------------------------------
-
-        const rubbleMaterial =
-            new THREE.MeshStandardMaterial({
-                color: 0x55585c,
-                roughness: 0.9,
-                metalness: 0.15
-            });
-
-        for (
-            let i = 0;
-            i < 20;
-            i++
-        ) {
-
-            const size =
-                0.15 +
-                Math.random() * 0.8;
-
-            const rubble =
-                new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        size,
-                        size *
-                        (0.5 +
-                        Math.random()),
-                        size *
-                        (0.5 +
-                        Math.random())
-                    ),
-                    rubbleMaterial
-                );
-
-            rubble.position.set(
-                -13 +
-                Math.random() * 26,
-
-                size / 2,
-
-                -16 +
-                Math.random() * 32
-            );
-
-            rubble.rotation.set(
-                Math.random() * 2,
-                Math.random() * 2,
-                Math.random() * 2
-            );
-
-            building.add(
-                rubble
-            );
-        }
-
-
-        // ---------------------------------------------------------
-        // BUILDING LIGHT
-        // ---------------------------------------------------------
-
-        const cubeLight =
-            new THREE.PointLight(
-                0x00d9ff,
-                10,
-                40
-            );
-
-        cubeLight.position.set(
-            0,
-            8,
-            -13
-        );
-
-        building.add(
-            cubeLight
-        );
-
-        this._registerLiving(cubeLight);
-    }
 
 
     // =============================================================
@@ -3560,399 +4197,8 @@ this._registerLiving(posterWash);
         building.add(
             clusterLight
         );
-
-        this._registerLiving(clusterLight);
     }
 
-
-    // =============================================================
-    // BUILDING #5
-    // STACKED RING TOWER
-    // RIGHT SIDE
-    // Radially symmetric, so no rotation is needed to "face" the
-    // road the way the earlier buildings did.
-    // =============================================================
-
-    createRingTowerBuilding(
-        x,
-        z
-    ) {
-
-        const concreteWhite =
-            new THREE.MeshStandardMaterial({
-                color: 0xf1e9e6,
-                roughness: 0.45,
-                metalness: 0.08
-            });
-
-        const concreteWhiteWarm =
-            new THREE.MeshStandardMaterial({
-                color: 0xf4d9cf,
-                roughness: 0.4,
-                metalness: 0.08
-            });
-
-        const glassDark =
-            new THREE.MeshStandardMaterial({
-                color: 0x141a1e,
-                roughness: 0.15,
-                metalness: 0.4,
-                transparent: true,
-                opacity: 0.55,
-                side: THREE.DoubleSide
-            });
-
-        const mullionMaterial =
-            new THREE.MeshStandardMaterial({
-                color: 0x0a0c0e,
-                roughness: 0.5,
-                metalness: 0.3
-            });
-
-        const coreGlow =
-            new THREE.MeshStandardMaterial({
-                color: 0xffb35c,
-                emissive: 0xffb35c,
-                emissiveIntensity: 4,
-                roughness: 0.3,
-                metalness: 0.1,
-                side: THREE.DoubleSide
-            });
-
-        const rubbleMaterial =
-            new THREE.MeshStandardMaterial({
-                color: 0x55585b,
-                roughness: 0.9,
-                metalness: 0.15
-            });
-
-        const building =
-            new THREE.Group();
-
-        building.position.set(
-            x,
-            0,
-            z
-        );
-
-        this.level.add(
-            building
-        );
-
-
-        // ---------------------------------------------------------
-        // GROUND PLINTH
-        // Wide flat platform the tower rises out of, echoing the
-        // plaza/dock deck in the reference.
-        // ---------------------------------------------------------
-
-        const plinth =
-            new THREE.Mesh(
-                new THREE.CylinderGeometry(
-                    14,
-                    14,
-                    0.8,
-                    48
-                ),
-                concreteWhite
-            );
-
-        plinth.position.y =
-            0.4;
-
-        building.add(
-            plinth
-        );
-
-        const plinthRim =
-            new THREE.Mesh(
-                new THREE.TorusGeometry(
-                    14,
-                    0.12,
-                    8,
-                    64
-                ),
-                coreGlow
-            );
-
-        plinthRim.rotation.x =
-            Math.PI / 2;
-
-        plinthRim.position.y =
-            0.82;
-
-        building.add(
-            plinthRim
-        );
-
-
-        // ---------------------------------------------------------
-        // RING FLOORS
-        // Each a solid disc slab; one near the top is left broken
-        // (a partial arc) as this street's one nod to ruin on an
-        // otherwise mostly-intact structure.
-        // ---------------------------------------------------------
-
-        const ringConfigs = [
-            { y:  3.0, r: 9.0, h: 0.4, material: concreteWhite     },
-            { y:  7.0, r: 9.3, h: 0.4, material: concreteWhite     },
-            { y: 11.0, r: 9.6, h: 0.4, material: concreteWhiteWarm },
-            { y: 15.0, r: 9.9, h: 0.4, material: concreteWhite     },
-            { y: 19.0, r: 10.2, h: 0.4, material: concreteWhiteWarm, broken: true },
-            { y: 22.6, r: 9.0, h: 0.9, material: concreteWhite     }
-        ];
-
-        ringConfigs.forEach(
-            (cfg) => {
-
-                const thetaLength =
-                    cfg.broken ?
-                        Math.PI * 1.6 :
-                        Math.PI * 2;
-
-                const ring =
-                    new THREE.Mesh(
-                        new THREE.CylinderGeometry(
-                            cfg.r,
-                            cfg.r,
-                            cfg.h,
-                            48,
-                            1,
-                            false,
-                            0,
-                            thetaLength
-                        ),
-                        cfg.material
-                    );
-
-                ring.position.y =
-                    cfg.y;
-
-                building.add(
-                    ring
-                );
-
-                if (cfg.broken) {
-
-                    for (
-                        let i = 0;
-                        i < 6;
-                        i++
-                    ) {
-
-                        const size =
-                            0.3 +
-                            Math.random() * 0.7;
-
-                        const debris =
-                            new THREE.Mesh(
-                                new THREE.BoxGeometry(
-                                    size,
-                                    size * 0.5,
-                                    size
-                                ),
-                                cfg.material
-                            );
-
-                        const angle =
-                            Math.PI * 1.8 +
-                            Math.random() * 0.5;
-
-                        debris.position.set(
-                            Math.cos(angle) * cfg.r,
-                            cfg.y -
-                            0.5 +
-                            Math.random() * 1.2,
-                            Math.sin(angle) * cfg.r
-                        );
-
-                        debris.rotation.set(
-                            Math.random() * 1.5,
-                            Math.random() * 1.5,
-                            Math.random() * 1.5
-                        );
-
-                        building.add(
-                            debris
-                        );
-                    }
-                }
-            }
-        );
-
-
-        // ---------------------------------------------------------
-        // CONTINUOUS GLASS CORE
-        // One drum running the full height of the tower; the rings
-        // above cantilever out past it, so it only reads as a dark
-        // band in the gaps between floors, same as the reference.
-        // ---------------------------------------------------------
-
-        const coreRadius = 8.6;
-        const coreBottom = 0.8;
-        const coreTop = 22.6;
-
-        const core =
-            new THREE.Mesh(
-                new THREE.CylinderGeometry(
-                    coreRadius,
-                    coreRadius,
-                    coreTop - coreBottom,
-                    48,
-                    1,
-                    true
-                ),
-                glassDark
-            );
-
-        core.position.y =
-            (coreTop + coreBottom) / 2;
-
-        building.add(
-            core
-        );
-
-
-        // ---------------------------------------------------------
-        // VERTICAL MULLIONS
-        // Thin fins ringing the glass core at even angular spacing.
-        // ---------------------------------------------------------
-
-        const mullionCount = 32;
-
-        for (
-            let i = 0;
-            i < mullionCount;
-            i++
-        ) {
-
-            const angle =
-                (i / mullionCount) *
-                Math.PI * 2;
-
-            const mullion =
-                new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        0.12,
-                        coreTop - coreBottom,
-                        0.2
-                    ),
-                    mullionMaterial
-                );
-
-            mullion.position.set(
-                Math.cos(angle) * coreRadius,
-                (coreTop + coreBottom) / 2,
-                Math.sin(angle) * coreRadius
-            );
-
-            mullion.rotation.y =
-                -angle;
-
-            building.add(
-                mullion
-            );
-        }
-
-
-        // ---------------------------------------------------------
-        // WARM CORE LIGHT COLUMN
-        // The glowing vertical beam visible through the glass gaps
-        // in the reference image.
-        // ---------------------------------------------------------
-
-        const lightColumn =
-            new THREE.Mesh(
-                new THREE.CylinderGeometry(
-                    1.3,
-                    1.3,
-                    coreTop - 1,
-                    24,
-                    1,
-                    true
-                ),
-                coreGlow
-            );
-
-        lightColumn.position.y =
-            (coreTop + 1) / 2;
-
-        building.add(
-            lightColumn
-        );
-
-        const coreLight =
-            new THREE.PointLight(
-                0xffb15c,
-                22,
-                55
-            );
-
-        coreLight.position.set(
-            0,
-            12,
-            0
-        );
-
-        building.add(
-            coreLight
-        );
-
-        this._registerLiving(coreLight);
-
-
-        // ---------------------------------------------------------
-        // GROUND RUBBLE
-        // ---------------------------------------------------------
-
-        for (
-            let i = 0;
-            i < 10;
-            i++
-        ) {
-
-            const size =
-                0.15 +
-                Math.random() * 0.6;
-
-            const rubble =
-                new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        size,
-                        size *
-                        (0.5 +
-                        Math.random()),
-                        size *
-                        (0.5 +
-                        Math.random())
-                    ),
-                    rubbleMaterial
-                );
-
-            const angle =
-                Math.random() * Math.PI * 2;
-
-            const dist =
-                10 +
-                Math.random() * 3.5;
-
-            rubble.position.set(
-                Math.cos(angle) * dist,
-                size / 2,
-                Math.sin(angle) * dist
-            );
-
-            rubble.rotation.set(
-                Math.random() * 2,
-                Math.random() * 2,
-                Math.random() * 2
-            );
-
-            building.add(
-                rubble
-            );
-        }
-    }
 
     // =============================================================
     // =============================================================
@@ -3969,13 +4215,50 @@ this._registerLiving(posterWash);
         z
     ) {
 
+        // Glassy Road.png skin with a clearcoat for the shine. The
+        // scene has no environment, so the skybox is loaded as an
+        // equirect reflection map for the dome alone - without it a
+        // glossy surface has nothing to reflect and reads flat.
+
+        const domeTexture =
+            this.loadTexture(
+                './assets/textures/Road.png'
+            );
+
+        domeTexture.colorSpace =
+            THREE.SRGBColorSpace;
+
+        domeTexture.wrapS =
+            THREE.RepeatWrapping;
+
+        domeTexture.wrapT =
+            THREE.RepeatWrapping;
+
+        domeTexture.repeat.set(
+            4,
+            2
+        );
+
+        const domeEnvMap =
+            this.loadTexture(
+                './assets/textures/skybox1.png'
+            );
+
+        domeEnvMap.mapping =
+            THREE.EquirectangularReflectionMapping;
+
+        domeEnvMap.colorSpace =
+            THREE.SRGBColorSpace;
+
         const domeGlass =
-            new THREE.MeshStandardMaterial({
-                color: 0x9fd0e8,
-                roughness: 0.1,
-                metalness: 0.2,
-                transparent: true,
-                opacity: 1,
+            new THREE.MeshPhysicalMaterial({
+                map: domeTexture,
+                envMap: domeEnvMap,
+                envMapIntensity: 1.5,
+                roughness: 0.05,
+                metalness: 0.4,
+                clearcoat: 1,
+                clearcoatRoughness: 0.02,
                 side: THREE.DoubleSide
             });
 
@@ -4021,7 +4304,7 @@ this._registerLiving(posterWash);
 
         building.position.set(
             x,
-            0.5,
+            0,
             z
         );
 
@@ -4100,7 +4383,7 @@ this._registerLiving(posterWash);
         // ---------------------------------------------------------
 
         const domeRadius = 13;
-        const domeBaseY = 1.5;
+        const domeBaseY = 0.6;
 
         const dome =
             new THREE.Mesh(
@@ -4312,8 +4595,6 @@ this._registerLiving(posterWash);
                 building.add(
                     floorLight
                 );
-
-                this._registerLiving(floorLight);
             }
         );
 
@@ -4768,79 +5049,10 @@ this._registerLiving(posterWash);
 
     tower.add(roofFrame);
 
-    // ------------------------------------------------------------
-    // ROOFTOP BEACON STRUCTURE
-    // ------------------------------------------------------------
+    
 
-    const mastHeight = 9;
-
-    const mast = new THREE.Mesh(
-        new THREE.BoxGeometry(
-            0.55,
-            mastHeight,
-            0.55
-        ),
-        cfg.materials.edge
-    );
-
-    mast.position.set(
-        0,
-        totalHeight + 3.7 + mastHeight / 2,
-        0
-    );
-
-    tower.add(mast);
-
-    // Cross support near top
-    const mastTop = new THREE.Mesh(
-        new THREE.BoxGeometry(
-            3.2,
-            0.35,
-            0.35
-        ),
-        cfg.materials.edge
-    );
-
-    mastTop.position.set(
-        0,
-        totalHeight + 10.7,
-        0
-    );
-
-    tower.add(mastTop);
-
-    // Original red beacon
-    const beacon = new THREE.Mesh(
-        new THREE.SphereGeometry(0.65, 16, 16),
-        cfg.materials.beacon
-    );
-
-    beacon.position.set(
-        0,
-        totalHeight + 12.4,
-        0
-    );
-
-    tower.add(beacon);
-
-    // ORIGINAL LIGHT — DO NOT CHANGE
-    const beaconLight = new THREE.PointLight(
-        0xff3355,
-        14,
-        26
-    );
-
-    beaconLight.position.set(
-        0,
-        totalHeight + 12.4,
-        0
-    );
-
-    beaconLight.userData.baseIntensity = 14;
-
-    tower.add(beaconLight);
-    this.gatewayLights.push(beaconLight);
-
+   
+    
     // ------------------------------------------------------------
     // LONG REAR BUILDING SECTION
     // ------------------------------------------------------------
@@ -5366,103 +5578,8 @@ createTwinSpireGateway(z) {
         building.add(support);
     }
 
-    // ------------------------------------------------------------
-    // CENTRAL BRIDGE MAST
-    // ------------------------------------------------------------
-
-    const pylonBaseY = bridgeY + 2.85;
-    const pylonHeight = 10.9;
-
-    const pylon = new THREE.Mesh(
-        new THREE.BoxGeometry(
-            0.65,
-            pylonHeight,
-            0.65
-        ),
-        edgeMaterial
-    );
-
-    pylon.position.set(
-        0,
-        pylonBaseY + pylonHeight / 2,
-        0
-    );
-
-    building.add(pylon);
-
-    const pylonTop = new THREE.Mesh(
-        new THREE.BoxGeometry(
-            2.8,
-            0.3,
-            0.3
-        ),
-        edgeMaterial
-    );
-
-    pylonTop.position.set(
-        0,
-        pylonBaseY + pylonHeight,
-        0
-    );
-
-    building.add(pylonTop);
-
-    // Original red bridge beacon
-    const pylonBeacon = new THREE.Mesh(
-        new THREE.SphereGeometry(
-            0.5,
-            16,
-            16
-        ),
-        beaconMaterial
-    );
-
-    pylonBeacon.position.set(
-        0,
-        pylonBaseY + pylonHeight + 0.7,
-        0
-    );
-
-    building.add(pylonBeacon);
-
-    // ORIGINAL PYLON LIGHT — UNCHANGED
-    const pylonLight = new THREE.PointLight(
-        0xff3355,
-        10,
-        22
-    );
-
-    pylonLight.position.set(
-        0,
-        pylonBaseY + pylonHeight + 0.7,
-        0
-    );
-
-    pylonLight.userData.baseIntensity = 10;
-
-    building.add(pylonLight);
-    this.gatewayLights.push(pylonLight);
-
-    // ------------------------------------------------------------
-    // UNDER-BRIDGE LIGHT — ORIGINAL VALUE
-    // ------------------------------------------------------------
-
-    const underLight = new THREE.PointLight(
-        0x00d9ff,
-        12,
-        45
-    );
-
-    underLight.position.set(
-        0,
-        bridgeY - bridgeRadius - 1,
-        0
-    );
-
-    building.add(underLight);
-
-    this._registerLiving(underLight);
-
+    
+    
     // ------------------------------------------------------------
     // BRIDGE END CAPS
     // ------------------------------------------------------------
@@ -5506,1097 +5623,665 @@ createTwinSpireGateway(z) {
     });
 }
 
-// =========================================================
-// FUTURISTIC BACKGROUND CITY
-// =========================================================
-
-createCityBackground() {
-
-    // ---------------------------------------------------------
-    // SIDE OFFSET
-    // ---------------------------------------------------------
-    // How far the background rows are pushed sideways so they
-    // sit behind the main buildings instead of inside them.
-    // Increase this value to move the background further out.
-
-    const SIDE_OFFSET = 35;
 
 
-    // ---------------------------------------------------------
-    // MATERIALS
-    // ---------------------------------------------------------
 
-    const darkGlass = new THREE.MeshStandardMaterial({
-        color: 0x26343b,
-        roughness: 0.22,
-        metalness: 0.65
-    });
+    // =============================================================
+    // DEFORESTATION BACKGROUND
+    // Cleared dry land behind the buildings (-X side): cut stumps,
+    // a few dead trees still standing, fallen logs and a dark line
+    // of remaining forest in the distance.
+    // Background only, so it is kept cheap:
+    //   - stumps / dead trees / logs are one InstancedMesh each,
+    //     sharing one Lambert material; bark and cut-wood colours
+    //     are baked into vertex colours so there are no extra
+    //     draw calls for the pale cut faces
+    //   - the distant forest is one flat textured strip
+    //   - nothing casts shadows, no lights, the fog hides the far
+    //     edge
+    // Everything stays at x <= -48; the furthest building edge is
+    // at x -42.2.
+    // =============================================================
 
-    const silverStructure = new THREE.MeshStandardMaterial({
-        color: 0x59636a,
-        roughness: 0.32,
-        metalness: 0.78
-    });
+    createDeforestation() {
 
-    const darkStructure = new THREE.MeshStandardMaterial({
-        color: 0x1b2025,
-        roughness: 0.3,
-        metalness: 0.82
-    });
+        const CLEAR_X_NEAR = -48;   // edge nearest the buildings
+        const CLEAR_X_FAR = -200;   // where the forest line stands
+        const CLEAR_Z_MIN = -290;
+        const CLEAR_Z_MAX = 290;
 
-    const windowMaterial = new THREE.MeshStandardMaterial({
-        color: 0x3e7f89,
-        roughness: 0.15,
-        metalness: 0.55,
-        emissive: 0x163c43,
-        emissiveIntensity: 0.7
-    });
+        // Size of stumps, dead trees and logs, scaled up so they read
+        // against the large buildings
+        const PROP_SCALE = 1.8;
 
-    const cyanMaterial = new THREE.MeshStandardMaterial({
-        color: 0x00bcd4,
-        roughness: 0.2,
-        metalness: 0.4,
-        emissive: 0x007c91,
-        emissiveIntensity: 1.5
-    });
+        // Seeded random (mulberry32) so the layout is identical on
+        // every load
+        let seed = 1337;
 
+        const rand = () => {
+            seed = (seed + 0x6d2b79f5) | 0;
+            let t = seed;
+            t = Math.imul(t ^ (t >>> 15), t | 1);
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
 
-    // =========================================================
-    // CREATE ONE BACKGROUND BUILDING
-    // =========================================================
+        const range = (a, b) => a + (b - a) * rand();
 
-    const createBackgroundBuilding = (
-        x,
-        z,
-        width,
-        depth,
-        height,
-        variant
-    ) => {
+        // Random x inside the cleared band. bias > 1 pushes points
+        // away from the city, so the clearing gets busier further
+        // out. margin keeps wide pieces clear of the city edge.
+        const randomX = (bias, margin = 4) => {
+            const near = CLEAR_X_NEAR - margin;
+            const far = CLEAR_X_FAR + 6;
+            return near + (far - near) * Math.pow(rand(), 1 / bias);
+        };
 
-        const building = new THREE.Group();
+        const randomZ = () => range(CLEAR_Z_MIN, CLEAR_Z_MAX);
 
-
-        // -----------------------------------------------------
-        // MAIN BUILDING
-        // -----------------------------------------------------
-
-        const body = new THREE.Mesh(
-            new THREE.BoxGeometry(
-                width,
-                height,
-                depth
-            ),
-            darkGlass
-        );
-
-        body.position.y = height / 2;
-
-        building.add(body);
+        // Background pieces: receive the buildings' long sunset
+        // shadows (free - no extra draw calls) but never cast any.
+        // noShadow keeps the constructor's shadow pass off them.
+        const markBackground = (mesh, receive) => {
+            mesh.userData.noShadow = true;
+            mesh.castShadow = false;
+            mesh.receiveShadow = receive;
+        };
 
 
-        // -----------------------------------------------------
-        // VERTICAL STRUCTURE
-        // -----------------------------------------------------
+        // ---------------------------------------------------------
+        // DRY DIRT
+        // One plane over the existing ground, with a dusty dirt
+        // texture drawn on a canvas (no new image file). An alpha
+        // map fades its edges so there is no hard line against the
+        // flagstone ground.
+        // ---------------------------------------------------------
 
-        const columnCount = Math.max(
-            2,
-            Math.floor(width / 4)
-        );
+        const dirtCanvas = document.createElement('canvas');
+        dirtCanvas.width = 512;
+        dirtCanvas.height = 512;
 
-        for (let i = 0; i <= columnCount; i++) {
+        const dirt = dirtCanvas.getContext('2d');
 
-            const columnX =
-                -width / 2 +
-                (width / columnCount) * i;
+        dirt.fillStyle = '#6b5d4c';
+        dirt.fillRect(0, 0, 512, 512);
 
+        // Soft lighter (dry) and darker (bare earth) patches, drawn
+        // wrapped so the tile repeats without seams
+        for (let i = 0; i < 60; i++) {
 
-            // FRONT COLUMN
+            const x = range(0, 512);
+            const y = range(0, 512);
+            const r = range(20, 90);
 
-            const column = new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    0.22,
-                    height + 0.2,
-                    0.22
-                ),
-                silverStructure
-            );
+            const gradient = dirt.createRadialGradient(x, y, 0, x, y, r);
 
-            column.position.set(
-                columnX,
-                height / 2,
-                depth / 2 + 0.12
-            );
-
-            building.add(column);
-
-
-            // BACK COLUMN
-
-            const backColumn = column.clone();
-
-            backColumn.position.z =
-                -depth / 2 - 0.12;
-
-            building.add(backColumn);
-        }
-
-
-        // -----------------------------------------------------
-        // FLOOR DIVISIONS
-        // -----------------------------------------------------
-
-        const floorSpacing = 3.2;
-
-        for (
-            let y = 3;
-            y < height;
-            y += floorSpacing
-        ) {
-
-            const floorBand = new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    width + 0.25,
-                    0.12,
-                    0.18
-                ),
-                darkStructure
-            );
-
-            floorBand.position.set(
+            gradient.addColorStop(
                 0,
-                y,
-                depth / 2 + 0.16
+                rand() < 0.5
+                    ? 'rgba(150, 132, 106, 0.35)'
+                    : 'rgba(58, 48, 38, 0.35)'
             );
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
-            building.add(floorBand);
-        }
+            dirt.fillStyle = gradient;
 
-
-        // -----------------------------------------------------
-        // WINDOWS
-        // -----------------------------------------------------
-
-        const windowRows =
-            Math.floor(height / 3.2);
-
-        for (let row = 0; row < windowRows; row++) {
-
-            const y =
-                1.5 +
-                row * 3.2;
-
-
-            const window = new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    width * 0.78,
-                    1.45,
-                    0.06
-                ),
-                windowMaterial
-            );
-
-            window.position.set(
-                0,
-                y,
-                depth / 2 + 0.19
-            );
-
-            building.add(window);
-        }
-
-
-        // -----------------------------------------------------
-        // VERTICAL FACADE FINS
-        // -----------------------------------------------------
-
-        if (variant % 2 === 0) {
-
-            const finCount =
-                Math.max(
-                    2,
-                    Math.floor(width / 5)
-                );
-
-            for (let i = 0; i < finCount; i++) {
-
-                const finX =
-                    -width / 2 +
-                    2 +
-                    i * 5;
-
-
-                const fin = new THREE.Mesh(
-                    new THREE.BoxGeometry(
-                        0.28,
-                        height * 0.92,
-                        0.35
-                    ),
-                    silverStructure
-                );
-
-                fin.position.set(
-                    finX,
-                    height * 0.48,
-                    depth / 2 + 0.24
-                );
-
-                building.add(fin);
+            for (const ox of [-512, 0, 512]) {
+                for (const oy of [-512, 0, 512]) {
+                    dirt.save();
+                    dirt.translate(ox, oy);
+                    dirt.fillRect(x - r, y - r, r * 2, r * 2);
+                    dirt.restore();
+                }
             }
         }
 
+        // Dry cracks: short random walks kept away from the tile
+        // edges
+        dirt.strokeStyle = 'rgba(40, 32, 24, 0.45)';
 
-        // -----------------------------------------------------
-        // ROOFTOP MECHANICAL UNIT
-        // -----------------------------------------------------
+        for (let i = 0; i < 25; i++) {
 
-        const roofWidth =
-            width * 0.45;
+            let x = range(60, 452);
+            let y = range(60, 452);
+            let angle = range(0, Math.PI * 2);
 
-        const roofDepth =
-            depth * 0.45;
+            dirt.lineWidth = range(0.8, 1.8);
+            dirt.beginPath();
+            dirt.moveTo(x, y);
 
-        const roofHeight =
-            Math.min(
-                3,
-                height * 0.08
-            );
+            for (let s = 0; s < 8; s++) {
+                angle += range(-0.7, 0.7);
+                x += Math.cos(angle) * range(4, 9);
+                y += Math.sin(angle) * range(4, 9);
+                dirt.lineTo(x, y);
+            }
 
-
-        const roofUnit = new THREE.Mesh(
-            new THREE.BoxGeometry(
-                roofWidth,
-                roofHeight,
-                roofDepth
-            ),
-            darkStructure
-        );
-
-        roofUnit.position.y =
-            height +
-            roofHeight / 2;
-
-        building.add(roofUnit);
-
-
-        // -----------------------------------------------------
-        // ROOFTOP ARCHITECTURAL SPINE
-        // -----------------------------------------------------
-
-        if (variant % 3 === 0) {
-
-            const spine = new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    0.7,
-                    5,
-                    0.7
-                ),
-                silverStructure
-            );
-
-            spine.position.y =
-                height +
-                roofHeight +
-                2.5;
-
-            building.add(spine);
-
-
-            const cyanCap = new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    1.4,
-                    0.18,
-                    1.4
-                ),
-                cyanMaterial
-            );
-
-            cyanCap.position.y =
-                height +
-                roofHeight +
-                5;
-
-            building.add(cyanCap);
+            dirt.stroke();
         }
 
+        // Small stones and wood chips
+        for (let i = 0; i < 500; i++) {
 
-        // -----------------------------------------------------
-        // SIDE FACADE FINS
-        // -----------------------------------------------------
+            dirt.fillStyle =
+                rand() < 0.5
+                    ? 'rgba(160, 145, 120, 0.6)'
+                    : 'rgba(45, 38, 30, 0.6)';
 
-        const sideFinCount =
-            Math.max(
-                2,
-                Math.floor(depth / 5)
-            );
-
-
-        for (let i = 0; i < sideFinCount; i++) {
-
-            const sideZ =
-                -depth / 2 +
-                2 +
-                i * 5;
-
-
-            const sideFin = new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    0.3,
-                    height * 0.7,
-                    0.5
-                ),
-                darkStructure
-            );
-
-            sideFin.position.set(
-                width / 2 + 0.18,
-                height * 0.42,
-                sideZ
-            );
-
-            building.add(sideFin);
+            dirt.fillRect(range(0, 512), range(0, 512), range(1, 3), range(1, 3));
         }
 
+        // Fine grain
+        const dirtPixels = dirt.getImageData(0, 0, 512, 512);
 
-        // -----------------------------------------------------
-        // ADD BUILDING TO LEVEL
-        // -----------------------------------------------------
+        for (let i = 0; i < dirtPixels.data.length; i += 4) {
 
-        // Push the side rows outward so they sit behind the main
-        // buildings. The far wall at the end of the road (z ~ 143)
-        // stays where it is.
-        const placedX =
-            Math.abs(z) < 140
-                ? x + Math.sign(x) * SIDE_OFFSET
-                : x;
+            const grain = (rand() - 0.5) * 28;
 
-        building.position.set(
-            placedX,
-            0,
-            z
-        );
-
-        this.level.add(building);
-    };
-
-
-    // =========================================================
-    // BACKGROUND BUILDINGS
-    // =========================================================
-
-    // LEFT SIDE
-
-    createBackgroundBuilding(
-        -20,
-        -115,
-        16,
-        14,
-        42,
-        0
-    );
-
-    createBackgroundBuilding(
-        -20,
-        -82,
-        18,
-        15,
-        55,
-        1
-    );
-
-    createBackgroundBuilding(
-        -20,
-        -47,
-        15,
-        14,
-        38,
-        2
-    );
-
-    createBackgroundBuilding(
-        -20,
-        -12,
-        19,
-        15,
-        62,
-        3
-    );
-
-    createBackgroundBuilding(
-        -20,
-        24,
-        16,
-        14,
-        48,
-        4
-    );
-
-    createBackgroundBuilding(
-        -20,
-        59,
-        19,
-        15,
-        67,
-        5
-    );
-
-    createBackgroundBuilding(
-        -20,
-        94,
-        16,
-        14,
-        52,
-        6
-    );
-
-    createBackgroundBuilding(
-        -20,
-        127,
-        19,
-        15,
-        72,
-        7
-    );
-
-
-    // RIGHT SIDE
-
-    createBackgroundBuilding(
-        20,
-        -115,
-        17,
-        14,
-        52,
-        8
-    );
-
-    createBackgroundBuilding(
-        20,
-        -80,
-        15,
-        15,
-        40,
-        9
-    );
-
-    createBackgroundBuilding(
-        20,
-        -45,
-        19,
-        14,
-        65,
-        10
-    );
-
-    createBackgroundBuilding(
-        20,
-        -10,
-        16,
-        15,
-        47,
-        11
-    );
-
-    createBackgroundBuilding(
-        20,
-        25,
-        19,
-        14,
-        70,
-        12
-    );
-
-    createBackgroundBuilding(
-        20,
-        60,
-        15,
-        15,
-        44,
-        13
-    );
-
-    createBackgroundBuilding(
-        20,
-        95,
-        19,
-        14,
-        60,
-        14
-    );
-
-    createBackgroundBuilding(
-        20,
-        128,
-        17,
-        15,
-        75,
-        15
-    );
-
-
-    // =========================================================
-    // DENSE CITY AT THE END OF THE ROAD
-    // =========================================================
-
-    createBackgroundBuilding(
-        -35,
-        142,
-        18,
-        20,
-        55,
-        20
-    );
-
-    createBackgroundBuilding(
-        -17,
-        143,
-        20,
-        20,
-        70,
-        21
-    );
-
-    createBackgroundBuilding(
-        5,
-        143,
-        18,
-        20,
-        58,
-        22
-    );
-
-    createBackgroundBuilding(
-        24,
-        143,
-        21,
-        20,
-        78,
-        23
-    );
-
-    createBackgroundBuilding(
-        43,
-        143,
-        16,
-        20,
-        48,
-        24
-    );
-
-    // =========================================================
-    // CITY ROW
-    // =========================================================
-
-    // Road is 16 units wide.
-    // Existing buildings should already be outside this area.
-    //
-    // These are placed behind the existing buildings.
-    // Left side = negative X
-    // Right side = positive X
-    //
-    // Z runs along the road.
-
-    const leftBuildings = [
-        [-19, -110, 13, 12, 34, 0],
-        [-19,  -78, 16, 13, 43, 1],
-        [-20,  -44, 12, 14, 31, 2],
-        [-19,  -10, 17, 12, 48, 3],
-        [-20,   26, 14, 15, 38, 4],
-        [-19,   61, 17, 13, 52, 5],
-        [-20,   96, 13, 14, 42, 6],
-        [-19,  128, 18, 15, 57, 7]
-    ];
-
-    const rightBuildings = [
-        [19, -118, 15, 13, 45, 2],
-        [20,  -86, 12, 15, 35, 3],
-        [19,  -52, 17, 12, 50, 4],
-        [20,  -20, 14, 14, 40, 5],
-        [19,   14, 17, 13, 55, 6],
-        [20,   49, 13, 15, 37, 7],
-        [19,   83, 17, 13, 49, 8],
-        [20,  119, 14, 16, 60, 9]
-    ];
-
-
-    // ---------------------------------------------------------
-    // Create left side
-    // ---------------------------------------------------------
-
-    leftBuildings.forEach(data => {
-
-        createBackgroundBuilding(
-            data[0],
-            data[1],
-            data[2],
-            data[3],
-            data[4],
-            data[5]
-        );
-
-    });
-
-
-    // ---------------------------------------------------------
-    // Create right side
-    // ---------------------------------------------------------
-
-    rightBuildings.forEach(data => {
-
-        createBackgroundBuilding(
-            data[0],
-            data[1],
-            data[2],
-            data[3],
-            data[4],
-            data[5]
-        );
-
-    });
-
-
-    // =========================================================
-    // FAR CITY WALL
-    // =========================================================
-
-    // This creates a dense skyline at the end of the road
-    // so the world doesn't look like it suddenly stops.
-
-    const farZ = 143;
-
-    const farBuildings = [
-        [-31, 28, 15, 42],
-        [-15, 40, 18, 55],
-        [2, 30, 16, 46],
-        [17, 42, 19, 62],
-        [33, 27, 14, 38],
-        [-43, 23, 13, 35],
-        [45, 24, 16, 44]
-    ];
-
-    farBuildings.forEach((data, index) => {
-
-        createBackgroundBuilding(
-            data[0],
-            farZ,
-            data[2],
-            data[3],
-            data[4],
-            index
-        );
-
-    });
-}
-
-
-
-    // GIANT CIRCULAR END AREA
-    // =============================================================
-
-    createBossArea(
-        z
-    ) {
-
-        const arenaMaterial =
-            new THREE.MeshStandardMaterial({
-                color: 0x171329,
-                metalness: 0.8,
-                roughness: 0.3,
-                emissive: 0x120b28,
-                emissiveIntensity: 1.2
-            });
-
-        const arena =
-            new THREE.Mesh(
-                new THREE.CylinderGeometry(
-                    24,
-                    24,
-                    0.7,
-                    48
-                ),
-                arenaMaterial
-            );
-
-        arena.position.set(
-            0,
-            0,
-            z-20
-        );
-
-        this.level.add(
-            arena
-        );
-
-
-        // =========================================================
-        // OUTER PILLARS
-        // =========================================================
-
-        for (
-            let i = 0;
-            i < 8;
-            i++
-        ) {
-
-            const angle =
-                (i / 8) *
-                Math.PI *
-                2;
-
-            const px =
-                Math.cos(angle) *
-                22;
-
-            const pz =
-                z +
-                Math.sin(angle) *
-                22;
-
-            this.createBossPillar(
-                px,
-                pz
-            );
+            dirtPixels.data[i] += grain;
+            dirtPixels.data[i + 1] += grain;
+            dirtPixels.data[i + 2] += grain;
         }
 
+        dirt.putImageData(dirtPixels, 0, 0);
 
-        // =========================================================
-        // CENTRAL PLATFORM
-        // =========================================================
+        const DIRT_X_FAR = CLEAR_X_FAR - 10;   // runs under the forest line
+        const DIRT_WIDTH = CLEAR_X_NEAR - DIRT_X_FAR;
+        const DIRT_LENGTH = CLEAR_Z_MAX - CLEAR_Z_MIN;
 
-        const bossGlow =
-            new THREE.MeshStandardMaterial({
-                color: 0xff20c8,
-                emissive: 0xff20c8,
-                emissiveIntensity: 4,
-                roughness: 0.2,
-                metalness: 0.25
-            });
+        const dirtTexture = new THREE.CanvasTexture(dirtCanvas);
 
-        const bossPlatform =
-            new THREE.Mesh(
-                new THREE.CylinderGeometry(
-                    6,
-                    6,
-                    0.5,
-                    12
-                ),
-                bossGlow
+        dirtTexture.colorSpace = THREE.SRGBColorSpace;
+        dirtTexture.wrapS = THREE.RepeatWrapping;
+        dirtTexture.wrapT = THREE.RepeatWrapping;
+        dirtTexture.anisotropy = 4;
+
+        // One tile = about 16 x 16 units
+        dirtTexture.repeat.set(
+            DIRT_WIDTH / 16,
+            DIRT_LENGTH / 16
+        );
+
+        // Alpha map: u runs from the far edge (0) to the city edge
+        // (1), v along the road. Fades 12 units at the city edge and
+        // 20 units at each end.
+        const fadeCanvas = document.createElement('canvas');
+        fadeCanvas.width = 64;
+        fadeCanvas.height = 64;
+
+        const fade = fadeCanvas.getContext('2d');
+        const fadePixels = fade.createImageData(64, 64);
+
+        const smooth = (t) => {
+            const c = Math.min(Math.max(t, 0), 1);
+            return c * c * (3 - 2 * c);
+        };
+
+        for (let py = 0; py < 64; py++) {
+            for (let px = 0; px < 64; px++) {
+
+                const u = (px + 0.5) / 64;
+                const v = (py + 0.5) / 64;
+
+                const alpha =
+                    smooth((1 - u) * DIRT_WIDTH / 12) *
+                    smooth(v * DIRT_LENGTH / 20) *
+                    smooth((1 - v) * DIRT_LENGTH / 20);
+
+                const i = (py * 64 + px) * 4;
+
+                fadePixels.data[i] = alpha * 255;
+                fadePixels.data[i + 1] = alpha * 255;
+                fadePixels.data[i + 2] = alpha * 255;
+                fadePixels.data[i + 3] = 255;
+            }
+        }
+
+        fade.putImageData(fadePixels, 0, 0);
+
+        const dirtPlane = new THREE.Mesh(
+            new THREE.PlaneGeometry(DIRT_WIDTH, DIRT_LENGTH),
+            new THREE.MeshLambertMaterial({
+                map: dirtTexture,
+                alphaMap: new THREE.CanvasTexture(fadeCanvas),
+                color: 0xd4cabb,
+                transparent: true,
+                depthWrite: false,
+                // Stops flicker against the ground plane below
+                polygonOffset: true,
+                polygonOffsetFactor: -1,
+                polygonOffsetUnits: -1
+            })
+        );
+
+        dirtPlane.rotation.x = -Math.PI / 2;
+
+        dirtPlane.position.set(
+            (CLEAR_X_NEAR + DIRT_X_FAR) / 2,
+            0.03,
+            (CLEAR_Z_MIN + CLEAR_Z_MAX) / 2
+        );
+
+        markBackground(dirtPlane, true);
+
+        this.level.add(dirtPlane);
+
+
+        // ---------------------------------------------------------
+        // SHARED WOOD MATERIAL
+        // Vertex colours hold bark vs cut wood; the per-instance
+        // colour multiplies on top for variation.
+        // ---------------------------------------------------------
+
+        const woodMaterial = new THREE.MeshLambertMaterial({
+            vertexColors: true
+        });
+
+        // Bakes a colour per vertex: cut colour where isCut(normal)
+        // is true, bark everywhere else
+        const paintWood = (geometry, barkHex, cutHex, isCut) => {
+
+            const bark = new THREE.Color(barkHex);
+            const cut = new THREE.Color(cutHex);
+            const normals = geometry.attributes.normal;
+            const colors = new Float32Array(normals.count * 3);
+
+            for (let i = 0; i < normals.count; i++) {
+
+                const colour =
+                    isCut(normals.getX(i), normals.getY(i), normals.getZ(i))
+                        ? cut
+                        : bark;
+
+                colour.toArray(colors, i * 3);
+            }
+
+            geometry.setAttribute(
+                'color',
+                new THREE.BufferAttribute(colors, 3)
             );
 
-        bossPlatform.position.set(
-            0,
-            0.6,
-            z-20
+            return geometry;
+        };
+
+        // Weathered grey-brown shade with a slight warm/cool shift
+        const woodTint = new THREE.Color();
+
+        const randomWoodTint = () => {
+            const value = range(0.75, 1.1);
+            const warm = range(-0.06, 0.06);
+            return woodTint.setRGB(
+                value * (1 + warm),
+                value,
+                value * (1 - warm)
+            );
+        };
+
+        const dummy = new THREE.Object3D();
+
+
+        // ---------------------------------------------------------
+        // CUT STUMPS
+        // 7-sided tapered cylinder with a pale sawn top. The unseen
+        // bottom cap is dropped (21 triangles each).
+        // ---------------------------------------------------------
+
+        const STUMP_COUNT = 600;
+
+        const stumpGeometry = new THREE.CylinderGeometry(0.3, 0.4, 1, 7, 1);
+
+        // Groups are [sides, top cap, bottom cap]: keep the first two
+        stumpGeometry.setIndex(
+            Array.from(stumpGeometry.index.array).slice(
+                0,
+                stumpGeometry.groups[2].start
+            )
+        );
+        stumpGeometry.clearGroups();
+        stumpGeometry.translate(0, 0.5, 0);
+
+        paintWood(stumpGeometry, 0x4e443a, 0x9c8a6e, (x, y) => y > 0.5);
+
+        const stumps = new THREE.InstancedMesh(
+            stumpGeometry,
+            woodMaterial,
+            STUMP_COUNT
         );
 
-        this.level.add(
-            bossPlatform
-        );
+        for (let i = 0; i < STUMP_COUNT; i++) {
 
+            // Mostly low stumps, the odd tall broken snag
+            const height =
+                rand() < 0.1
+                    ? range(1.4, 2.2)
+                    : range(0.35, 1.1);
 
-        // =========================================================
-        // RING
-        // =========================================================
+            const girth = range(0.55, 1.4);
 
-        const ring =
-            new THREE.Mesh(
-                new THREE.TorusGeometry(
-                    17,
-                    0.22,
-                    10,
-                    96
-                ),
-                bossGlow
+            dummy.position.set(randomX(1.4), -0.05, randomZ());
+
+            // Tilt makes the sawn tops slanted and uneven
+            dummy.rotation.set(
+                range(-0.08, 0.08),
+                range(0, Math.PI * 2),
+                range(-0.08, 0.08)
             );
 
-        ring.rotation.x =
-            Math.PI / 2;
+            dummy.scale.set(girth, height, girth).multiplyScalar(PROP_SCALE);
+            dummy.updateMatrix();
 
-        ring.position.set(
-            0,
-            0.5,
-            z-20
-        );
+            stumps.setMatrixAt(i, dummy.matrix);
+            stumps.setColorAt(i, randomWoodTint());
+        }
 
-        this.level.add(
-            ring
-        );
+        markBackground(stumps, true);
+
+        this.level.add(stumps);
 
 
-        const bossLight =
-            new THREE.PointLight(
-                0xff20c8,
-                30,
-                60
-            );
+        // ---------------------------------------------------------
+        // DEAD TREES
+        // Bare trunk plus five crooked branches, merged into one
+        // geometry. Open-ended cylinders: the ends are never seen.
+        // ---------------------------------------------------------
 
-        bossLight.position.set(
-            0,
-            5,
-            z-20
-        );
+        const DEAD_TREE_COUNT = 50;
 
-        this.level.add(
-            bossLight
-        );
+        const deadTreeParts = [];
 
-        this._registerLiving(bossLight, { amp: 0.45, speed: 1.2 });
-    }
+        const trunk = new THREE.CylinderGeometry(0.1, 0.32, 9, 6, 1, true);
+        trunk.translate(0, 4.5, 0);
+        deadTreeParts.push(trunk);
 
-
-    // =============================================================
-    // BOSS PILLAR
-    // =============================================================
-
-    createBossPillar(
-        x,
-        z
-    ) {
-
-        const material =
-            new THREE.MeshStandardMaterial({
-                color: 0x241b42,
-                metalness: 0.8,
-                roughness: 0.3,
-                emissive: 0x120b25,
-                emissiveIntensity: 1
-            });
-
-        const pillar =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    3,
-                    14,
-                    3
-                ),
-                material
-            );
-
-        pillar.position.set(
-            x,
-            7,
-            z-20
-        );
-
-        this.level.add(
-            pillar
-        );
-
-
-        const glow =
-            new THREE.MeshStandardMaterial({
-                color: 0xff20c8,
-                emissive: 0xff20c8,
-                emissiveIntensity: 3
-            });
-
-        const strip =
-            new THREE.Mesh(
-                new THREE.BoxGeometry(
-                    0.25,
-                    12,
-                    0.25
-                ),
-                glow
-            );
-
-        strip.position.set(
-            x,
-            7,
-            z - 1.55-20
-        );
-
-        this.level.add(
-            strip
-        );
-    }
-
-
-    // =============================================================
-    // ATMOSPHERE
-    // Slow-drifting embers/dust motes filling the street corridor
-    // and boss arena, tinted to pick up the cyan/purple/red neon
-    // already in the scene. Wraps vertically so it reads as
-    // continuous ambient "living air" rather than a one-shot burst.
-    // =============================================================
-
-    createAtmosphere() {
-
-        const count = 1100;
-
-        const positions =
-            new Float32Array(count * 3);
-
-        const colors =
-            new Float32Array(count * 3);
-
-        this.driftSpeeds =
-            new Float32Array(count);
-
-        this.driftSway =
-            new Float32Array(count * 2);
-
-        // A warm ember palette mixed with cool neon, so particles
-        // read differently depending on which light they drift near.
-        const palette = [
-            [1.0, 0.65, 0.35],   // ember orange
-            [0.4, 0.85, 1.0],    // cyan neon
-            [0.75, 0.35, 1.0],   // purple neon
-            [1.0, 0.85, 0.6]     // warm streetlight
+        const branchSpecs = [
+            // height on trunk, length, lean out, direction
+            [3.6, 2.8, 0.9, 0.3],
+            [4.8, 2.2, 0.75, 2.4],
+            [5.9, 2.0, 0.8, 4.1],
+            [6.8, 1.5, 0.6, 1.2],
+            [7.6, 1.1, 0.5, 5.3]
         ];
 
-        for (
-            let i = 0;
-            i < count;
-            i++
-        ) {
+        for (const [y, length, lean, direction] of branchSpecs) {
 
-            positions[i * 3] =
-                (Math.random() - 0.5) * 60;
+            const branch = new THREE.CylinderGeometry(0.02, 0.1, length, 5, 1, true);
 
-            positions[i * 3 + 1] =
-                Math.random() * 26;
+            branch.translate(0, length / 2, 0);
+            branch.rotateZ(lean);
+            branch.rotateY(direction);
+            branch.translate(0, y, 0);
 
-            positions[i * 3 + 2] =
-                (Math.random() - 0.5) * 300;
-
-            const c =
-                palette[Math.floor(Math.random() * palette.length)];
-
-            colors[i * 3] = c[0];
-            colors[i * 3 + 1] = c[1];
-            colors[i * 3 + 2] = c[2];
-
-            this.driftSpeeds[i] =
-                0.3 + Math.random() * 0.9;
-
-            this.driftSway[i * 2] =
-                (Math.random() - 0.5) * 0.35;
-
-            this.driftSway[i * 2 + 1] =
-                (Math.random() - 0.5) * 0.35;
+            deadTreeParts.push(branch);
         }
 
-        const geometry =
-            new THREE.BufferGeometry();
+        const deadTreeGeometry = mergeGeometries(deadTreeParts);
 
-        geometry.setAttribute(
+        deadTreeParts.forEach((part) => part.dispose());
+
+        paintWood(deadTreeGeometry, 0x6e665d, 0x6e665d, () => false);
+
+        const deadTrees = new THREE.InstancedMesh(
+            deadTreeGeometry,
+            woodMaterial,
+            DEAD_TREE_COUNT
+        );
+
+        for (let i = 0; i < DEAD_TREE_COUNT; i++) {
+
+            const size = range(0.7, 1.5);
+            const thickness = size * range(0.8, 1.2);
+
+            // Branches reach about 5 units out at full size
+            dummy.position.set(randomX(1, 10), -0.1, randomZ());
+
+            dummy.rotation.set(
+                range(-0.1, 0.1),
+                range(0, Math.PI * 2),
+                range(-0.1, 0.1)
+            );
+
+            dummy.scale.set(thickness, size, thickness).multiplyScalar(PROP_SCALE);
+            dummy.updateMatrix();
+
+            deadTrees.setMatrixAt(i, dummy.matrix);
+            deadTrees.setColorAt(i, randomWoodTint());
+        }
+
+        markBackground(deadTrees, true);
+
+        this.level.add(deadTrees);
+
+
+        // ---------------------------------------------------------
+        // FALLEN LOGS
+        // Lying along x before rotation, pale sawn ends. Placed in
+        // small clumps like felled and abandoned timber.
+        // ---------------------------------------------------------
+
+        const LOG_COUNT = 80;
+        const LOGS_PER_CLUMP = 4;
+
+        const logGeometry = new THREE.CylinderGeometry(0.33, 0.38, 1, 7, 1);
+
+        logGeometry.rotateZ(Math.PI / 2);
+
+        paintWood(
+            logGeometry,
+            0x4a4036,
+            0x8a785e,
+            (x) => Math.abs(x) > 0.5
+        );
+
+        const logs = new THREE.InstancedMesh(
+            logGeometry,
+            woodMaterial,
+            LOG_COUNT
+        );
+
+        let clumpX = 0;
+        let clumpZ = 0;
+
+        for (let i = 0; i < LOG_COUNT; i++) {
+
+            if (i % LOGS_PER_CLUMP === 0) {
+                // Long logs need extra room from the city edge
+                clumpX = Math.min(randomX(1.2), CLEAR_X_NEAR - 16);
+                clumpZ = randomZ();
+            }
+
+            const length = range(3, 8);
+            const girth = range(0.7, 1.4);
+
+            dummy.position.set(
+                clumpX + range(-4, 4),
+                0.36 * girth * PROP_SCALE - 0.05,
+                clumpZ + range(-6, 6)
+            );
+
+            dummy.rotation.set(
+                range(0, Math.PI * 2),   // roll: hides the 7 sides
+                range(0, Math.PI * 2),
+                range(-0.04, 0.04)
+            );
+            dummy.rotation.order = 'YZX';
+
+            dummy.scale.set(length, girth, girth).multiplyScalar(PROP_SCALE);
+            dummy.updateMatrix();
+
+            logs.setMatrixAt(i, dummy.matrix);
+            logs.setColorAt(i, randomWoodTint());
+        }
+
+        markBackground(logs, true);
+
+        this.level.add(logs);
+
+
+        // ---------------------------------------------------------
+        // DISTANT FOREST LINE
+        // A single gently curving strip with a treeline silhouette
+        // drawn on a canvas. Unlit (MeshBasicMaterial) and fogged,
+        // so it reads as a dark wall of remaining forest.
+        // ---------------------------------------------------------
+
+        const FOREST_HEIGHT = 42;
+        const FOREST_TILE = 126;        // units of z per texture repeat
+        const FOREST_SEGMENTS = 48;
+        const FOREST_Z_MIN = -300;
+        const FOREST_Z_MAX = 300;
+
+        const forestCanvas = document.createElement('canvas');
+        forestCanvas.width = 1024;
+        forestCanvas.height = 256;
+
+        const forest = forestCanvas.getContext('2d');
+
+        // Canvas y for a tree of a given height in units
+        const treeTopY = (height) => 256 * (1 - height / FOREST_HEIGHT);
+
+        const TREE_BASE_Y = 180;
+
+        const drawConifer = (cx, top, width) => {
+
+            const tiers = Math.floor(range(6, 10));
+            const right = [];
+            const left = [];
+
+            for (let k = 1; k <= tiers; k++) {
+
+                const y = top + (k / tiers) * (TREE_BASE_Y - top);
+                const half = (width / 2) * (k / tiers);
+
+                right.push([cx + half * range(0.8, 1.1), y]);
+                right.push([cx + half * 0.55, y + range(1, 4)]);
+                left.push([cx - half * range(0.8, 1.1), y]);
+                left.push([cx - half * 0.55, y + range(1, 4)]);
+            }
+
+            forest.beginPath();
+            forest.moveTo(cx + range(-1, 1), top);
+            right.forEach(([x, y]) => forest.lineTo(x, y));
+            left.reverse().forEach(([x, y]) => forest.lineTo(x, y));
+            forest.closePath();
+            forest.fill();
+        };
+
+        const drawBroadleaf = (cx, top, width) => {
+
+            const blobs = Math.floor(range(5, 9));
+
+            for (let b = 0; b < blobs; b++) {
+
+                const r = range(0.25, 0.45) * width;
+
+                forest.beginPath();
+                forest.arc(
+                    cx + range(-0.35, 0.35) * width,
+                    top + r + range(0, 0.4) * (TREE_BASE_Y - top),
+                    r,
+                    0,
+                    Math.PI * 2
+                );
+                forest.fill();
+            }
+
+            forest.fillRect(cx - width * 0.3, top + width * 0.4, width * 0.6, TREE_BASE_Y);
+        };
+
+        // Back layer slightly lighter, front layer near black
+        const forestLayers = [
+            { colour: '#262820', minHeight: 28, maxHeight: 39 },
+            { colour: '#15180f', minHeight: 20, maxHeight: 34 }
+        ];
+
+        for (const layer of forestLayers) {
+
+            forest.fillStyle = layer.colour;
+
+            let x = range(0, 30);
+
+            while (x < 1024) {
+
+                const width = range(40, 90);
+                const top = treeTopY(range(layer.minHeight, layer.maxHeight));
+                const conifer = rand() < 0.7;
+
+                // Drawn again one tile to each side so the strip
+                // repeats without a seam
+                for (const offset of [-1024, 0, 1024]) {
+                    if (conifer) {
+                        drawConifer(x + offset, top, width);
+                    } else {
+                        drawBroadleaf(x + offset, top, width);
+                    }
+                }
+
+                x += width * range(0.35, 0.6);
+            }
+        }
+
+        // Solid undergrowth band down to the ground
+        forest.fillStyle = forestLayers[1].colour;
+        forest.fillRect(0, TREE_BASE_Y - 10, 1024, 256);
+
+        const forestTexture = new THREE.CanvasTexture(forestCanvas);
+
+        forestTexture.colorSpace = THREE.SRGBColorSpace;
+        forestTexture.wrapS = THREE.RepeatWrapping;
+        forestTexture.anisotropy = 4;
+
+        // Strip vertices: bottom and top at each z step, with a gentle
+        // wobble in x so the forest edge is not a ruler-straight line
+        const forestPositions = [];
+        const forestUvs = [];
+        const forestIndices = [];
+
+        for (let s = 0; s <= FOREST_SEGMENTS; s++) {
+
+            const z =
+                FOREST_Z_MIN +
+                (s / FOREST_SEGMENTS) * (FOREST_Z_MAX - FOREST_Z_MIN);
+
+            const x =
+                CLEAR_X_FAR - 4 +
+                Math.sin(z * 0.011) * 5 +
+                Math.sin(z * 0.037 + 1.3) * 2;
+
+            const u = (z - FOREST_Z_MIN) / FOREST_TILE;
+
+            forestPositions.push(x, -0.5, z, x, FOREST_HEIGHT, z);
+            forestUvs.push(u, 0, u, 1);
+
+            if (s < FOREST_SEGMENTS) {
+                const a = s * 2;
+                forestIndices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+            }
+        }
+
+        const forestGeometry = new THREE.BufferGeometry();
+
+        forestGeometry.setAttribute(
             'position',
-            new THREE.BufferAttribute(positions, 3)
+            new THREE.Float32BufferAttribute(forestPositions, 3)
+        );
+        forestGeometry.setAttribute(
+            'uv',
+            new THREE.Float32BufferAttribute(forestUvs, 2)
+        );
+        forestGeometry.setIndex(forestIndices);
+
+        const forestLine = new THREE.Mesh(
+            forestGeometry,
+            new THREE.MeshBasicMaterial({
+                map: forestTexture,
+                alphaTest: 0.5,
+                side: THREE.DoubleSide
+            })
         );
 
-        geometry.setAttribute(
-            'color',
-            new THREE.BufferAttribute(colors, 3)
-        );
+        markBackground(forestLine, false);
 
-        const material =
-            new THREE.PointsMaterial({
-                size: 0.16,
-                vertexColors: true,
-                transparent: true,
-                opacity: 0.5,
-                sizeAttenuation: true,
-                blending: THREE.AdditiveBlending,
-                depthWrite: false
-            });
-
-        const particles =
-            new THREE.Points(geometry, material);
-
-        particles.userData.noShadow = true;
-
-        this.level.add(particles);
-
-        this.driftParticles = particles;
-    }
-
-
-    // =============================================================
-    // PORTAL
-    // =============================================================
-
-    createPortal(
-        x,
-        y,
-        z
-    ) {
-
-        const material =
-            new THREE.MeshStandardMaterial({
-                color: 0x00d9ff,
-                emissive: 0x00d9ff,
-                emissiveIntensity: 5,
-                metalness: 0.25,
-                roughness: 0.2
-            });
-
-        this.portal =
-            new THREE.Mesh(
-                new THREE.TorusGeometry(
-                    5,
-                    0.45,
-                    16,
-                    64
-                ),
-                material
-            );
-
-        this.portal.position.set(
-            x,
-            y,
-            z-29
-        );
-
-        this.level.add(
-            this.portal
-        );
-
-
-        const core =
-            new THREE.Mesh(
-                new THREE.CircleGeometry(
-                    4.55,
-                    48
-                ),
-                new THREE.MeshBasicMaterial({
-                    color: 0x07152a,
-                    transparent: true,
-                    opacity: 0.9,
-                    side: THREE.DoubleSide
-                })
-            );
-
-        core.position.set(
-            x,
-            y,
-            z-29
-        );
-
-        core.rotation.y =
-            Math.PI;
-
-        this.level.add(
-            core
-        );
-
-
-        this.portalLight =
-            new THREE.PointLight(
-                0x00d9ff,
-                30,
-                35
-            );
-
-        this.portalLight.position.set(
-            x,
-            y,
-            z-29
-        );
-
-        this.level.add(
-            this.portalLight
-        );
+        this.level.add(forestLine);
     }
 
 
@@ -6604,13 +6289,31 @@ createCityBackground() {
     // UPDATE
     // =============================================================
 
-    update(deltaTime, t, player) {
+    update(
+        deltaTime
+    ) {
 
-        const now = performance.now();
+        if (this.riverMaterial) {
 
-        // update enemy system
-        if (this.streetEnemies && player) {
-          try { this.streetEnemies.update(deltaTime, t, player); } catch(e) { console.warn(e); }
+    this.riverMaterial.uniforms.uTime.value +=
+        deltaTime;
+}
+
+        // Ruined buildings: one shared time uniform drives every
+        // crack pulse and window flicker; one material update
+        // makes all the unrendered wireframes shimmer
+        if (this.ruinTime) {
+
+            this.ruinTime.value +=
+                deltaTime;
+
+            const t =
+                this.ruinTime.value;
+
+            this.ruin.wire.opacity =
+                0.28 +
+                Math.sin(t * 3.1) * 0.06 +
+                (Math.sin(t * 23.0) > 0.97 ? 0.25 : 0);
         }
 
         if (this.portal) {
@@ -6646,132 +6349,5 @@ createCityBackground() {
                 }
             );
         }
-
-
-        // =========================================================
-        // LIVING LIGHTS
-        // Every building/boss/bridge light registered via
-        // _registerLiving() breathes on its own randomized phase -
-        // this alone is most of what makes the street feel alive
-        // instead of a lit but frozen diorama.
-        // =========================================================
-
-        if (this.livingLights) {
-
-            this.livingLights.forEach(
-                (light) => {
-
-                    const d = light.userData;
-
-                    light.intensity =
-                        d.baseIntensity +
-                        Math.sin(
-                            now * 0.001 * d.flickerSpeed +
-                            d.flickerPhase
-                        ) *
-                        d.baseIntensity *
-                        d.flickerAmp;
-                }
-            );
-        }
-
-
-        // =========================================================
-        // DRIFTING ATMOSPHERE
-        // Embers/dust rise slowly and sway sideways, wrapping back
-        // to the ground once they clear the rooflines.
-        // =========================================================
-
-        if (this.driftParticles) {
-
-            const pos =
-                this.driftParticles.geometry.attributes.position;
-
-            for (
-                let i = 0;
-                i < pos.count;
-                i++
-            ) {
-
-                let y =
-                    pos.getY(i) +
-                    this.driftSpeeds[i] * deltaTime;
-
-                if (y > 26) {
-                    y = 0;
-                }
-
-                pos.setY(i, y);
-
-                pos.setX(
-                    i,
-                    pos.getX(i) +
-                    this.driftSway[i * 2] * deltaTime
-                );
-
-                pos.setZ(
-                    i,
-                    pos.getZ(i) +
-                    this.driftSway[i * 2 + 1] * deltaTime
-                );
-            }
-
-            pos.needsUpdate = true;
-        }
-
-
-        // =========================================================
-        // BANNER SWAY
-        // Gentle wind sway on every street-light banner.
-        // =========================================================
-
-        if (this.banners) {
-
-            this.banners.forEach(
-                (banner, i) => {
-
-                    banner.rotation.z =
-                        Math.sin(now * 0.0006 + i) * 0.035;
-                }
-            );
-        }
-    }
-
-    // =============================================================
-    // DISPOSE — called by main.js on level switch
-    // =============================================================
-    dispose(outerScene = null) {
-        if (this.streetEnemies) { this.streetEnemies.dispose(); this.streetEnemies = null; }
-        const sceneToClean = outerScene && outerScene.isScene ? outerScene : this.scene;
-        // detach primary group / sky from whatever scene they live in
-        if (this.level && this.level.parent) this.level.parent.remove(this.level);
-        if (this.sky && this.sky.parent) this.sky.parent.remove(this.sky);
-        if (this.level) {
-            this.level.traverse((object) => {
-                if (!object.isMesh && !object.isPoints) return;
-                if (object.geometry) object.geometry.dispose();
-                if (object.material) {
-                    const mats = Array.isArray(object.material) ? object.material : [object.material];
-                    mats.forEach((m) => {
-                        for (const k in m) if (m[k] && m[k].isTexture) m[k].dispose();
-                        m.dispose();
-                    });
-                }
-            });
-        }
-        if (this.sky) {
-            if (this.sky.geometry) this.sky.geometry.dispose();
-            if (this.sky.material) {
-                if (this.sky.material.map) this.sky.material.map.dispose();
-                this.sky.material.dispose();
-            }
-        }
-        // clear tracking arrays so a disposed level never gets reused
-        this.colliders = [];
-        this.livingLights = [];
-        this.banners = [];
-        this.driftParticles = null;
-        this.sky = null;
     }
 }
-
