@@ -69,46 +69,49 @@ const ANIM_PATHS = {
   die:   './assets/models/enemy/grunt_dying.fbx',
 };
 
-async function loadGruntAssets() {
-  if (CACHED_MODEL && CACHED_CLIPS) {
+export async function loadGruntAssets() {
+  // Warm cache only once every clip has actually arrived — CACHED_CLIPS is
+  // briefly an empty object between the model load and the anim loads
+  if (CACHED_MODEL && CACHED_CLIPS && Object.keys(CACHED_CLIPS).length === Object.keys(ANIM_PATHS).length) {
     return {
       model: skeletonClone(CACHED_MODEL),
       clips: CACHED_CLIPS,
     };
   }
-  if (LOADING_PROMISE) return LOADING_PROMISE;
+  if (!LOADING_PROMISE) {
+    const loader = new FBXLoader();
 
-  const loader = new FBXLoader();
+    LOADING_PROMISE = new Promise((resolve) => {
+      loader.load(MODEL_PATH, (fbx) => {
+        CACHED_MODEL = fbx;
+        CACHED_CLIPS = {};
 
-  LOADING_PROMISE = new Promise((resolve) => {
-    loader.load(MODEL_PATH, (fbx) => {
-      CACHED_MODEL = fbx;
-      CACHED_CLIPS = {};
+        let pending = Object.keys(ANIM_PATHS).length;
+        const done = () => { if (--pending === 0) resolve(); };
 
-      let pending = Object.keys(ANIM_PATHS).length;
-      const done = () => { if (--pending === 0) resolve(); };
-
-      for (const [key, path] of Object.entries(ANIM_PATHS)) {
-        loader.load(path, (animFbx) => {
-          if (animFbx.animations && animFbx.animations[0]) {
-            let clip = animFbx.animations[0];
-            clip = stripRootMotion(clip);
-            clip = remapClipTracks(clip, CACHED_MODEL);
-            CACHED_CLIPS[key] = clip;
-          }
-          done();
-        }, undefined, (e) => {
-          console.warn(`Grunt anim failed: ${key}`, e);
-          done();
-        });
-      }
-    }, undefined, (e) => {
-      console.error('Grunt model load failed:', e);
-      resolve();
+        for (const [key, path] of Object.entries(ANIM_PATHS)) {
+          loader.load(path, (animFbx) => {
+            if (animFbx.animations && animFbx.animations[0]) {
+              let clip = animFbx.animations[0];
+              clip = stripRootMotion(clip);
+              clip = remapClipTracks(clip, CACHED_MODEL);
+              CACHED_CLIPS[key] = clip;
+            }
+            done();
+          }, undefined, (e) => {
+            console.warn(`Grunt anim failed: ${key}`, e);
+            done();
+          });
+        }
+      }, undefined, (e) => {
+        console.error('Grunt model load failed:', e);
+        resolve();
+      });
     });
-  });
+  }
 
   await LOADING_PROMISE;
+  if (!CACHED_MODEL) return null;
   return {
     model: skeletonClone(CACHED_MODEL),
     clips: CACHED_CLIPS,
@@ -117,25 +120,45 @@ async function loadGruntAssets() {
 
 // ── Grunt instance ──
 export class Grunt {
-  constructor(scene, position) {
+  constructor(scene, position, heightAt = null) {
     this.scene = scene;
     this.position = position.clone();
+    this.heightAt = heightAt;
 
     this.MAX_HEALTH = 15;
     this.health = this.MAX_HEALTH;
     this.SCALE = 0.013;
     this.SPEED = 3.5;
+    this.RUN_SPEED = 6.0;
+    this.RUN_ENTER = 10;            // start running beyond this distance
+    this.RUN_EXIT = 7;              // keep running until this close (hysteresis)
     this.ATTACK_RANGE = 1.8;
     this.ATTACK_DAMAGE = 1;
     this.ATTACK_COOLDOWN = 1.5;
 
     this.alive = true;
     this.attackTimer = Math.random() * 1.5;
-    this.isAttacking = false;
     this.mixer = null;
     this.actions = {};
     this.currentAction = null;
     this.hitFlashTimer = 0;
+
+    // ── State machine: chase | attack | hit | die ──
+    this.state = 'chase';
+    this.stateTime = 0;
+    this._running = false;
+    this._attackDuration = 0;
+    this._attackHitTime = 0;
+    this._attackDidHit = false;
+    this._hitDuration = 0;
+
+    // ── Flanking ──
+    // Orbit angle is locked on first approach so each grunt takes its own
+    // side of the player; slow drift keeps them circle-strafing in combat
+    this.ORBIT_LOCK_DIST = 12;
+    this.RING_STANDOFF = this.ATTACK_RANGE - 0.25;
+    this._orbit = null;
+    this._orbitDrift = 0;
 
     this._group = new THREE.Group();
     this._group.position.copy(this.position);
@@ -188,7 +211,13 @@ export class Grunt {
 
   _playAction(name, loop = true) {
     const next = this.actions[name];
-    if (!next || next === this.currentAction) return;
+    if (!next) return;
+    if (next === this.currentAction) {
+      // Looping actions can keep playing; one-shots must restart from frame 0
+      if (loop) return;
+      next.reset().play();
+      return;
+    }
     if (this.currentAction) this.currentAction.fadeOut(0.15);
     next.reset()
       .setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
@@ -198,8 +227,8 @@ export class Grunt {
   }
 
   update(delta, playerPos, onDamagePlayer) {
-    if (!this.alive) return;
     this.mixer?.update(delta);
+    if (!this.alive) return;
 
     if (this.hitFlashTimer > 0) {
       this.hitFlashTimer -= delta;
@@ -212,57 +241,133 @@ export class Grunt {
     const distance = toPlayer.length();
     toPlayer.normalize();
 
-    if (!this.isAttacking) {
+    if (this.state !== 'attack') {
       this._group.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
     }
 
+    this.stateTime += delta;
     this.attackTimer -= delta;
-    if (distance < this.ATTACK_RANGE && this.attackTimer <= 0) {
-      this._attack(onDamagePlayer);
-      return;
-    }
 
-        if (!this.isAttacking) {
-      if (distance > this.ATTACK_RANGE - 0.3) {
-        this.position.x += toPlayer.x * this.SPEED * delta;
-        this.position.z += toPlayer.z * this.SPEED * delta;
-        this._playAction('walk');
-      } else {
-        this._playAction('idle');
-      }
+    if (this.state === 'attack') {
+      this._updateAttack(distance, onDamagePlayer);
+    } else if (this.state === 'hit') {
+      if (this.stateTime >= this._hitDuration) this._enterChase();
     } else {
-      // Still move while attacking, but don't change animation
-      this.position.x += toPlayer.x * this.SPEED * delta * 0.3;
-      this.position.z += toPlayer.z * this.SPEED * delta * 0.3;
+      this._updateChase(delta, playerPos, toPlayer, distance);
     }
 
+    // Keep feet on the terrain — grunts travel over slopes and would
+    // otherwise stay frozen at their spawn height
+    if (this.heightAt) this.position.y = this.heightAt(this.position.x, this.position.z);
     this._group.position.copy(this.position);
   }
 
- _attack(onDamagePlayer) {
-  if (this.isAttacking) return;
-  this.isAttacking = true;
-  this.attackTimer = this.ATTACK_COOLDOWN;
-  this._playAction('punch', false);
+  _enterChase() {
+    this.state = 'chase';
+    this.stateTime = 0;
+  }
 
-  // Damage lands mid-swing (punch is 1.73s, hit around 0.7s in)
-  setTimeout(() => {
-    if (onDamagePlayer) onDamagePlayer(this.ATTACK_DAMAGE);
-  }, 700);
+  _enterAttack() {
+    const kind = Math.random() < 0.5 ? 'punch' : 'kick';
+    const action = this.actions[kind];
+    if (!action) {
+      // Anim not loaded yet — retry shortly instead of swinging blind
+      this.attackTimer = 0.5;
+      return;
+    }
+    this.state = 'attack';
+    this.stateTime = 0;
+    this._attackDuration = action.getClip().duration;
+    this._attackHitTime = this._attackDuration * 0.4;  // damage lands mid-swing
+    this._attackDidHit = false;
+    this.attackTimer = this.ATTACK_COOLDOWN;
+    this._playAction(kind, false);
+  }
 
-  // Return to idle after punch finishes (1.73s + small fade buffer)
-  setTimeout(() => {
-    this.isAttacking = false;
-    if (this.alive) this._playAction('idle');
-  }, 1800);
-}
+  _updateAttack(distance, onDamagePlayer) {
+    if (
+      !this._attackDidHit &&
+      this.stateTime >= this._attackHitTime &&
+      distance < this.ATTACK_RANGE + 0.5
+    ) {
+      this._attackDidHit = true;
+      if (onDamagePlayer) onDamagePlayer(this.ATTACK_DAMAGE);
+    }
+    if (this.stateTime >= this._attackDuration + 0.15) this._enterChase();
+  }
+
+  _enterHit() {
+    this.state = 'hit';
+    this.stateTime = 0;
+    const action = this.actions.hit;
+    if (action) {
+      this._hitDuration = Math.min(action.getClip().duration, 0.45);
+      this._playAction('hit', false);
+    } else {
+      this._hitDuration = 0.25;
+    }
+  }
+
+  _updateChase(delta, playerPos, toPlayer, distance) {
+    if (distance < this.ATTACK_RANGE && this.attackTimer <= 0) {
+      this._enterAttack();
+      return;
+    }
+
+    // Lock each grunt to the side it arrived from, so a pack surrounds the
+    // player instead of stacking in one spot
+    if (this._orbit === null && distance < this.ORBIT_LOCK_DIST) {
+      this._orbit =
+        Math.atan2(this.position.z - playerPos.z, this.position.x - playerPos.x) +
+        (Math.random() - 0.5) * 1.2;
+      this._orbitDrift = (Math.random() < 0.5 ? -1 : 1) * (0.35 + Math.random() * 0.4);
+    }
+
+    // Head for a personal slot on a ring around the player; the slow orbit
+    // drift turns that into a circle-strafe once the slot is reached
+    let moveX, moveZ;
+    if (this._orbit !== null) {
+      this._orbit += this._orbitDrift * delta;
+      const slotX = playerPos.x + Math.cos(this._orbit) * this.RING_STANDOFF;
+      const slotZ = playerPos.z + Math.sin(this._orbit) * this.RING_STANDOFF;
+      moveX = slotX - this.position.x;
+      moveZ = slotZ - this.position.z;
+      const len = Math.hypot(moveX, moveZ);
+      if (len > 0.05) {
+        moveX /= len;
+        moveZ /= len;
+      } else {
+        moveX = 0;
+        moveZ = 0;
+      }
+    } else {
+      moveX = toPlayer.x;
+      moveZ = toPlayer.z;
+    }
+
+    if (moveX !== 0 || moveZ !== 0) {
+      if (distance > this.RUN_ENTER) this._running = true;
+      else if (distance < this.RUN_EXIT) this._running = false;
+      const speed = this._running ? this.RUN_SPEED : this.SPEED;
+      this.position.x += moveX * speed * delta;
+      this.position.z += moveZ * speed * delta;
+      this._playAction(this._running ? 'run' : 'walk');
+    } else {
+      this._playAction('idle');
+    }
+  }
 
   takeDamage(amount) {
     if (!this.alive) return;
     this.health -= amount;
     this.hitFlashTimer = 0.12;
     this._flashColor();
-    if (this.health <= 0) this._die();
+    if (this.health <= 0) {
+      this._die();
+      return;
+    }
+    // Mid-swing attacks aren't interrupted by hit stagger
+    if (this.state !== 'attack') this._enterHit();
   }
 
   _flashColor() {
@@ -297,6 +402,7 @@ export class Grunt {
 
   _die() {
     this.alive = false;
+    this.state = 'die';
     this._playAction('die', false);
     setTimeout(() => this.dispose(), 1500);
   }
@@ -315,8 +421,9 @@ export class Grunt {
 
 // ── Grunt Manager ──
 export class GruntManager {
-  constructor(scene) {
+  constructor(scene, heightAt = null) {
     this.scene = scene;
+    this.heightAt = heightAt;
     this.grunts = [];
   }
 
@@ -329,13 +436,17 @@ export class GruntManager {
         centerPos.y,
         centerPos.z + Math.sin(angle) * radius
       );
-      this.grunts.push(new Grunt(this.scene, pos));
+      if (this.heightAt) pos.y = this.heightAt(pos.x, pos.z);
+      this.grunts.push(new Grunt(this.scene, pos, this.heightAt));
     }
     console.log(`👹 Spawned ${count} grunts`);
   }
 
   update(delta, playerPos, onDamagePlayer) {
     for (const g of this.grunts) g.update(delta, playerPos, onDamagePlayer);
+    // Drop grunts once their corpse has been removed from the scene,
+    // otherwise dead entries block wave-clear checks forever
+    this.grunts = this.grunts.filter((g) => g._group.parent);
   }
 
   checkHit(attackerPos, range, damage) {

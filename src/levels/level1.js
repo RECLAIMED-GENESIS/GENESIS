@@ -207,7 +207,7 @@ export class StreetLevel {
     );
 
     this.commander = null;
-    this.grunts = new GruntManager(this.level);
+    this.grunts = new GruntManager(this.level, (x, z) => this._h(x, z));
     this.bossHealthBar = new BossHealthBar();
     this.minionHealthBar = new MinionHealthBar(window.__camera || null);
     this.commanderSpawned = false;
@@ -442,7 +442,7 @@ export class StreetLevel {
       onDeath: () => {
         this._onCommanderDeath();
       }
-    });
+    }, (x, z) => this._h(x, z));
   }
 
   async _onCommanderDeath() {

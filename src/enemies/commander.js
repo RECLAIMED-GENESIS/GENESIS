@@ -1,25 +1,9 @@
 // src/enemies/commander.js
 // The Warden — Level 1 Boss
-// Uses X_Bot.fbx scaled up, dark red + gold accents
+// Giant grunt (grunt.fbx scaled 2×) with dark red + gold accents
 
 import * as THREE from 'three';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-
-// Root motion stripper (same technique as Sorini's main.js)
-function stripRootMotion(clip) {
-  if (!clip || !clip.tracks) return clip;
-  for (const track of clip.tracks) {
-    if (!/Hips/i.test(track.name) || !/\.position/i.test(track.name)) continue;
-    const v = track.values;
-    if (!v || v.length < 3) continue;
-    const x0 = v[0], z0 = v[2];
-    for (let i = 0; i < v.length; i += 3) {
-      v[i] = x0;
-      v[i + 2] = z0;
-    }
-  }
-  return clip;
-}
+import { loadGruntAssets } from './grunts.js';
 
 export class Commander {
   /**
@@ -27,10 +11,11 @@ export class Commander {
    * @param {THREE.Vector3} position - Spawn position
    * @param {Object} callbacks - { onMinionSpawn(threshold), onDeath() }
    */
-  constructor(scene, position, callbacks = {}) {
+  constructor(scene, position, callbacks = {}, heightAt = null) {
     this.scene = scene;
     this.position = position.clone();
     this.callbacks = callbacks;
+    this.heightAt = heightAt;
 
     // ── Config ──
     this.MAX_HEALTH = 100;
@@ -57,7 +42,6 @@ export class Commander {
     this.currentAction = null;
     this.mixer = null;
     this.actions = {};
-    this.clips = {};
     this.model = null;
     this.hitFlashTimer = 0;
 
@@ -78,68 +62,50 @@ export class Commander {
   // ─────────────────────────────────────────
   // MODEL LOADING
   // ─────────────────────────────────────────
-  _loadModel() {
-    const loader = new FBXLoader();
+  async _loadModel() {
+    const result = await loadGruntAssets();
+    if (!result || !result.model || !this.alive) return;
 
-    loader.load('./assets/models/enemy/X_Bot.fbx', (fbx) => {
-      // Scale + position
-      fbx.scale.setScalar(this.SCALE);
-      fbx.position.y = -0.13 * 2.0;  // matches player offset but scaled
+    const fbx = result.model;
+    fbx.scale.setScalar(this.SCALE);
+    fbx.position.y = -0.13 * 2.0;  // matches player offset but scaled
 
-      // Tint: dark red body + gold accents
-      fbx.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true;
-          o.receiveShadow = true;
+    // Tint: dark red body + gold accents (clone materials so the shared
+    // grunt cache isn't recolored for every future grunt)
+    fbx.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
 
-          if (o.material) {
-            const mats = Array.isArray(o.material) ? o.material : [o.material];
-            mats.forEach((mat) => {
-              if (mat.color) {
-                // Dark red body
-                mat.color.setHex(0x661111);
-
-                // Gold emissive accent
-                if (mat.emissive) {
-                  mat.emissive.setHex(0x442200);
-                  mat.emissiveIntensity = 0.3;
-                }
+        if (o.material) {
+          o.material = Array.isArray(o.material)
+            ? o.material.map((m) => m.clone())
+            : o.material.clone();
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach((mat) => {
+            if (mat.color) {
+              mat.color.setHex(0x661111);
+              if (mat.emissive) {
+                mat.emissive.setHex(0x442200);
+                mat.emissiveIntensity = 0.3;
               }
-            });
-          }
+            }
+          });
         }
-      });
-
-      this._group.add(fbx);
-      this.model = fbx;
-
-      // Animation mixer
-      this.mixer = new THREE.AnimationMixer(fbx);
-
-      // Load all needed animations
-      const base = './assets/models/enemy/';
-      const animPaths = {
-        idle:      base + 'Idle.fbx',
-                walk:      base + 'enforcer_walk.fbx',
-        run:       base + 'Running.fbx',
-        punch:     base + 'Mutant_Punch.fbx',
-        roar:      base + 'Mutant_Roaring.fbx',
-        hit:       base + 'Reaction.fbx',
-        die:       base + 'Dying.fbx'
-      };
-
-      for (const [key, path] of Object.entries(animPaths)) {
-        loader.load(path, (animFbx) => {
-          if (animFbx.animations?.[0]) {
-            this.clips[key] = stripRootMotion(animFbx.animations[0]);
-            this.actions[key] = this.mixer.clipAction(this.clips[key]);
-          }
-        }, undefined, (e) => console.warn(`Commander anim failed: ${key}`, e));
       }
+    });
 
-      // Start idle after animations load
-      setTimeout(() => this._playAction('idle'), 500);
-    }, undefined, (e) => console.error('Commander X_Bot load failed:', e));
+    this._group.add(fbx);
+    this.model = fbx;
+
+    this.mixer = new THREE.AnimationMixer(fbx);
+    for (const [key, clip] of Object.entries(result.clips)) {
+      this.actions[key] = this.mixer.clipAction(clip);
+    }
+    // No dedicated roar clip in the grunt set — kick reads as the flourish
+    this.actions.roar = this.actions.kick;
+
+    this._playAction('idle');
   }
 
   // ─────────────────────────────────────────
@@ -209,6 +175,9 @@ export class Commander {
     } else {
       this._updateIdleBehavior(delta, toPlayer, distance);
     }
+
+    // Keep feet on the terrain across slopes and charges
+    if (this.heightAt) this.position.y = this.heightAt(this.position.x, this.position.z);
 
     // Sync group position
     this._group.position.set(this.position.x, this.position.y, this.position.z);
@@ -406,7 +375,6 @@ export class Commander {
     this.scene.remove(this._group);
     this.mixer = null;
     this.actions = {};
-    this.clips = {};
   }
 
   getPosition() {
