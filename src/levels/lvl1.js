@@ -39,7 +39,8 @@ import * as THREE from 'three';
 // ------------------------------------------------------------
 // CASE DATA  — edit the story here
 // ------------------------------------------------------------
-const CASE = {
+// Exported so Level 2's case file can carry the Level 1 evidence forward.
+export const CASE = {
   victim: 'Dr. Thabo Nkosi',
   role: 'Senior Lecturer, Computer Science',
   found: 'Found at 00:50 by the night cleaner',
@@ -1556,6 +1557,9 @@ export class StreetLevel {
   _collect(c) {
     if (c.found) return;
     c.found = true;
+    // remember across levels: the city case file shows what was really logged
+    window.__caseProgress = window.__caseProgress || { l1: {} };
+    window.__caseProgress.l1[c.id] = true;
     c.aura.visible = false;
     if (c.onCollect) c.onCollect();
     this.focus = null;

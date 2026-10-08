@@ -3,11 +3,11 @@
 // ============================================================
 import * as THREE from 'three';
 import { StreetLevel } from './levels/lvl1.js';
-import { Level2 } from './levels/Level2.js';
+import { CityLevel } from './levels/CityLevel.js';
 // Mystery Level 1 is the victim's office; Level 2 is the city street the
-// desk calendar points to. Mystery Level 3 (accusation) is not built yet,
-// and the legacy fighting-game modules were dropped when resolving the
-// merge conflict.
+// desk calendar points to (CityLevel wraps the legacy Level2.js scene and
+// adds the five witnesses, UV torch and carried-over case file). Mystery
+// Level 3 (accusation) is not built yet.
 
 // ---------- renderer ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -58,6 +58,10 @@ let locked = false;
 
 addEventListener('keydown', e => {
 
+  // A level's dialogue/case-file UI is open: it owns the keyboard entirely
+  // (movement keys would also walk the player mid-conversation).
+  if (window.__uiCapture) return;
+
   // If dialogue is active, route keys to the dialogue system
   if (window.__dialogue && window.__dialogue.active) {
     window.__dialogue.handleKey(e.code);
@@ -99,7 +103,7 @@ addEventListener('mousemove', e => {
 });
 
 // ---------- levels ----------
-const LEVELS = { 1: StreetLevel, 2: Level2 };
+const LEVELS = { 1: StreetLevel, 2: CityLevel };
 let level = null, current = 1, phase = 1;
 const hud = document.getElementById('hud');
 
