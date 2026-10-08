@@ -107,7 +107,13 @@ function showRestartButton() {
       btn.style.background = 'transparent';
     });
     btn.addEventListener('click', () => {
-      window.location.reload();
+      // Restart without refreshing the page (rubric requirement).
+      // Fallback to a reload only if the main-menu hook is unavailable.
+      if (typeof window.__restartToMenu === 'function') {
+        window.__restartToMenu();
+      } else {
+        window.location.reload();
+      }
     });
     overlay.appendChild(btn);
     requestAnimationFrame(() => { btn.style.opacity = '1'; });

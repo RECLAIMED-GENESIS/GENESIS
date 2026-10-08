@@ -68,7 +68,6 @@ export class CinematicCamera {
     this._transitionDuration = shot.transition || 0;
     this._ease = shot.ease || 'in-out';
 
-    console.log(`🎬 [Cinematic] Shot ${this.currentShotIndex + 1}/${this.shots.length} — ${this._currentDuration}ms`);
   }
 
   update(dt) {

@@ -572,7 +572,6 @@ this._buildHazardTiles();
         // Trigger combat
         this.triggerCombat();
 
-        console.log('🎬 [L2] Intro dialogue complete');
     }
 
         // =========================================================
@@ -618,7 +617,6 @@ this._buildHazardTiles();
         this._arrivalPortal = portalGroup;
         this._arrivalPortalAge = 0;
 
-        console.log('🌀 [L2] Arrival portal spawned');
     }
 
     // =========================================================
@@ -627,7 +625,6 @@ this._buildHazardTiles();
     startIntroSequence() {
         if (this._introStarted) return;
         this._introStarted = true;
-        console.log('🎬 [L2] Intro sequence starting');
         this._spawnArrivalPortal();
     }
 
@@ -637,7 +634,6 @@ this._buildHazardTiles();
         triggerCombat() {
         if (this._introCommanderSpawned) return;
         this._introCommanderSpawned = true;
-        console.log('⚔️ [L2] The Enforcer approaches');
 
         const ex = this.spawn.x;
         const ez = this.spawn.z + 60;
@@ -653,11 +649,9 @@ this._buildHazardTiles();
                 if (this.onDamagePlayer) this.onDamagePlayer(dmg);
             },
             onMinionSpawn: (count) => {
-                console.log(`⚔️ [L2] Enforcer summons ${count} minions`);
                 // Minions will be added in the next step
             },
             onDeath: () => {
-                console.log('💀 [L2] The Enforcer has fallen');
                 if (this._onEnforcerDeath) this._onEnforcerDeath();
             }
         });
@@ -667,11 +661,9 @@ this._buildHazardTiles();
         this.bossHealthBar.setName('THE ENFORCER');
         this.bossHealthBar.show();
 
-        console.log('⚔️ [L2] The Enforcer has arrived');
     }
 
       _onEnforcerDeath() {
-    console.log('💀 [L2] The Enforcer has fallen — opening portal');
 
     // Hide the boss HP bar
     if (this.bossHealthBar) this.bossHealthBar.hide();
@@ -686,7 +678,6 @@ this._buildHazardTiles();
     // so passing z=59 gives us a portal at (0, 5, 30)
     if (typeof this.createPortal === 'function' && !this.portal) {
       this.createPortal(0, 5, 59);
-      console.log('🌀 [L2] Portal to Level 3 opened');
     }
 
     if (window.__audioManager) {
@@ -763,7 +754,6 @@ this._buildHazardTiles();
       });
     });
 
-    console.log(`⚡ [L2] Built ${this.hazardTiles.length} hazard tiles`);
   }
     _buildColliders() {
         // Buildings are placed at known world positions — create a Box3
@@ -6891,7 +6881,6 @@ createCityBackground() {
             if (age > 2.0) {
                 this.level.remove(this._arrivalPortal);
                 this._arrivalPortal = null;
-                console.log('🌀 [L2] Arrival portal closed');
 
                 // Wait 1 second, then start the intro dialogue
                 if (!this._introDialoguePlayed) {
@@ -6933,7 +6922,6 @@ createCityBackground() {
               if (Math.abs(dx) < 1.75 && Math.abs(dz) < 1.75) {
                 if (!tile._playerWasOn && window.__playerHealth) {
                   window.__playerHealth.takeDamage(tile.damage);
-                  console.log('⚡ [L2] Hazard tile zapped the player');
                   if (window.__audioManager) {
                     window.__audioManager.playSfx('punch_hit');
                   }
@@ -6971,7 +6959,6 @@ createCityBackground() {
             const pd = Math.hypot(pdx, pdz);
             if (pd < 3.0) {
                 this._portalEntered = true;
-                console.log('🌀 [L2] Player entered portal — Level 3');
                 if (typeof window.__switchLevel === 'function') {
                     window.__switchLevel(3);
                 }

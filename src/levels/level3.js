@@ -9,6 +9,7 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { Guardian } from '../player/guardians.js';
 import { Architect } from '../player/architect.js';   // ← add this line
 import { STATE } from '../player/streetEnemies.js';
+import { BossHealthBar } from '../ui/BossHealthBar.js';
 import { worldColliders } from '../physics/CollisionSystem.js';
 
 export class ArchitectLevel {
@@ -52,8 +53,12 @@ export class ArchitectLevel {
     this.guardians = [];
     this.architect = null;
     this.guardiansDefeated = false;
-    this.dialogueStarted = false;
-    this.architectDialogueActive = false;
+
+    // Architect boss fight —
+    // 'awaiting' → 'rising' → 'dialogue' → 'fighting' → 'victory'
+    this.fightState = 'awaiting';
+    this._architectChoice = null;
+    this._disposed = false;
 
     // Dialogue system — created by main.js, attached here
     this.dialogue = null;
@@ -77,6 +82,12 @@ export class ArchitectLevel {
     this.createMonumentInterior();
     this.createGuardianSpawns();
     this.createArchitect();
+
+    // Boss HP bar — hidden until the Architect rises. Stale bars from
+    // earlier levels would shadow getElementById, so clear them first.
+    document.querySelectorAll('#boss-health-bar').forEach((el) => el.remove());
+    this.bossHealthBar = new BossHealthBar();
+    this.bossHealthBar.setName('THE ARCHITECT');
 
     this._buildColliders();
   }
@@ -1620,9 +1631,14 @@ export class ArchitectLevel {
       this.sunGlow.scale.set(60 * pulse, 60 * pulse, 1);
     }
 
-    // Architect animation
+    // Architect animation / boss AI
     if (this.architect && typeof this.architect.update === 'function') {
-      this.architect.update(dt);
+      this.architect.update(dt, player.pos);
+    }
+
+    // Keep the boss bar honest while the fight runs
+    if (this.fightState === 'fighting' && this.architect) {
+      this.bossHealthBar.setHealth(this.architect.health, this.architect.MAX_HEALTH);
     }
 
     // Distant fleet — slow drift so the sky doesn't feel static
@@ -1668,24 +1684,44 @@ export class ArchitectLevel {
       const bothDead = this.guardians.every((g) => g.state === STATE.DEAD || g.dead);
       if (bothDead) {
         this.guardiansDefeated = true;
-        console.log('⚔️ GUARDIANS DEFEATED — The Architect awaits.');
       }
     }
 
-    // Architect dialogue — trigger when the player gets close to him,
-    // now that the hall is one open room instead of a gated throne floor.
+    // Architect fight — once the guardians fall and Sorini approaches
+    // the throne, he rises telekinetically and the endgame begins.
     if (
       this.guardiansDefeated &&
-      !this.dialogueStarted &&
-      !this.architectDialogueActive &&
-      this.dialogue &&
+      this.fightState === 'awaiting' &&
       this.architect &&
-      player.pos.distanceTo(this.architect.getPosition()) < 12
+      this.architect.state === 'seated' &&
+      player.pos.distanceTo(this.architect.getPosition()) < 14
     ) {
-      this.dialogueStarted = true;
-      this.architectDialogueActive = true;
-      this._runArchitectSequence();
+      this.fightState = 'rising';
+      this._playRiseCamera();
+      this.architect.beginRise({
+        onFlash: () => {
+          if (window.__audioManager) window.__audioManager.playSfx('boss_phase_change');
+        },
+        onLanded: () => this._onArchitectLanded(),
+      });
     }
+  }
+
+  // ── Rise cinematic — three shots around the throne, floor-relative ──
+  _playRiseCamera() {
+    const cam = window.__cinematicCamera;
+    if (!cam || typeof cam.play !== 'function') return;
+    const y = this._F.floor;
+    cam.play([
+      { pos: [4.6, y + 2.4, -109.5],  look: [0, y + 1.2, -113],   duration: 1500, transition: 700, ease: 'in-out' },
+      { pos: [0.4, y + 0.7, -108.2],  look: [0, y + 1.6, -113],   duration: 1400, transition: 500, ease: 'in-out' },
+      { pos: [-3.8, y + 1.9, -106.5], look: [0, y + 1.1, -112.6], duration: 1600, transition: 600, ease: 'in-out' },
+    ]);
+  }
+
+  _onArchitectLanded() {
+    this.fightState = 'dialogue';
+    this._runArchitectSequence();
   }
 
     async _runArchitectSequence() {
@@ -1716,7 +1752,55 @@ export class ArchitectLevel {
         30400, 'THE ARCHITECT'
       );
 
-      // The choice prompt
+      // She's not sitting. He stops pretending to be gracious.
+      await d.say(
+        '"No? ...It does not matter. I have waited long enough —"\n\n' +
+        '"the Axiom comes back to me now, one way or another."',
+        4800, 'THE ARCHITECT'
+      );
+
+      this._startArchitectFight();
+    } catch (e) {
+      console.warn('Dialogue error:', e);
+      // Never leave the game soft-locked if dialogue throws
+      this._startArchitectFight();
+    }
+  }
+
+  _startArchitectFight() {
+    if (!this.architect || this.fightState === 'fighting') return;
+    this.fightState = 'fighting';
+    if (window.__audioManager) window.__audioManager.resumeMusic();
+    this.architect.startCombat({
+      onPhaseChange: (phase) => {
+        this.bossHealthBar.setPhase(phase);
+        if (window.__audioManager) window.__audioManager.playSfx('boss_phase_change');
+      },
+      onDamagePlayer: (dmg) => {
+        if (this.onDamagePlayer) this.onDamagePlayer(dmg);
+      },
+      onDeath: () => this._onArchitectDefeated(),
+    });
+    this.bossHealthBar.show();
+    this.bossHealthBar.setHealth(this.architect.health, this.architect.MAX_HEALTH);
+    this.bossHealthBar.setPhase(1);
+  }
+
+  _onArchitectDefeated() {
+    this.fightState = 'victory';
+    this.bossHealthBar.hide();
+    // Let the dying animation land before the final choice
+    setTimeout(() => {
+      if (this._disposed) return;
+      this._runEndingChoice();
+    }, 2800);
+  }
+
+  async _runEndingChoice() {
+    const d = this.dialogue;
+    if (!d) return;
+    try {
+      // The choice prompt — now earned, not granted
       const choice = await d.ask('What do you say?', [
         "I'm here to end this.",
         'What is GENESIS?',
@@ -1732,13 +1816,17 @@ export class ArchitectLevel {
     } catch (e) {
       console.warn('Dialogue error:', e);
     }
-    if (window.__audioManager) window.__audioManager.resumeMusic();
   }
 
   // ─────────────────────────────────────────────────────────
   // DISPOSE
   // ─────────────────────────────────────────────────────────
   dispose(outerScene = null) {
+    this._disposed = true;
+    if (this.bossHealthBar) {
+      this.bossHealthBar.dispose();
+      this.bossHealthBar = null;
+    }
     // Detach from scene
     if (this.level && this.level.parent) this.level.parent.remove(this.level);
     if (this.stars && this.stars.parent) this.stars.parent.remove(this.stars);

@@ -125,6 +125,16 @@ export class PlayerHealth {
         if (this.callbacks.onRespawn) this.callbacks.onRespawn(spawnPos);
     }
 
+    // Reset to full health without triggering respawn callbacks
+    // (used when restarting the game back to the main menu)
+    reset() {
+        this.dead = false;
+        this.hp = this.maxHp;
+        this._hurtCooldown = 0;
+        this.respawnTimer = 0;
+        this._updateBar();
+    }
+
     update(dt) {
         if (this._hurtCooldown > 0) this._hurtCooldown -= dt;
 

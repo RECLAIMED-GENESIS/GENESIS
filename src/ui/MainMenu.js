@@ -7,7 +7,9 @@ export function createMainMenu(onPlayClick, onCreditsClick) {
     container.innerHTML = `
         <div class="menu-content" style="
             background: rgba(0, 0, 0, 0.55);
-            backdrop-filter: blur(4px);
+            /* NO backdrop-filter: blur() on this panel glitches
+               Chromium's compositing against the fixed WebGL menu
+               canvas and blacks out the whole stack. */
             padding: 50px 70px;
             border-radius: 16px;
             text-align: center;
@@ -71,7 +73,7 @@ export function createMainMenu(onPlayClick, onCreditsClick) {
                 color: #444;
                 letter-spacing: 1px;
             ">
-                <span style="color: #00ffff;">●</span> THREE.JS <span style="color: #00ffff; margin-left: 15px;">●</span> CANNON-ES
+                <span style="color: #00ffff;">●</span> THREE.JS <span style="color: #00ffff; margin-left: 15px;">●</span> HOWLER
             </div>
         </div>
     `;

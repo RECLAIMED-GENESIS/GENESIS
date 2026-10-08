@@ -350,7 +350,6 @@ export class StreetLevel {
 
     if (window.__audioManager) window.__audioManager.resumeMusic();
 
-    console.log('🎬 [L1] Intro complete — input unlocked');
 
     setTimeout(() => {
       if (this.grunts) this._startNextWave();
@@ -372,7 +371,6 @@ export class StreetLevel {
     const spawnPos = wave.shipPos.clone();
     const dist = window.__player ? spawnPos.distanceTo(window.__player.pos) : 0;
 
-    console.log(`👽 [L1] Wave ${this.waveIndex} starting — ${wave.count} enemies from ship (${dist.toFixed(1)}m away)`);
 
     for (let i = 0; i < wave.count; i++) {
       setTimeout(() => {
@@ -393,14 +391,12 @@ export class StreetLevel {
       if (this.waveSpawnPending > 0) return;
       if (this.grunts.grunts.length > 0) return;
       this.waveActive = false;
-      console.log(`✅ [L1] Wave ${this.waveIndex} cleared`);
     }
 
     // All waves done → call Commander once
     if (this.waveIndex >= this.waves.length) {
       if (!this._commanderCalled && this.grunts.grunts.length === 0 && this.waveSpawnPending === 0) {
         this._commanderCalled = true;
-        console.log('⚔️ [L1] All waves cleared — calling Commander');
         this._spawnCommander();
       }
       return;
@@ -409,7 +405,6 @@ export class StreetLevel {
     // Idle → check if next wave should fire
     const nextWave = this.waves[this.waveIndex];
     if (playerZ <= nextWave.triggerZ) {
-      console.log(`🚩 [L1] Trigger met (z=${playerZ.toFixed(1)} ≤ ${nextWave.triggerZ}) — spawning wave ${this.waveIndex + 1}`);
       this._startNextWave();
     }
   }
@@ -425,7 +420,6 @@ export class StreetLevel {
 
     const spawnPos = new THREE.Vector3(sx, sy, sz);
 
-    console.log('⚔️ THE WARDEN AWAKENS');
     this._screenShake = 0.8;
     this.bossHealthBar.show();
 
@@ -446,7 +440,6 @@ export class StreetLevel {
   }
 
   async _onCommanderDeath() {
-    console.log('💀 THE WARDEN HAS FALLEN');
     this.bossHealthBar.hide();
     if (this.grunts) this.grunts.killAll();
     this._screenShake = 1.5;
@@ -614,7 +607,6 @@ export class StreetLevel {
     dlg.dispose();
     window.__dialogue = null;
 
-    console.log('✨ Axiom revelation complete — portal opening');
   }
 
   pathX(z) { return Math.sin(z * 0.03) * 8; }
@@ -778,7 +770,6 @@ export class StreetLevel {
       this.level.add(arrow);
       this.waypointArrows.push(arrow);
     }
-    console.log(`➡️ [L1] Built ${this.waypointArrows.length} waypoint arrows`);
   }
 
   createToriiGates() {
@@ -1035,7 +1026,6 @@ export class StreetLevel {
       this.level.add(light);
     }
 
-    console.log('🏯 [L1] Spawn village built');
   }
     // =========================================================
   // GRAVEYARD — small plot near the shrine
@@ -1140,7 +1130,6 @@ export class StreetLevel {
       addFenceBlock(cx2, z);
     }
 
-    console.log('🪦 [L1] Graveyard built');
   }
 
   createHouses() {
@@ -1403,7 +1392,6 @@ export class StreetLevel {
       this._makeRockCluster(x, this._h(x, z), z, stoneMat, stoneDarkMat);
     }
 
-    console.log('🏘️ Scenery built: fences, well, pavilion, stream, bamboo, props, rocks');
   }
 
   _makeFence(x, y, z, woodMat, bambooMat) {
@@ -1585,7 +1573,6 @@ export class StreetLevel {
       new THREE.Vector3(x + 3.5 * scale, y + 2.5 * scale, z + 3 * scale)
     ));
 
-    console.log(`🚀 Crashed ship placed at ${x}, ${z} (${style})`);
     return g;
   }
 

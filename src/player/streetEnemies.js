@@ -274,7 +274,7 @@ class Citizen {
   }
 
   _loadModel() {
-    new FBXLoader().load('./assets/models/enemy/X_Bot.fbx', (fbx) => {
+    new FBXLoader().load('./assets/models/enemy/grunt.fbx', (fbx) => {
       fbx.scale.setScalar(0.012);
       fbx.traverse(o => { if (o.isMesh) o.castShadow = true; });
       // tint citizens differently — slightly brighter colour
@@ -288,10 +288,10 @@ class Citizen {
       this.fbx = fbx;
       this.mixer = new THREE.AnimationMixer(fbx);
 
-      // sitting citizens use Sitting Talking, standing use Dwarf Idle
+      // sitting citizens use sitting_pose, standing use grunt_idle
       const idleFile = this.behaviour === 'sit'
-        ? './assets/models/enemy/Sitting Talking.fbx'
-        : './assets/models/enemy/Dwarf Idle.fbx';
+        ? './assets/models/enemy/sitting_pose.fbx'
+        : './assets/models/enemy/grunt_idle.fbx';
 
       this._desired = 'idle';
       loadAnim(idleFile, (clip) => {
@@ -302,7 +302,7 @@ class Citizen {
         }
       });
 
-      loadAnim('./assets/models/enemy/Running.fbx', (clip) => {
+      loadAnim('./assets/models/enemy/running.fbx', (clip) => {
         this.actions.run = this.mixer.clipAction(clip);
         if (this._desired === 'run') {
           if (this.currentAction) this.currentAction.fadeOut(0.2);
@@ -405,7 +405,7 @@ export class Enemy {
   }
 
   _loadModel() {
-    new FBXLoader().load('./assets/models/enemy/X_Bot.fbx', (fbx) => {
+    new FBXLoader().load('./assets/models/enemy/grunt.fbx', (fbx) => {
       const scale = this.type === 'mutant' ? 0.016 : 0.013;
       fbx.scale.setScalar(scale);
       fbx.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -426,15 +426,17 @@ export class Enemy {
   _loadAnims() {
     const base = './assets/models/enemy/';
     const files = {
-      idle:    this.type === 'mutant' ? 'Being_Cocky.fbx'            : 'Dwarf Idle.fbx',
-      sit:     'Sitting Talking.fbx',   // H1-H3 use this before alarm
+      idle:    this.type === 'mutant' ? 'being_cocky.fbx'            : 'grunt_idle.fbx',
+      sit:     'sitting_pose.fbx',      // H1-H3 use this before alarm
       // HUMANS run, MUTANTS walk — key fix
-      move:    this.type === 'mutant' ? 'Mutant Walking.fbx'         : 'Running.fbx',
-      attack1: this.type === 'mutant' ? 'Mutant_Punch.fbx'           : 'Boxing.fbx',
-      attack2: this.type === 'mutant' ? 'Sprinting_Forward_Roll.fbx' : 'Kicking.fbx',
-      hit:     'Reaction.fbx',
-      die:     'Dying.fbx',
-      roar:    'Mutant_Roaring.fbx',
+      move:    this.type === 'mutant' ? 'grunt_walk.fbx'             : 'running.fbx',
+      attack1: this.type === 'mutant' ? 'grunt_punch.fbx'            : 'boxing.fbx',
+      attack2: this.type === 'mutant' ? 'sprinting_forward_roll.fbx' : 'kicking.fbx',
+      hit:     'reaction.fbx',
+      die:     'dying.fbx',
+      // enforcer_roar.fbx was removed with the boss's stale clip set —
+      // the alert flourish now borrows the roundhouse kick instead.
+      roar:    'enforcer_roundhouse_kick.fbx',
     };
 
     // Remember which clip maps to which action so we can report the ones

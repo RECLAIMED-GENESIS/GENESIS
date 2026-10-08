@@ -68,7 +68,10 @@ export class Commander {
 
     const fbx = result.model;
     fbx.scale.setScalar(this.SCALE);
-    fbx.position.y = -0.13 * 2.0;  // matches player offset but scaled
+    // Feet sit at local y≈0 (Mixamo origin) and the spawn sits on the
+    // terrain — keep the model un-offset (the old -0.13*2 sank him 26 cm,
+    // “matching” a player offset that no longer exists).
+    fbx.position.y = 0;
 
     // Tint: dark red body + gold accents (clone materials so the shared
     // grunt cache isn't recolored for every future grunt)

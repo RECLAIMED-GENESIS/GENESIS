@@ -117,7 +117,7 @@ function makeFragment(color = 0x44ccff) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// NPC  (X_Bot with Idle animation)
+// NPC  (grunt model with idle animation)
 // ─────────────────────────────────────────────────────────────
 class NPC {
   constructor(parent, position, hint, onApproach = null) {
@@ -134,7 +134,7 @@ class NPC {
 
   _loadModel() {
     const loader = new FBXLoader();
-    loader.load('./assets/models/enemy/X_Bot.fbx', (fbx) => {
+    loader.load('./assets/models/enemy/grunt.fbx', (fbx) => {
       fbx.scale.setScalar(0.013);
       fbx.traverse(o => {
         if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; }
@@ -143,7 +143,7 @@ class NPC {
       this.fbx = fbx;
 
       const animLoader = new FBXLoader();
-      animLoader.load('./assets/models/enemy/Dwarf Idle.fbx', (anim) => {
+      animLoader.load('./assets/models/enemy/grunt_idle.fbx', (anim) => {
         this.mixer = new THREE.AnimationMixer(fbx);
         const clip = anim.animations[0];
         if (clip) this.mixer.clipAction(clip).play();
@@ -371,7 +371,6 @@ export class VillageNPCs {
     this.portalMesh.rotation.y = Math.PI / 6;
     this.group.add(this.portalMesh);
 
-    console.log('🌀 Portal opened at shrine');
   }
 
   openPortal() {

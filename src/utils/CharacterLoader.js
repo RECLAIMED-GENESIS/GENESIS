@@ -116,7 +116,7 @@ export class CharacterLoader {
         throw new Error(
           `Fetched "${path}" but got HTML instead of FBX (likely 404). ` +
           `Ensure file exists at public/${path} and is not being redirected. ` +
-          `If filename has spaces, use the sanitized underscore version (e.g., Hit_To_Body.fbx) or let CharacterLoader encodeURI it.`
+          `If filename has spaces, use the sanitized underscore version (e.g., hit_to_body.fbx) or let CharacterLoader encodeURI it.`
         );
       }
       if (contentType.includes('text/html')) {

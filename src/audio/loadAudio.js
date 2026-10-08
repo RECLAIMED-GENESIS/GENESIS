@@ -38,13 +38,7 @@ export function loadAllAudio(audioManager) {
     src: './assets/audio/sfx/boss_phase_change.wav', volume: 0.5,
   });
 
-  // ── Ambient / environmental ──
-  audioManager.loadSound('ship_hum', {
-    src: './assets/audio/sfx/ship_hum.wav',
-    loop: true, volume: 0.3,
-  });
-
-    // ── VOICES ──
+  // ── VOICES ──
   audioManager.loadSound('l1_intro', {
     src: './assets/audio/voices/l1_intro.mp3', volume: 1.0,
   });
@@ -79,5 +73,4 @@ export function loadAllAudio(audioManager) {
   audioManager.loadSound('l3_ending_silence_1',        { src: './assets/audio/voices/l3_ending_silence_1.mp3',        volume: 1.0 });
   audioManager.loadSound('l3_ending_silence_2',        { src: './assets/audio/voices/l3_ending_silence_2.mp3',        volume: 1.0 });
 
-  console.log('🎵 Audio system ready —', Object.keys(audioManager.sounds).length, 'files registered');
 }

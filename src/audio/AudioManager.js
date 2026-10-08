@@ -62,17 +62,15 @@ export class AudioManager {
     }
   }
 
-    pauseMusic() {
+  pauseMusic() {
     if (this.currentMusic) {
       this.currentMusic.pause(this.currentMusicId);
-      console.log('🎵 Music paused');
     }
   }
 
   resumeMusic() {
     if (this.currentMusic) {
       this.currentMusic.play(this.currentMusicId);
-      console.log('🎵 Music resumed');
     }
   }
 
@@ -87,7 +85,12 @@ export class AudioManager {
 
   toggleMute() {
     this.isMuted = !this.isMuted;
-    if (this.isMuted) this.stopMusic();
+    if (this.isMuted) {
+      this.stopMusic();
+    } else if (this.currentMusicKey) {
+      // Unmuting must bring the level music back, not just clear the flag
+      this.playMusic(this.currentMusicKey);
+    }
     return this.isMuted;
   }
 

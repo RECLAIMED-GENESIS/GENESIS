@@ -173,7 +173,10 @@ export class Grunt {
 
     const fbx = result.model;
     fbx.scale.setScalar(this.SCALE);
-    fbx.position.y = -0.13;
+    // Feet sit at local y≈0 (Mixamo origin) and update() snaps the group to
+    // the terrain — keep the model un-offset so boots rest ON the ground
+    // (a previous -0.13 here sank every grunt 13 cm into the terrain).
+    fbx.position.y = 0;
     fbx.traverse((o) => {
       if (o.isMesh) {
         o.castShadow = true;
@@ -439,7 +442,6 @@ export class GruntManager {
       if (this.heightAt) pos.y = this.heightAt(pos.x, pos.z);
       this.grunts.push(new Grunt(this.scene, pos, this.heightAt));
     }
-    console.log(`👹 Spawned ${count} grunts`);
   }
 
   update(delta, playerPos, onDamagePlayer) {

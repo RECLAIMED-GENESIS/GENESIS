@@ -1,5 +1,5 @@
 // ============================================================
-// guardians.js — Level 3 boss guardians (X_Bot skin)
+// guardians.js — Level 3 boss guardians (grunt skin)
 //   • Deferred model load (Enemy ctor fires _loadModel() before
 //     this.kind exists — we wait one tick)
 //   • skeletonClone per guardian (plain .clone() breaks SkinnedMesh)
@@ -31,17 +31,17 @@ const GUARDIAN_STATS = {
 
 // ─────────────────────────────────────────────────────────────
 // SHARED ASSET CACHE
-// Load the base X_Bot FBX and every clip once; both guardians
+// Load the base grunt FBX and every clip once; both guardians
 // skeletonClone their own copy of the model afterwards.
 // ─────────────────────────────────────────────────────────────
 const GUARDIAN_BASE = './assets/models/enemy/';
 const GUARDIAN_CLIP_FILES = {
-  idle:    'Dwarf Idle.fbx',
-  move:    'Running.fbx',
-  attack1: 'Boxing.fbx',
-  attack2: 'Kicking.fbx',
-  hit:     'Reaction.fbx',
-  die:     'Dying.fbx',
+  idle:    'grunt_idle.fbx',
+  move:    'running.fbx',
+  attack1: 'boxing.fbx',
+  attack2: 'kicking.fbx',
+  hit:     'reaction.fbx',
+  die:     'dying.fbx',
 };
 
 let _guardianAssetsPromise = null;
@@ -77,7 +77,7 @@ function getGuardianAssets() {
   _guardianAssetsPromise = (async () => {
     const loader = new FBXLoader();
 
-    const baseFbx = await loadFbx(loader, GUARDIAN_BASE + 'X_Bot.fbx');
+    const baseFbx = await loadFbx(loader, GUARDIAN_BASE + 'grunt.fbx');
     if (!baseFbx) return null;
 
     const clips = {};
@@ -194,7 +194,10 @@ export class Guardian extends Enemy {
     // static/wrong pose no matter what the mixer does.
     const fbx = skeletonClone(assets.baseFbx);
     fbx.scale.setScalar(0.013 * stats.scale);
-    fbx.position.y = -0.13;
+    // Feet sit at local y≈0 (Mixamo origin) and update() snaps the group to
+    // the hall floor — keep the model un-offset (a previous -0.13 here sank
+    // every guardian 13 cm into the floor).
+    fbx.position.y = 0;
 
     fbx.traverse((o) => {
       if (o.isMesh) {

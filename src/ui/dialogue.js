@@ -125,6 +125,11 @@ export class Dialogue {
   // chosen index (0-based). Also binds keys 1/2/3.
   ask(text, choices) {
     return new Promise((resolve) => {
+      if (!this.container || !this.textEl) {
+        this.active = false;
+        resolve(-1);   // disposed — sentinel so callers skip the choice
+        return;
+      }
       this.container.style.display = 'block';
       this.active = true;
       this.textEl.style.opacity = '0';
@@ -184,6 +189,7 @@ export class Dialogue {
   }
 
   hide() {
+    if (!this.container) return;   // disposed
     this.container.style.display = 'none';
     if (this.speakerEl) this.speakerEl.innerText = '';
     this.textEl.innerText = '';
@@ -199,6 +205,9 @@ export class Dialogue {
     this.container = null;
     this.textEl = null;
     this.choicesEl = null;
+    this.speakerEl = null;
+    this._resolveChoice = null;
+    this._skipResolve = null;
   }
 
     // Resolve the currently pending line early (used for skip)

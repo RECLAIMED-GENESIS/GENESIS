@@ -17,6 +17,7 @@ import { MenuScene } from './ui/MenuScene.js';
 import { CinematicCamera } from './ui/CinematicCamera.js';
 import { createHUD, updateHUD } from './ui/HUD.js';   // ← ADDED updateHUD
 import { createLoadingScreen, updateLoadingScreen } from './ui/LoadingScreen.js';
+import { PauseMenu } from './ui/PauseMenu.js';
 
 // ---------- renderer ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -33,9 +34,6 @@ renderer.domElement.addEventListener('webglcontextlost', (event) => {
   event.preventDefault();
   console.error('[GENESIS] WebGL context lost. Refresh the tab.');
 });
-renderer.domElement.addEventListener('webglcontextrestored', () => {
-  console.log('[GENESIS] WebGL context restored.');
-});
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1200);
@@ -49,7 +47,6 @@ window.__cinematicCamera = cinematicCamera;
 const audioManager = new AudioManager();
 loadAllAudio(audioManager);
 window.__audioManager = audioManager;
-console.log('🎵 Audio manager initialized');
 
 // ---------- root motion fix ----------
 function stripRootMotion(clip) {
@@ -86,11 +83,9 @@ let _lastDeathPos = null;
 
 const playerHealth = new PlayerHealth({
   onDeath: () => {
-    console.log('💀 Sorini has fallen');
     _lastDeathPos = player.pos.clone();
   },
   onRespawn: (spawnPos) => {
-    console.log('✨ Sorini has respawned');
     let target = null;
     if (spawnPos && spawnPos.isVector3) {
       target = spawnPos;
@@ -242,8 +237,27 @@ function loadSoriniAnim(path, key, onDone) {
 
 new FBXLoader().load('./assets/models/player/sorini.fbx', (fbx) => {
   fbx.scale.setScalar(0.013);
-  fbx.position.y = -0.13;
-  fbx.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // Her feet sit at local y≈0 (Mixamo origin) and soriniGroup rides the
+  // surface height each frame — keep her un-offset so boots rest ON the
+  // ground (a previous -0.13 here sank her 13 cm into every floor).
+  fbx.position.y = 0;
+  fbx.traverse(o => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+    // Mixamo quirk: her boots/bodysuit material ships with the specular
+    // PNG wired as an alphaMap and transparent:true — the map's dark
+    // regions punch alpha to zero and her shoes vanish. Force it opaque.
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (m.transparent && m.alphaMap) {
+        m.transparent = false;
+        m.alphaMap = null;
+        m.opacity = 1;
+        m.needsUpdate = true;
+      }
+    }
+  });
   soriniGroup.add(fbx);
 
   soriniMixer = new THREE.AnimationMixer(fbx);
@@ -256,14 +270,14 @@ new FBXLoader().load('./assets/models/player/sorini.fbx', (fbx) => {
   }, 8000);
 
   const base = './assets/models/player/';
-  loadSoriniAnim(base + 'Idle.fbx',           'idle',     null);
-  loadSoriniAnim(base + 'Dying.fbx',          'die',      null);
-  loadSoriniAnim(base + 'Swagger_Walk.fbx',   'walk',     null);
-  loadSoriniAnim(base + 'Running.fbx',        'run',      null);
-  loadSoriniAnim(base + 'Punching.fbx',       'punch',    null);
-  loadSoriniAnim(base + 'Kicking.fbx',        'kick',     null);
-  loadSoriniAnim(base + 'Hook.fbx',           'hook',     null);
-  loadSoriniAnim(base + 'Jump.fbx',           'jump',     null);
+  loadSoriniAnim(base + 'idle.fbx',           'idle',     null);
+  loadSoriniAnim(base + 'dying.fbx',          'die',      null);
+  loadSoriniAnim(base + 'swagger_walk.fbx',   'walk',     null);
+  loadSoriniAnim(base + 'running.fbx',        'run',      null);
+  loadSoriniAnim(base + 'punching.fbx',       'punch',    null);
+  loadSoriniAnim(base + 'kicking.fbx',        'kick',     null);
+  loadSoriniAnim(base + 'hook.fbx',           'hook',     null);
+  loadSoriniAnim(base + 'jump.fbx',           'jump',     null);
 }, undefined, (e) => console.warn('sorini.fbx load failed:', e));
 
 // ---------- input ----------
@@ -294,6 +308,25 @@ addEventListener('keydown', e => {
     window.__dialogue.handleKey(e.code);
     return;
   }
+
+  // ── Esc toggles the pause menu directly — no prior mouse click ──
+  // When the pointer is LOCKED, the browser exits the lock on Esc and
+  // the pointerlockchange handler below opens the menu. When it is
+  // NOT locked (player never clicked the canvas, or lock was lost),
+  // this keydown is the only path to pause, so handle it here too.
+  if (e.code === 'Escape') {
+    if (!gameStarted.value || !level) return;
+    if (cinematicCamera.active) return;
+    if (document.getElementById('endOverlay')) return;
+    if (pauseMenu.visible) {
+      pauseMenu.resume();   // Esc again un-pauses
+    } else {
+      pauseMenu.show();
+    }
+    return;
+  }
+
+  if (pauseMenu.visible) return;   // gameplay input frozen while paused
 
   keys[e.code] = true;
   if (e.code === 'Space') e.preventDefault();
@@ -368,6 +401,12 @@ function _damageEnemiesIfClose(damage) {
     const dist = level.enforcer.getPosition().distanceTo(player.pos);
     if (dist < 2.0) level.enforcer.takeDamage(damage);
   }
+
+  // Level 3 final boss — only hittable once he's actually fighting
+  if (level.architect && level.architect.canBeHit && level.architect.canBeHit()) {
+    const dist = level.architect.getPosition().distanceTo(player.pos);
+    if (dist < 2.8) level.architect.takeDamage(damage);
+  }
 }
 
 addEventListener('keyup', e => {
@@ -376,26 +415,17 @@ addEventListener('keyup', e => {
 });
 
 renderer.domElement.addEventListener('click', () => {
-  renderer.domElement.requestPointerLock();
+  requestGamePointerLock();
 
   if (window.Howler && window.Howler.ctx && window.Howler.ctx.state === 'suspended') {
-    window.Howler.ctx.resume().then(() => {
-      console.log('🔊 AudioContext resumed');
-    });
+    window.Howler.ctx.resume();
   }
 
-  if (window.__audioManager) {
-    const firstSound = window.__audioManager.sounds['ship_hum'];
-    if (firstSound && current === 1) {
-      firstSound.play();
-      firstSound.volume(0.3);
-    }
-
-    if (!audioManager.currentMusic) {
-      const musicMap = { 1: 'level_1_chiptune', 2: 'level_2_orchestral', 3: 'level_3_electronic' };
-      const track = musicMap[current];
-      if (track) audioManager.playMusic(track);
-    }
+  // Safety net: if the level track ever drops out, bring it back here.
+  if (window.__audioManager && !window.__audioManager.currentMusic) {
+    const musicMap = { 1: 'level_1_chiptune', 2: 'level_2_orchestral', 3: 'level_3_electronic' };
+    const track = musicMap[current];
+    if (track) audioManager.playMusic(track);
   }
 });
 
@@ -451,27 +481,121 @@ function _triggerDash() {
   if (window.__audioManager) {
     window.__audioManager.playSfx('punch_hit');
   }
-
-  console.log('⚡ Axiom Dash!');
 }
+
+let _wasLocked = false;
 
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
-  const msg = document.getElementById('msg');
-  if (msg) msg.style.display = locked ? 'none' : 'block';
+
+  if (locked) {
+    _wasLocked = true;
+    _lockFailCount = 0;
+    clearTimeout(_lockRetryTimer);
+    _lockRetryTimer = null;
+    const hint = document.getElementById('recapture-hint');
+    if (hint) hint.remove();
+    pauseMenu.hide();
+    return;
+  }
+
+  // Esc (or alt-tab) released the pointer mid-game → open the pause
+  // menu, except during dialogue, cinematics, or the ending overlays.
+  if (_wasLocked && gameStarted.value && level &&
+      !(window.__dialogue && window.__dialogue.active) &&
+      !cinematicCamera.active &&
+      !document.getElementById('endOverlay')) {
+    pauseMenu.show();
+  }
+  _wasLocked = false;
 });
+
+// ── Pointer re-capture ──
+// Chrome refuses to re-capture the pointer for ~1.25 s after an Esc
+// release, so a quick RESUME click inside that window fails silently
+// and the game keeps running in free-cursor mode. Retry once the
+// cooldown has passed, and as a last resort show a recapture hint.
+let _lockRetryTimer = null;
+let _lockFailCount = 0;
+
+function _showRecaptureHint() {
+  let hint = document.getElementById('recapture-hint');
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.id = 'recapture-hint';
+    Object.assign(hint.style, {
+      position: 'fixed',
+      left: '50%',
+      bottom: '12%',
+      transform: 'translateX(-50%)',
+      padding: '10px 26px',
+      border: '2px solid #00ffff',
+      borderRadius: '8px',
+      background: 'rgba(2, 10, 20, 0.85)',
+      color: '#00ffff',
+      fontFamily: "'Courier New', monospace",
+      fontSize: '0.95rem',
+      letterSpacing: '3px',
+      zIndex: '400',
+      pointerEvents: 'none',
+    });
+    document.body.appendChild(hint);
+  }
+  hint.innerText = 'CLICK TO CAPTURE THE MOUSE';
+  clearTimeout(hint._t);
+  hint._t = setTimeout(() => hint.remove(), 3000);
+}
+
+function _scheduleLockRetry() {
+  if (_lockRetryTimer) return;   // a retry is already pending
+  _lockRetryTimer = setTimeout(() => {
+    _lockRetryTimer = null;
+    if (document.pointerLockElement === renderer.domElement) return;
+    if (_lockFailCount >= 3) return;             // browser keeps refusing — stop
+    if (pauseMenu.visible) return;               // re-paused — leave the cursor free
+    if (!gameStarted.value || !level) return;    // back at the main menu
+    if (window.__dialogue && window.__dialogue.active) return;
+    if (cinematicCamera.active) return;
+    if (document.getElementById('endOverlay')) return;
+    requestGamePointerLock(false);               // one silent retry, then the hint
+  }, 1400);
+}
+
+function requestGamePointerLock(retryOnFail = true) {
+  if (document.pointerLockElement === renderer.domElement) return;
+  const fail = () => {
+    _lockFailCount++;
+    if (retryOnFail) _scheduleLockRetry();
+    else _showRecaptureHint();
+  };
+  try {
+    const p = renderer.domElement.requestPointerLock();
+    if (p && p.catch) p.catch(fail);
+  } catch (e) { fail(); }
+}
+
+// Safari/Firefox signal failures via an event instead of a rejected
+// promise — route those through the same retry.
+document.addEventListener('pointerlockerror', () => {
+  if (document.pointerLockElement !== renderer.domElement &&
+      _lockFailCount < 3) {
+    _scheduleLockRetry();
+  }
+});
+
+let mouseSensitivity = 0.0022;   // radians per pixel — tunable in the pause menu
 
 addEventListener('mousemove', e => {
   if (!locked) return;
-  player.cameraYaw -= e.movementX * 0.0022;
-  player.pitch = Math.max(-1.4, Math.min(1.4, player.pitch - e.movementY * 0.0022));
+  player.cameraYaw -= e.movementX * mouseSensitivity;
+  player.pitch = Math.max(-1.4, Math.min(1.4, player.pitch - e.movementY * mouseSensitivity));
 });
 
 // ---------- levels ----------
 const LEVELS = { 1: StreetLevel, 2: AlienLevel, 3: ArchitectLevel };
 let level = null, current = 1, phase = 1;
 
-function switchLevel(n) {
+function disposeCurrentLevel() {
   if (level) {
     try {
       if (typeof level.dispose === 'function') level.dispose(scene);
@@ -495,6 +619,10 @@ function switchLevel(n) {
     if (renderer.renderLists) renderer.renderLists.dispose();
     if (renderer.info) renderer.info.reset();
   } catch (e) { console.warn('renderer cache flush failed:', e); }
+}
+
+function switchLevel(n) {
+  disposeCurrentLevel();
 
   current = n; phase = 1;
   _lastDeathPos = null;
@@ -503,6 +631,8 @@ function switchLevel(n) {
     level = new LEVELS[n](scene, renderer);
 
     if (n === 3 && level instanceof ArchitectLevel) {
+      window.__level3 = level;   // debug hook — fight/asset testing
+      window.__player = player;
       const dialogue = new Dialogue();
       window.__dialogue = dialogue;
       level.dialogue = dialogue;
@@ -587,7 +717,6 @@ function switchLevel(n) {
 
   // Axiom Dash unlocks from Level 2 onward
 dash.enabled = (n >= 2);
-console.log(`⚡ Axiom Dash: ${dash.enabled ? 'ENABLED' : 'disabled'}`);
 
   const musicMap = { 1: 'level_1_chiptune', 2: 'level_2_orchestral', 3: 'level_3_electronic' };
   const track = musicMap[n];
@@ -707,6 +836,10 @@ function tick() {
   const t  = timer.getElapsed();
 
   if (!level) return;
+
+  // Freeze the whole world while the pause menu is open — the last
+  // presented frame stays on screen behind the overlay.
+  if (pauseMenu.visible) return;
 
   playerHealth.update(dt);
 
@@ -887,7 +1020,6 @@ function showCreditsOverlay() {
     <div style="text-align: left; font-size: 16px; line-height: 2; color: #aaa; max-width: 600px;">
       <h2 style="color: #ffffff; font-size: 20px; margin-bottom: 10px;">LIBRARIES</h2>
       <p>● Three.js (MIT) - <a href="https://threejs.org" style="color: #00ffff;">threejs.org</a></p>
-      <p>● Cannon-es (MIT) - <a href="https://github.com/pmndrs/cannon-es" style="color: #00ffff;">pmndrs/cannon-es</a></p>
       <p>● Howler.js (MIT) - <a href="https://howlerjs.com" style="color: #00ffff;">howlerjs.com</a></p>
       <p>● Vite (MIT) - <a href="https://vitejs.dev" style="color: #00ffff;">vitejs.dev</a></p>
 
@@ -935,18 +1067,71 @@ function showCreditsOverlay() {
   });
 }
 
+// ── Pause menu — options, restart level, quit to menu ──
+const pauseMenu = new PauseMenu({
+  audioManager,
+  initialSensitivity: 0.0022,
+  onSensitivityChange: (v) => { mouseSensitivity = v; },
+  onResume: () => {
+    pauseMenu.hide();
+    // This click is the browser gesture; if Chrome's post-Esc cooldown
+    // rejects the lock, requestGamePointerLock retries ~1.4 s later.
+    requestGamePointerLock();
+  },
+  onRestartLevel: () => {
+    pauseMenu.hide();
+    switchLevel(current);
+  },
+  onQuitToMenu: () => restartToMenu(),
+});
+
+// ── Full in-page restart — back to the main menu, no page refresh ──
+function restartToMenu() {
+  if (document.pointerLockElement) document.exitPointerLock();
+  pauseMenu.hide();
+
+  disposeCurrentLevel();
+  level = null;
+  current = 1;
+  phase = 1;
+  _lastDeathPos = null;
+
+  // Remove any ending overlay left over from the Level 3 endings
+  const endOverlay = document.getElementById('endOverlay');
+  if (endOverlay && endOverlay.parentNode) endOverlay.parentNode.removeChild(endOverlay);
+
+  // Reset transient gameplay state
+  playerHealth.reset();
+  player.vel.set(0, 0, 0);
+  dash.enabled = false;
+  dash.cooldown = 0;
+  dash.activeTimer = 0;
+  attackCooldown.f = 0; attackCooldown.g = 0; attackCooldown.h = 0;
+  attackLock = false;
+  for (const k of Object.keys(keys)) keys[k] = false;
+
+  // Silence every sound and blank the game canvas
+  audioManager.reset();
+  renderer.clear();
+
+  // Back to the main menu
+  uiManager.hideHUD();
+  uiManager.showScreen('main-menu');
+  menuCanvas.style.display = '';
+  if (menuScene) menuScene.start();
+}
+window.__restartToMenu = restartToMenu;
+
 // Main Menu — with PLAY and CREDITS callbacks
 const gameStarted = { value: false };
 
 const mainMenuElement = createMainMenu(
   // PLAY
   () => {
-    console.log('🎮 PLAY clicked');
-
         // Hide the menu 3D scene
     menuCanvas.style.display = 'none';
     if (menuScene) {
-      menuScene.dispose();
+      menuScene.stop();
     }
     audioManager.playMusic('level_1_chiptune');
 
@@ -986,6 +1171,10 @@ const mainMenuElement = createMainMenu(
             } else {
               switchLevel(1);
             }
+            // Capture the mouse right away — THIS click is the user
+            // gesture the browser requires, so Esc can pause without
+            // any extra click on the canvas.
+            requestGamePointerLock();
           };
         }
       } else {
@@ -1003,7 +1192,6 @@ const mainMenuElement = createMainMenu(
   },
   // CREDITS
   () => {
-    console.log('📋 CREDITS clicked');
     showCreditsOverlay();
   }
 );
@@ -1013,19 +1201,25 @@ uiManager.registerScreen('main-menu', mainMenuElement);
 // ── Main Menu 3D Scene ──
 const menuCanvas = document.createElement('canvas');
 menuCanvas.id = 'menu-canvas';
+// z-index 20 sits ABOVE #ui-container (z-10): Chromium does not
+// composite this canvas under that overlay (its backdrop-filter
+// panel isolates the stack), which blacked out the whole scene.
+// The canvas is transparent where nothing is drawn, so the menu
+// DOM still shows through, and pointer-events:none keeps the
+// buttons clickable underneath.
 menuCanvas.style.cssText = `
   position: fixed;
   top: 0; left: 0;
   width: 100%; height: 100%;
-  z-index: 5;
+  z-index: 20;
   pointer-events: none;
 `;
 document.body.appendChild(menuCanvas);
 
 const menuScene = new MenuScene(menuCanvas);
 menuScene.start();
+window.__menuScene = menuScene;   // debug handle for live inspection
 
-uiManager.showScreen('main-menu');
 uiManager.showScreen('main-menu');
 
 // ---------- Vite HMR cleanup ----------

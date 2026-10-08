@@ -1,6 +1,7 @@
 // src/enemies/enforcer.js
 // Level 2 Boss — "The Enforcer"
-// Uses enforcer.glb (Jones character from Mixamo)
+// Uses enforcer.fbx (Jones character from Mixamo) with a mixed strike
+// set — jabs, cross, kicks — plus head/stomach hit reactions.
 
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
@@ -91,6 +92,13 @@ export class Enforcer {
     this.model = null;
     this.hitFlashTimer = 0;
 
+    // Fight pacing
+    this._combo = null;       // current strike chain
+    this._comboIndex = 0;
+    this._flinchTimer = 0;    // min gap between hit-reaction flinches
+    this._flinching = false;  // riding out a hit reaction right now
+    this._playerPos = null;   // last known player position (per-frame)
+
     // Minion spawn thresholds
     this.spawnThresholds = [
       { pct: 0.75, spawned: false, count: 3 },
@@ -130,10 +138,18 @@ export class Enforcer {
         idle:  base + 'enforcer_idle.fbx',
         walk:  base + 'enforcer_walk.fbx',
         run:   base + 'enforcer_run.fbx',
-        punch: base + 'enforcer_punch.fbx',
-        roar:  base + 'enforcer_roar.fbx',
-        hit:   base + 'enforcer_hit.fbx',
-        die:   base + 'enforcer_dying.fbx'
+        die:   base + 'enforcer_dying.fbx',
+        // Hit reactions — two impact points, picked at random on damage
+        hit_head:    base + 'enforcer_head_hit.fbx',
+        hit_stomach: base + 'enforcer_stomach_hit.fbx',
+        // Attack set — varied strikes so the fight never loops one move
+        punch_left:  base + 'enforcer_left_punch.fbx',
+        punch_right: base + 'enforcer_right_punch.fbx',
+        punch_cross: base + 'enforcer_cross_punch.fbx',
+        punch_elbow: base + 'enforcer_elbow_punch.fbx',
+        kick:        base + 'enforcer_kick.fbx',
+        // Phase-2+ special (replaces the removed roar clip)
+        roundhouse:  base + 'enforcer_roundhouse_kick.fbx'
       };
 
       for (const [key, path] of Object.entries(animPaths)) {
@@ -155,7 +171,6 @@ export class Enforcer {
   _playAction(name, loop = true) {
       // Once dead, lock to the death animation — nothing else can override
     if (!this.alive && name !== 'die') return;
-    console.log('🎬 [Enforcer] playAction:', name, '| loop:', loop, '| exists:', !!this.actions[name]);
     
   
     const next = this.actions[name];
@@ -171,6 +186,22 @@ export class Enforcer {
 
     if (!loop) next.clampWhenFinished = true;
     this.currentAction = next;
+  }
+
+  // Pick a random clip from a set of action keys, skipping any whose
+  // FBX hasn't finished loading (or failed) — null if none are ready.
+  _randomKey(names) {
+    const available = names.filter(k => this.actions[k]);
+    if (available.length === 0) return null;
+    return available[Math.floor(Math.random() * available.length)];
+  }
+
+  // Duration of an action's clip in ms, with a fallback for clips that
+  // are still downloading so one-shot timing degrades to the old fixed
+  // values instead of firing instantly.
+  _clipMs(name, fallbackMs) {
+    const clip = this.actions[name]?.getClip();
+    return (clip ? clip.duration : 0) * 1000 || fallbackMs;
   }
 
     update(delta, playerPos) {
@@ -191,6 +222,9 @@ export class Enforcer {
       if (this.hitFlashTimer <= 0 && this.model) this._restoreColor();
     }
 
+    this._playerPos = playerPos;
+    this._flinchTimer = Math.max(0, this._flinchTimer - delta);
+
     const toPlayer = new THREE.Vector3(
       playerPos.x - this.position.x,
       0,
@@ -199,7 +233,8 @@ export class Enforcer {
     const distance = toPlayer.length();
     toPlayer.normalize();
 
-    if (!this.isCharging && !this.isAttacking && !this.isRoaring) {
+    if (!this.isCharging && !this.isAttacking && !this.isRoaring &&
+        !this._flinching) {
       this._group.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
     }
 
@@ -207,6 +242,8 @@ export class Enforcer {
       this._updateCharge(delta, distance);
     } else if (this.isAttacking) {
       this._updateAttack(delta, distance);
+    } else if (this._flinching) {
+      // ride out the hit reaction before resuming the chase
     } else {
       this._updateIdleBehavior(delta, toPlayer, distance);
     }
@@ -250,22 +287,74 @@ export class Enforcer {
   }
 
     _startAttack() {
-    console.log('🥊 [Enforcer] startAttack called');
     this.isAttacking = true;
     this.attackTimer = this.ATTACK_COOLDOWN;
-    this._playAction('punch', false);
+    this._combo = this._pickCombo();
+    this._comboIndex = 0;
     this._attackDidHit = false;
-    this._pendingHitCheck = false;
+    this._playComboStrike();
+  }
 
-    // Damage lands at mid-swing (~250ms in), so it visually matches the punch
-    setTimeout(() => {
-      if (this.alive) this._pendingHitCheck = true;
-    }, 250);
+  // Play one strike of the combo, then chain straight into the next one
+  // with no idle in between — only a short recovery after the LAST strike.
+  _playComboStrike() {
+    if (!this.alive) { this.isAttacking = false; return; }
+
+    const key = this._combo[this._comboIndex];
+
+    // Re-face the player at the start of each strike so strafing
+    // mid-combo doesn't leave him whiffing over their shoulder
+    if (this._playerPos) {
+      const dx = this._playerPos.x - this.position.x;
+      const dz = this._playerPos.z - this.position.z;
+      if (dx || dz) this._group.rotation.y = Math.atan2(dx, dz);
+    }
+
+    this._playAction(key, false);
+    const durMs = this._clipMs(key, 700);
 
     setTimeout(() => {
-      this.isAttacking = false;
-      this._playAction('idle');
-    }, 700);
+      if (!this.alive || !this.isAttacking) return;
+      this._comboIndex++;
+      if (this._comboIndex < this._combo.length) {
+        this._attackDidHit = false;   // each strike lands on its own
+        this._playComboStrike();
+      } else {
+        setTimeout(() => {            // brief recovery between combos
+          if (!this.alive) return;
+          this.isAttacking = false;
+          this._playAction('idle');
+        }, this._recoveryMs());
+      }
+    }, durMs);
+  }
+
+  // Curated chains — kicks show up from the opening bell, and bigger
+  // kick-heavy combos unlock as the fight escalates.
+  _pickCombo() {
+    const basic = [
+      ['punch_left', 'punch_right'],
+      ['punch_cross', 'punch_left'],
+      ['punch_elbow', 'punch_right'],
+      ['punch_left', 'kick'],
+    ];
+    const heavy = [
+      ['punch_left', 'punch_right', 'punch_cross'],
+      ['punch_cross', 'punch_elbow'],
+      ['punch_left', 'punch_right', 'kick'],
+      ['punch_elbow', 'punch_left', 'kick'],
+      ['kick', 'punch_cross'],
+    ];
+    const pool = this.phase >= 2 ? basic.concat(heavy) : basic;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  // Recovery between combos shrinks as he loses health — phase 3 barely
+  // pauses before coming back in.
+  _recoveryMs() {
+    if (this.phase >= 3) return 350;
+    if (this.phase === 2) return 600;
+    return 900;
   }
 
   _updateAttack(delta, distance) {
@@ -305,14 +394,17 @@ export class Enforcer {
   _startRoar() {
     this.isRoaring = true;
     this.roarTimer = this.ROAR_COOLDOWN;
-    this._playAction('roar', false);
+    // The old roar clip is gone — the phase special is now a spinning
+    // roundhouse kick, timed to the clip instead of a fixed 1.5 s.
+    const key = this.actions.roundhouse ? 'roundhouse' : null;
+    this._playAction(key, false);
 
     if (this.callbacks.onRoar) this.callbacks.onRoar();
 
     setTimeout(() => {
       this.isRoaring = false;
       this._playAction('idle');
-    }, 1500);
+    }, this._clipMs(key, 1500));
   }
 
   _checkMinionSpawns() {
@@ -334,11 +426,22 @@ export class Enforcer {
     this.hitFlashTimer = 0.15;
     this._flashColor();
 
-    if (this.actions.hit && !this.isCharging) {
-      this._playAction('hit', false);
-      setTimeout(() => {
-        if (this.alive) this._playAction('idle');
-      }, 400);
+    // Poise: he fights THROUGH damage — reactions only land between
+    // combos and never more often than the flinch cooldown, so player
+    // pressure never fully staggers him into passivity.
+    if (!this.isCharging && !this.isAttacking && !this.isRoaring &&
+        !this._flinching && this._flinchTimer <= 0) {
+      const hitKey = this._randomKey(['hit_head', 'hit_stomach']);
+      if (hitKey) {
+        this._playAction(hitKey, false);
+        const recoverMs = Math.max(400, this._clipMs(hitKey, 400) * 0.8);
+        this._flinching = true;
+        this._flinchTimer = recoverMs / 1000 + 0.4;
+        setTimeout(() => {
+          this._flinching = false;
+          if (this.alive) this._playAction('idle');
+        }, recoverMs);
+      }
     }
 
     if (this.health <= 0) {
@@ -378,8 +481,8 @@ export class Enforcer {
 
     _die() {
     this.alive = false;
-    console.log('💀 [Enforcer] _die called. Available actions:', Object.keys(this.actions));
-    console.log('   die action exists?', !!this.actions.die);
+    this.isAttacking = false;
+    this._flinching = false;
     this._playAction('die', false);
 
     setTimeout(() => {
