@@ -3,9 +3,11 @@
 // ============================================================
 import * as THREE from 'three';
 import { StreetLevel } from './levels/lvl1.js';
-// Mystery Levels 2 & 3 (last-seen place, accusation) are not built yet. The
-// legacy fighting-game level modules were dropped when resolving the merge
-// conflict, so only Level 1 is wired up for now.
+import { Level2 } from './levels/Level2.js';
+// Mystery Level 1 is the victim's office; Level 2 is the city street the
+// desk calendar points to. Mystery Level 3 (accusation) is not built yet,
+// and the legacy fighting-game modules were dropped when resolving the
+// merge conflict.
 
 // ---------- renderer ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -97,7 +99,7 @@ addEventListener('mousemove', e => {
 });
 
 // ---------- levels ----------
-const LEVELS = { 1: StreetLevel };
+const LEVELS = { 1: StreetLevel, 2: Level2 };
 let level = null, current = 1, phase = 1;
 const hud = document.getElementById('hud');
 
@@ -285,24 +287,14 @@ function tick() {
 
   // ── Camera ──
   // First-person levels (e.g. the Level 1 crime scene) drive the camera
-  // themselves inside level.update(). Only fall back to the third-person
-  // follow camera when a level has NOT claimed first-person control.
+  // themselves inside level.update(). Every other level falls back to the
+  // first-person eye camera below — the player is a pure camera, there is
+  // no avatar to follow in third person.
   if (!window.__firstPerson) {
-    const CAM_DIST   = 5.5;
-    const CAM_HEIGHT = 2.8;
-    const CAM_LOOK_UP = 1.2;
-    const camOffX = -Math.sin(player.yaw) * CAM_DIST;
-    const camOffZ = -Math.cos(player.yaw) * CAM_DIST;
-    camera.position.set(
-      player.pos.x + camOffX,
-      player.pos.y + CAM_HEIGHT,
-      player.pos.z + camOffZ
-    );
-    if (level && typeof level.getSurfaceHeight === 'function') {
-      const camGround = level.getSurfaceHeight(camera.position.x, camera.position.z) + 0.5;
-      if (camera.position.y < camGround) camera.position.y = camGround;
-    }
-    camera.lookAt(player.pos.x, player.pos.y + CAM_LOOK_UP, player.pos.z);
+    const EYE = player.EYE || 1.7;
+    camera.position.set(player.pos.x, player.pos.y + EYE, player.pos.z);
+    camera.rotation.order = 'YXZ';
+    camera.rotation.set(player.pitch, player.yaw, 0);
   }
 
   // ── Minimap marker (top-down arrow only; never shown in the first-person view) ──

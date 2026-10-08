@@ -1505,11 +1505,31 @@ export class StreetLevel {
       </div>
       <div style="display:flex;flex-direction:column;justify-content:center">${lines}</div>
       <div style="position:absolute;bottom:9%;left:0;right:0">
-        <button id="outro-continue" style="font:inherit;letter-spacing:1px;padding:12px 28px;background:#a1241c;color:#fff;border:0;cursor:pointer;opacity:0;animation:outroFade .7s ${(CASE.outro.length * 1.2).toFixed(2)}s forwards">Continue — evidence to the lab, then into the City &rarr;</button>
+        <button id="outro-continue" style="font:inherit;letter-spacing:1px;padding:12px 28px;background:#a1241c;color:#fff;border:0;cursor:pointer;opacity:0;animation:outroFade .7s ${(CASE.outro.length * 1.2).toFixed(2)}s forwards">Seal the evidence and send it to the lab &rarr;</button>
       </div>`;
     this.ui.outro.style.display = 'flex';
 
     const btn = this.ui.outro.querySelector('#outro-continue');
+    if (btn) btn.addEventListener('click', () => this._showLabScreen());
+  }
+
+  // Second outro stage: the screen cuts to black while the evidence goes to
+  // the lab, then offers the jump to the city (Level 2).
+  _showLabScreen() {
+    this.ui.outro.innerHTML = `
+      <style>@keyframes labFadeIn{from{opacity:0}to{opacity:1}}</style>
+      <div style="position:absolute;inset:0;background:#000;animation:labFadeIn 1.4s forwards"></div>
+      <div style="position:relative;max-width:min(720px,88vw);font-size:15px;letter-spacing:4px;color:#f2b84b;opacity:0;animation:labFadeIn 1.2s 1.6s forwards">
+        FORENSIC LAB — CENTRAL CITY
+      </div>
+      <p style="position:relative;max-width:min(680px,86vw);margin:26px auto 0;font-size:19px;line-height:1.7;color:#d7dde8;opacity:0;animation:labFadeIn 1.4s 2.4s forwards">
+        The evidence has been sent to the lab. The results will be available in a few days.
+      </p>
+      <div style="position:relative;margin-top:48px;opacity:0;animation:labFadeIn 1s 4s forwards">
+        <button id="outro-city" style="font:inherit;letter-spacing:1px;padding:12px 28px;background:#1f6f5c;color:#fff;border:0;cursor:pointer">Go to the City to continue the investigation &rarr;</button>
+      </div>`;
+
+    const btn = this.ui.outro.querySelector('#outro-city');
     if (btn) btn.addEventListener('click', () => {
       if (typeof window.__switchLevel === 'function') window.__switchLevel(CASE.nextLevel);
       else { this.ui.outro.style.display = 'none'; this.outroOpen = false; }
