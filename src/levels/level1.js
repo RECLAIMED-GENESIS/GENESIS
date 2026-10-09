@@ -223,6 +223,7 @@ export class StreetLevel {
     this.waveSpawnPending = 0;
     this.waveIndex = 0;
     this.waveActive = false;
+    this._wavesEnabled = false;   // waves stay dormant until the intro ends
     this._commanderCalled = false;
 
     // ── Spaceship reaction barks — spoken as she passes points on the arrow path ──
@@ -244,7 +245,7 @@ export class StreetLevel {
       {
         count: 3,
         types: ['normal', 'normal', 'fast'],
-        triggerZ: 30,    // fires when Sorini walks past z=30
+        triggerZ: 999,   // fires as soon as the first wave is wiped — no distance gate
         shipPos: new THREE.Vector3(-32, this._h(-32, 45), 45),  // northeast wreck
       },
       {
@@ -364,7 +365,9 @@ export class StreetLevel {
 
 
     setTimeout(() => {
-      if (this.grunts) this._startNextWave();
+      if (!this.grunts) return;
+      this._wavesEnabled = true;
+      this._startNextWave();
     }, 1500);
   }
 
@@ -399,6 +402,7 @@ export class StreetLevel {
 
   _checkWaveStatus() {
     if (!this.grunts) return;
+    if (!this._wavesEnabled) return;   // no wave logic during the intro
     const playerZ = window.__player ? window.__player.pos.z : 999;
 
     // If a wave is in progress, only clear it when all grunts are dead
