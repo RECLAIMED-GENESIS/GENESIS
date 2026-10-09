@@ -206,3 +206,75 @@ export function DissolveMaterial(noiseTex, baseColor = 0x23232e) {
   });
 }
 
+// ---------- DISSOLVE INJECTION (enemy corpse burn-out) ----------
+// DissolveMaterial above is for standalone meshes. Skinned characters
+// need the standard pipeline (skin + textures + lights), so this helper
+// injects the same dissolve math into existing materials via
+// onBeforeCompile instead of replacing them. Every material of one model
+// shares a single uDissolve uniform object — drive that one value and the
+// whole corpse burns away in sync.
+export function createNoiseTexture(size = 128) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  for (let i = 0; i < size * size; i++) {
+    const v = Math.floor(Math.random() * 256);
+    img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v;
+    img.data[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  // Two blur passes turn the white noise into blobby clouds, so the
+  // dissolve eats the model in patches instead of as pixel static.
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.save();
+    ctx.filter = 'blur(2px)';
+    ctx.drawImage(c, 0, 0);
+    ctx.restore();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+let _sharedNoise = null;
+export function sharedDissolveNoise() {
+  if (!_sharedNoise) _sharedNoise = createNoiseTexture(128);
+  return _sharedNoise;
+}
+
+export function applyDissolveToModel(root, noiseTex, edgeColor = 0xffa726) {
+  const uniforms = { uDissolve: { value: 0 } };
+  let touched = 0;
+  root.traverse((o) => {
+    if (!o.isMesh || !o.material) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const mat of mats) {
+      // Sample the noise with the mesh's own map UVs; materials without
+      // a map dissolve as one unit (fine — they're tiny sub-meshes).
+      const uvExpr = mat.map ? 'vMapUv' : 'vec2(0.5, 0.5)';
+      mat.onBeforeCompile = (shader) => {
+        shader.uniforms.uDissolve = uniforms.uDissolve;
+        shader.uniforms.uNoise = { value: noiseTex };
+        shader.uniforms.uEdge = { value: new THREE.Color(edgeColor) };
+        shader.fragmentShader = shader.fragmentShader
+          .replace(
+            '#include <common>',
+            '#include <common>\nuniform float uDissolve;\nuniform sampler2D uNoise;\nuniform vec3 uEdge;'
+          )
+          .replace(
+            '#include <dithering_fragment>',
+            `float dN = texture2D(uNoise, ${uvExpr}).r;
+             if (dN < uDissolve) discard;
+             float dEdge = 1.0 - smoothstep(uDissolve, uDissolve + 0.08, dN);
+             gl_FragColor.rgb += uEdge * dEdge * 1.5;
+             #include <dithering_fragment>`
+          );
+      };
+      mat.needsUpdate = true;
+      touched++;
+    }
+  });
+  return touched ? uniforms : null;
+}
+

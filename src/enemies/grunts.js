@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { clone as skeletonClone } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { applyDissolveToModel, sharedDissolveNoise } from '../shaders/shaders.js';
 
 // ── Root motion stripper ──
 // Removes horizontal drift from Hips track so animations play in place
@@ -231,6 +232,16 @@ export class Grunt {
 
   update(delta, playerPos, onDamagePlayer) {
     this.mixer?.update(delta);
+
+    // Dissolving corpse — drive the shared uniform to 1, then drop it.
+    if (this._dissolve) {
+      this._dissolve.t += delta;
+      const k = Math.min(this._dissolve.t / 0.9, 1);
+      this._dissolve.uniforms.uDissolve.value = k;
+      if (k >= 1) this.dispose();
+      return;
+    }
+
     if (!this.alive) return;
 
     if (this.hitFlashTimer > 0) {
@@ -407,7 +418,19 @@ export class Grunt {
     this.alive = false;
     this.state = 'die';
     this._playAction('die', false);
-    setTimeout(() => this.dispose(), 1500);
+    // Let the dying animation land first, then burn the corpse away
+    // with the shared dissolve pass instead of popping out of existence.
+    setTimeout(() => {
+      if (!this._group.parent) return;   // already gone (level teardown)
+      this._beginDissolve();
+    }, 1500);
+  }
+
+  _beginDissolve() {
+    if (!this.model) { this.dispose(); return; }
+    const uniforms = applyDissolveToModel(this.model, sharedDissolveNoise());
+    if (!uniforms) { this.dispose(); return; }
+    this._dissolve = { uniforms, t: 0 };
   }
 
   dispose() {

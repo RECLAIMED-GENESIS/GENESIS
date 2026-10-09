@@ -11,6 +11,7 @@ import { Architect } from '../player/architect.js';   // ← add this line
 import { STATE } from '../player/streetEnemies.js';
 import { BossHealthBar } from '../ui/BossHealthBar.js';
 import { worldColliders } from '../physics/CollisionSystem.js';
+import { NebulaSkyMaterial, GodRayMaterial } from '../shaders/shaders.js';
 
 export class ArchitectLevel {
 
@@ -48,6 +49,7 @@ export class ArchitectLevel {
     this.moonSurface = null;
     this.sun = null;
     this.sunGlow = null;
+    this.timeMats = [];      // custom-shader materials driven by update()
 
     // Dungeon tracking
     this.guardians = [];
@@ -68,6 +70,7 @@ export class ArchitectLevel {
     this.createLighting();
     this.createMoonSurface();
     this.createStars();
+    this.createNebulaSky();
     this.createEarth();
     this.createSpaceship();      // keep the landing ship as the arrival point
     this.createFlag();
@@ -80,6 +83,7 @@ export class ArchitectLevel {
     this.createMonument();
     this.createPlazaStatues();
     this.createMonumentInterior();
+    this.createGodRays();
     this.createGuardianSpawns();
     this.createArchitect();
 
@@ -249,8 +253,52 @@ export class ArchitectLevel {
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const mat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.2, sizeAttenuation: false });
     this.stars = new THREE.Points(geo, mat);
-    this.sky = this.stars;
     this.level.add(this.stars);
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // NEBULA SKY — deep-space dome behind the starfield, from the
+  // team shader library. The same living sky as Level 1, tuned
+  // way down so the 1400 stars still carry the moon's night.
+  // Drawn first and never depth-tested, so the stars, Earth,
+  // fleet and monument all layer cleanly over it.
+  // ─────────────────────────────────────────────────────────
+  createNebulaSky() {
+    this.nebulaMat = NebulaSkyMaterial({
+      cA: 0x020107, cB: 0x150b30, cC: 0x0a2438,
+    });
+    this.nebulaMat.depthTest = false;
+    this.timeMats.push(this.nebulaMat);
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(690, 32, 24), this.nebulaMat);
+    this.sky.renderOrder = -2;
+    this.level.add(this.sky);
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // GOD RAYS — volumetric-style light shafts over the throne and
+  // the entrance, from the team shader library (GodRayMaterial).
+  // Additive and depth-write-free: they read as light without
+  // hiding the hall behind them.
+  // ─────────────────────────────────────────────────────────
+  createGodRays() {
+    const floorY = this._F.floor;
+    this.godRayMat = GodRayMaterial();
+    this.timeMats.push(this.godRayMat);
+    this.godRays = [];
+
+    const shaft = (x, z, topR, botR, height, lift) => {
+      const cone = new THREE.Mesh(
+        new THREE.CylinderGeometry(topR, botR, height, 24, 1, true),
+        this.godRayMat
+      );
+      cone.position.set(x, floorY + lift + height / 2, z);
+      this.level.add(cone);
+      this.godRays.push(cone);
+    };
+
+    shaft(0, -113, 1.0, 6.0, 56, 10);   // throne — bathes the Architect
+    shaft(-14, -20, 1.2, 7.0, 60, 6);   // entrance flanks
+    shaft(14, -20, 1.2, 7.0, 60, 6);
   }
 
   // ─────────────────────────────────────────────────────────
@@ -1622,6 +1670,9 @@ export class ArchitectLevel {
   update(dt, t, player) {
     this._time = (this._time || 0) + dt;
 
+    // Custom-shader uniforms (nebula sky, god rays) — same pattern as L1
+    for (const m of this.timeMats) m.uniforms.uTime.value = this._time;
+
     // Earth rotation
     if (this.earth) this.earth.rotation.y += dt * 0.015;
 
@@ -1885,6 +1936,8 @@ export class ArchitectLevel {
       this.architect = null;
     }
     this.fleetShips = null;
+    this.timeMats = [];
+    this.godRays = null;
     this.colliders = [];
   }
 }

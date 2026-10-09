@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { attachChestArtifact } from '../player/chestArtifact.js';
+import { NebulaSkyMaterial } from '../shaders/shaders.js';
 
 // ── Throne dimensions — MIRRORS architect.js (Level 3) ──
 // The Dreyar rig ships with a RECLINED sit pose, so the throne is
@@ -75,6 +76,18 @@ export class MenuScene {
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     this.scene.add(ground);
+
+    // ── Nebula sky dome — the same living sky as the levels, so the ──
+    // menu matches the game's cosmos instead of floating in void.
+    // Drawn first, never depth-tested; fog can't touch it (fog:false).
+    this.nebulaMat = NebulaSkyMaterial();
+    this.nebulaMat.depthTest = false;
+    this.nebulaDome = new THREE.Mesh(
+      new THREE.SphereGeometry(150, 32, 24),
+      this.nebulaMat
+    );
+    this.nebulaDome.renderOrder = -2;
+    this.scene.add(this.nebulaDome);
 
     // ── Load both characters ──
     this._loadSorini();
@@ -305,6 +318,7 @@ export class MenuScene {
       requestAnimationFrame(animate);
       this._frames = (this._frames || 0) + 1;   // live-loop diagnostics
       this._time += 0.016;
+      if (this.nebulaMat) this.nebulaMat.uniforms.uTime.value = this._time;
       if (this.mixer) this.mixer.update(0.016);
       if (this.architectMixer) this.architectMixer.update(0.016);
 
@@ -348,6 +362,14 @@ export class MenuScene {
         }
       });
     });
+
+    if (this.nebulaDome) {
+      this.scene.remove(this.nebulaDome);
+      this.nebulaDome.geometry.dispose();
+      this.nebulaMat.dispose();
+      this.nebulaDome = null;
+      this.nebulaMat = null;
+    }
 
     if (this.mixer) this.mixer.stopAllAction();
     if (this.architectMixer) this.architectMixer.stopAllAction();

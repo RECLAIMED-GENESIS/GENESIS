@@ -7,6 +7,7 @@ import { Commander } from '../enemies/commander.js';
 import { GruntManager } from '../enemies/grunts.js';
 import { BossHealthBar } from '../ui/BossHealthBar.js';
 import { MinionHealthBar } from '../ui/MinionHealthBar.js';
+import { moonVertexShader, moonFragmentShader } from '../shaders/moon.js';
 
 // ---------- noise ----------
 function hash2(x, y) {
@@ -166,6 +167,7 @@ export class StreetLevel {
     this.spawnYaw = Math.PI;
 
     this.createSky();
+    this.createMoon();
     this.createLighting();
     this.createTerrain();
     this.createPath();
@@ -729,6 +731,24 @@ export class StreetLevel {
     this.timeMats.push(this.skyMat);
     this.sky = new THREE.Mesh(new THREE.SphereGeometry(600, 32, 24), this.skyMat);
     this.scene.add(this.sky);
+  }
+
+  // =========================================================
+  // MOON — the team's procedural cratered-moon shader (see
+  // shaders/moon.js), hung in the night sky. Fully analytic in the
+  // fragment stage: value-noise terrain, maria, 110+ craters with
+  // bowl/rim profiles and derivative-based normal shading. Raw
+  // ShaderMaterial, so scene fog never touches it.
+  // =========================================================
+  createMoon() {
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: moonVertexShader,
+      fragmentShader: moonFragmentShader,
+      fog: false,
+    });
+    this.moon = new THREE.Mesh(new THREE.SphereGeometry(16, 48, 32), mat);
+    this.moon.position.set(-170, 210, -420);
+    this.scene.add(this.moon);
   }
 
   createLighting() {
@@ -1810,6 +1830,7 @@ export class StreetLevel {
 
     if (this.level && this.level.parent) this.level.parent.remove(this.level);
     if (this.sky && this.sky.parent) this.sky.parent.remove(this.sky);
+    if (this.moon && this.moon.parent) this.moon.parent.remove(this.moon);
     if (this.fireflies && this.fireflies.parent) this.fireflies.parent.remove(this.fireflies);
 
     if (this.level) {
@@ -1831,7 +1852,11 @@ export class StreetLevel {
         this.sky.material.dispose();
       }
     }
-    this.sky = null; this.fireflies = null; this.petals = null;
+    if (this.moon) {
+      if (this.moon.geometry) this.moon.geometry.dispose();
+      if (this.moon.material) this.moon.material.dispose();
+    }
+    this.sky = null; this.moon = null; this.fireflies = null; this.petals = null;
     this.timeMats = []; this.lanternMats = []; this.petalData = [];
     this.colliders = [];
   }
