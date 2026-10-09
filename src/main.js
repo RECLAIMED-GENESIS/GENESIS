@@ -900,26 +900,20 @@ function tick() {
     hasWaves     // levels 2 & 3 have no waves — hide the counter
   );
 
+  // ── Cinematic camera takes over during dialogue ──
+  // applyTo() drives both position and orientation, so nothing after
+  // this block may touch the camera while a sequence is playing — an
+  // unconditional gameplay lookAt() here used to re-aim every cinematic
+  // shot back at the player, silently overriding each shot's designed
+  // look target.
   const CAM_DIST   = 5.5;
   const CAM_HEIGHT = 2.8;
   const CAM_LOOK_UP = 1.2;
-   const camOffX = -Math.sin(player.cameraYaw) * CAM_DIST;
-  const camOffZ = -Math.cos(player.cameraYaw) * CAM_DIST;
-  camera.position.set(
-    player.pos.x + camOffX,
-    player.pos.y + CAM_HEIGHT,
-    player.pos.z + camOffZ
-  );
-
-    // ── Cinematic camera takes over during dialogue ──
   if (cinematicCamera.active) {
     cinematicCamera.update(dt);
     cinematicCamera.applyTo(camera);
   } else {
     // Normal third-person camera
-    const CAM_DIST   = 5.5;
-    const CAM_HEIGHT = 2.8;
-    const CAM_LOOK_UP = 1.2;
     const camOffX = -Math.sin(player.cameraYaw) * CAM_DIST;
     const camOffZ = -Math.cos(player.cameraYaw) * CAM_DIST;
     camera.position.set(
@@ -933,14 +927,6 @@ function tick() {
     }
     camera.lookAt(player.pos.x, player.pos.y + CAM_LOOK_UP, player.pos.z);
   }
-
-  soriniGroup.position.set(player.pos.x, player.pos.y, player.pos.z);
-  soriniGroup.rotation.y = player.yaw;
-  if (level && typeof level.getSurfaceHeight === 'function') {
-    const camGround = level.getSurfaceHeight(camera.position.x, camera.position.z) + 0.5;
-    if (camera.position.y < camGround) camera.position.y = camGround;
-  }
-  camera.lookAt(player.pos.x, player.pos.y + CAM_LOOK_UP, player.pos.z);
 
   soriniGroup.position.set(player.pos.x, player.pos.y, player.pos.z);
   soriniGroup.rotation.y = player.yaw;
