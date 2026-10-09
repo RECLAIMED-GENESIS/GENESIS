@@ -31,7 +31,7 @@ export class AlienLevel {
         // Contract expected by main.js — must exist before physics runs
         this.name = 'LEVEL 2 — NEON STREET';
         this.colliders = [];
-        this.spawn = new THREE.Vector3(0, 0.1, -120);
+        this.spawn = new THREE.Vector3(0, 0.1, -105);
         this.spawnYaw = 0;   // face down the street (toward +z, where the enemies are)
         this.root = null; // will alias to this.level after creation
                 // ── Arrival sequence state ──
@@ -759,8 +759,9 @@ this._buildHazardTiles();
     const TILE_SIZE = 3.5;
     const HAZARD_HEIGHT = 0.15;
 
-    // Positions along the street (spread between spawn and Enforcer)
-    // Spawn is at z=-120, Enforcer at z=-60, portal at z=+30
+    // Positions along the street (spread between spawn and the far portal)
+    // Spawn is at z=-105, the Enforcer and her minions come from the far
+    // end of the street, the exit portal sits at z=+116.
     const positions = [
       { x: -3, z: -100 },
       { x:  3, z: -90  },
