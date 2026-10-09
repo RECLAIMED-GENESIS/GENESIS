@@ -514,6 +514,28 @@ this._buildHazardTiles();
         if (typeof this.getSurfaceHeight === 'function') {
             this.spawn.y = this.getSurfaceHeight(this.spawn.x, this.spawn.z) + 0.1;
         }
+
+        // ── Pre-loaded Enforcer ──
+        // She is already on the street the moment the level loads: she
+        // stands by the far-end portal and walks toward Sorini while the
+        // intro dialogue plays. Combat only begins when triggerCombat()
+        // calls activate() at the end of the dialogue.
+        const enforcerZ = 112;   // just in front of the far-end portal (z = 116)
+        const enforcerY = (typeof this.getSurfaceHeight === 'function')
+            ? this.getSurfaceHeight(0, enforcerZ)
+            : 0.5;
+        this.enforcer = new Enforcer(this.level, new THREE.Vector3(0, enforcerY, enforcerZ), {
+            onDamagePlayer: (dmg) => {
+                if (this.onDamagePlayer) this.onDamagePlayer(dmg);
+            },
+            onMinionSpawn: (count) => {
+                // Minions are unleashed from the dialogue, not from
+                // damage thresholds — kept empty on purpose.
+            },
+            onDeath: () => {
+                if (this._onEnforcerDeath) this._onEnforcerDeath();
+            }
+        });
     }
 
         // =========================================================
@@ -635,26 +657,11 @@ this._buildHazardTiles();
         if (this._introCommanderSpawned) return;
         this._introCommanderSpawned = true;
 
-        const ex = this.spawn.x;
-        const ez = this.spawn.z + 60;
-        const ey = (typeof this.getSurfaceHeight === 'function')
-            ? this.getSurfaceHeight(ex, ez)
-            : 0.5;
-
-        const enforcerPos = new THREE.Vector3(ex, ey, ez);
-
-        // Spawn the real Enforcer with our Enemy class
-        this.enforcer = new Enforcer(this.level, enforcerPos, {
-            onDamagePlayer: (dmg) => {
-                if (this.onDamagePlayer) this.onDamagePlayer(dmg);
-            },
-            onMinionSpawn: (count) => {
-                // Minions will be added in the next step
-            },
-            onDeath: () => {
-                if (this._onEnforcerDeath) this._onEnforcerDeath();
-            }
-        });
+        // The Enforcer is already on the street — she pre-loads at the
+        // far end when the level starts (see the constructor) and walks
+        // toward Sorini during the intro dialogue. The end of the
+        // dialogue only wakes her combat AI here.
+        if (this.enforcer) this.enforcer.activate();
 
                 // Boss HP bar
         this.bossHealthBar = new BossHealthBar();

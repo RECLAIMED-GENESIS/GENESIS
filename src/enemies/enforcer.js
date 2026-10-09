@@ -77,6 +77,11 @@ export class Enforcer {
 
     // State
     this.alive = true;
+    // Pre-combat: until activate() is called the Enforcer only stalks
+    // toward the player — no attacks, charges, roars or minion summons.
+    this.activated = false;
+    this.APPROACH_SPEED = 3.0;
+    this.APPROACH_STOP = 4.0;
     this.phase = 1;
     this.attackTimer = 0;
     this.chargeTimer = 4.0;
@@ -238,6 +243,14 @@ export class Enforcer {
       this._group.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
     }
 
+    // Pre-combat — while the intro dialogue plays she only walks toward
+    // the player. Combat AI stays asleep until activate() is called.
+    if (!this.activated) {
+      this._updateApproach(delta, toPlayer, distance);
+      this._group.position.set(this.position.x, this.position.y, this.position.z);
+      return;
+    }
+
     if (this.isCharging) {
       this._updateCharge(delta, distance);
     } else if (this.isAttacking) {
@@ -286,6 +299,24 @@ export class Enforcer {
     }
   }
 
+    // Called when the intro dialogue ends — switches the Enforcer from her
+    // pre-combat stalk into the full combat AI.
+    activate() {
+      this.activated = true;
+    }
+    
+    // Pre-combat stalk: slow, menacing walk toward the player, stopping at
+    // a conversational distance. No attacks, charges, roars or minions.
+    _updateApproach(delta, toPlayer, distance) {
+      if (distance > this.APPROACH_STOP) {
+        this.position.x += toPlayer.x * this.APPROACH_SPEED * delta;
+        this.position.z += toPlayer.z * this.APPROACH_SPEED * delta;
+        this._playAction('walk');
+      } else {
+        this._playAction('idle');
+      }
+    }
+    
     _startAttack() {
     this.isAttacking = true;
     this.attackTimer = this.ATTACK_COOLDOWN;
