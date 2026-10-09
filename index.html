@@ -2,25 +2,34 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>GENESIS — The Device | Level Maps</title>
+<title>GENESIS</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #000;
                font-family: 'Courier New', monospace; }
   #hud {
-    position: fixed; top: 14px; left: 14px; color: #d8f4ff;
+    position: fixed; left: 14px; bottom: 14px; color: #d8f4ff;
     text-shadow: 0 0 6px #0af; font-size: 13px; line-height: 1.7;
-    pointer-events: none; user-select: none;
+    pointer-events: none; user-select: none; display: none;
   }
   #hud b { color: #7ef3ff; letter-spacing: 2px; }
   #msg {
     position: fixed; bottom: 40px; width: 100%; text-align: center;
     color: #ffffff; font-size: 15px; letter-spacing: 3px;
     text-shadow: 0 0 8px #0af; pointer-events: none; user-select: none;
+    display: none;
   }
+  #pauseBtn {
+    position: fixed; right: 14px; bottom: 14px; z-index: 20002;
+    width: 46px; height: 46px; border-radius: 8px;
+    background: rgba(10,14,20,.75); border: 1px solid #3c4656;
+    color: #f2d9a0; font-size: 19px; cursor: pointer; display: none;
+    font-family: 'Courier New', monospace;
+  }
+  #pauseBtn:hover { border-color: #f2b84b; color: #f2b84b; }
   #cross {
     position: fixed; top: 50%; left: 50%; width: 4px; height: 4px;
     margin: -2px 0 0 -2px; border-radius: 50%;
-    background: rgba(255,255,255,.8); pointer-events: none;
+    background: rgba(255,255,255,.8); pointer-events: none; display: none;
   }
 </style>
 <script type="importmap">
@@ -30,8 +39,9 @@
 </head>
 <body>
 <div id="hud"></div>
-<div id="msg">CLICK TO ENTER — WASD move · SPACE jump · SHIFT sprint · Mouse look</div>
+<div id="msg">CLICK TO PLAY — WASD move · E examine · F torch · C file</div>
 <div id="cross"></div>
+<button id="pauseBtn" title="Pause (P)">❚❚</button>
 <script type="module" src="src/main.js"></script>
 </body>
 </html>

@@ -8,9 +8,10 @@
 // case file open to re-read it (C), collect three city clues, then
 // compile the suspect list — the wrong three lose the level.
 //
-// This module wraps the legacy Level2.js street scene (it adds no
-// buildings) and drives the first-person camera itself, exactly
-// like Level 1 does. The player is a pure camera: no body.
+// This module wraps the legacy Level2.js street scene (adding street props:
+// passing traffic, lit street lamps, a café terrace with its shop sign,
+// and seats for some witnesses) and drives
+// the first-person camera itself, exactly like Level 1 does. The player is a pure camera: no body.
 //
 // Difficulty above Level 1:
 //   * shorter examine reach (3.0 vs 3.6), no permanent glow markers
@@ -45,6 +46,7 @@ const NPCS = [
   {
     id: 'sipho', name: 'Sipho Ndlovu', role: 'Night watchman',
     spot: new THREE.Vector3(-42.2, 0, -15.5),          // behind the glass dome
+    sitting: true, sitFace: Math.PI / 2,               // on a crate, facing the plaza
     hair: 0x14110f, long: false, bandage: false,
     coat: 0x2e3a2a, pants: 0x1c1e22, skin: 0x7a5641,
     where: '"From ten to midnight I walk the east side. After twelve I sit behind this dome where the wind cannot reach me. I heard nothing. I always hear nothing." — yet he is the only one who was under the dome the whole night.',
@@ -61,7 +63,8 @@ const NPCS = [
   },
   {
     id: 'anale', name: 'Anele Mahlangu', role: 'Department administrator',
-    spot: new THREE.Vector3(6.8, 0, 6),                // beside the water
+    spot: new THREE.Vector3(6.8, 0, 6),                // public bench by the water
+    sitting: true, sitFace: Math.PI / 2,               // on the bench, facing the water
     hair: 0x4a2c17, long: true, bandage: false,
     coat: 0x53324a, pants: 0x23242a, skin: 0x8a6248,
     where: '"Quarter past nine I was already down at the water. I sell fish on the quay now, I have a licence. The trader beside me can vouch for me — my hands have not touched university paper since half past seven that evening."',
@@ -78,7 +81,8 @@ const NPCS = [
   },
   {
     id: 'naledi', name: 'Prof. Naledi Dube', role: 'Head of Department',
-    spot: new THREE.Vector3(-7.4, 0, 26),              // beside the road, under the spire bridge
+    spot: new THREE.Vector3(-11.5, 0, 24.2),           // café terrace, west of the road
+    sitting: true, sitFace: Math.PI / 2,               // at a table, facing the road
     hair: 0x14110f, long: false, bandage: false,
     coat: 0x30425c, pants: 0x20242c, skin: 0x6f4d3a,
     where: '"Marks board ran late in the faculty until ten. Then I walked to the taxi rank along this road. Alone. There is no receipt for that; there is no CCTV on this street."',
@@ -100,7 +104,9 @@ const NPCS = [
   },
   {
     id: 'kyle', name: 'Kyle Pretorius', role: 'PhD student & tutor',
-    spot: 'random', hair: 0x4a2c17, long: true, bandage: true,
+    spot: new THREE.Vector3(6.85, 0, -2.0),            // at the quay railing, watching the ships
+    leaning: true, face: Math.PI / 2,                 // hands resting on the rail, facing the water
+    hair: 0x4a2c17, long: true, bandage: true,
     coat: 0x414b3c, pants: 0x22232a, skin: 0x8a6248,
     where: '"Home. Asleep by eleven — I have an eight o\'clock tutorial." He says it too fast, and he has clearly rehearsed it. Nobody in this city is asleep by eleven.',
     relate: '"Thabo was my supervisor. He was going to ruin me — I mean — he WAS a good man. He was going to ruin—"',
@@ -165,7 +171,7 @@ const CITY_CLUES = {
   },
 };
 
-// two of the five witnesses move between these each run (no new buildings)
+// the roaming witness moves between these each run (no new buildings)
 const SPOTS = [
   new THREE.Vector3(-9.5, 0, -6),
   new THREE.Vector3(-8.6, 0, -34),
@@ -216,7 +222,7 @@ export class CityLevel {
     this._o = new THREE.Vector3(); this._d = new THREE.Vector3(0, 0, -1);
     this._rc = new THREE.Raycaster(); this._rc.far = REACH;
 
-    // ---- random placements for the two roaming witnesses ----
+    // ---- random placements for the roaming witness ----
     // Clone the definitions per instance: questioning state, hit boxes and
     // groups attach to the clones, so losing and restarting Level 2 wipes
     // everything clean instead of resuming with five already-heard witnesses.
@@ -227,7 +233,12 @@ export class CityLevel {
     for (const def of this.npcs) def.pos = (def.spot === 'random') ? SPOTS[pick[p++]].clone() : def.spot.clone();
 
     this._buildUvLight();
+    this._buildCityLights();
+    this._buildTerrace();
+    this._buildWaterfront();
+    this._buildStreetLamps();
     this._buildNpcs();
+    this._buildTraffic();
     this._buildClues();
     this._buildUI();
 
@@ -259,31 +270,78 @@ export class CityLevel {
       const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, 10), mat);
       m.position.set(x, y, z); g.add(m); return m;
     };
-    // legs, torso, arms
-    cyl(0.07, 0.06, 0.85, pants, -0.1, 0.45, 0);
-    cyl(0.07, 0.06, 0.85, pants, 0.1, 0.45, 0);
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.62, 0.24), coat);
-    torso.position.set(0, 1.16, 0); g.add(torso);
-    cyl(0.05, 0.045, 0.6, coat, -0.25, 1.12, 0);
-    cyl(0.05, 0.045, 0.6, coat, 0.25, 1.12, 0);
-    const lh = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), skin);
-    lh.position.set(-0.25, 0.8, 0); g.add(lh);
-    const rh = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), skin);
-    rh.position.set(0.25, 0.8, 0); g.add(rh);
-    // head + hair
-    cyl(0.05, 0.06, 0.1, skin, 0, 1.52, 0);
+    const headY = def.sitting ? 1.33 : (def.leaning ? 1.62 : 1.66);
+    const headZ = def.leaning ? 0.12 : 0;
+    if (def.sitting) {
+      // ---- seated: thighs forward onto the seat, shins down, hands on knees ----
+      const thighG = new THREE.BoxGeometry(0.13, 0.13, 0.44);
+      for (const sx of [-0.1, 0.1]) {
+        const th = new THREE.Mesh(thighG, pants);
+        th.position.set(sx, 0.48, 0.2); g.add(th);
+        cyl(0.055, 0.05, 0.44, pants, sx, 0.24, 0.4);   // shins
+        const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.07, 0.24), coat);
+        shoe.position.set(sx, 0.035, 0.44); g.add(shoe);
+      }
+      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.62, 0.24), coat);
+      torso.position.set(0, 0.84, 0); g.add(torso);
+      for (const sx of [-0.225, 0.225]) {               // arms leaning to the knees
+        const a = cyl(0.05, 0.045, 0.6, coat, sx, 0.8, 0.16);
+        a.rotation.x = -0.56;
+        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), skin);
+        hand.position.set(sx > 0 ? 0.2 : -0.2, 0.55, 0.33); g.add(hand);
+      }
+      cyl(0.05, 0.06, 0.1, skin, 0, 1.2, 0);            // neck
+    } else {
+      // ---- standing: legs always straight ----
+      cyl(0.07, 0.06, 0.85, pants, -0.1, 0.45, 0);
+      cyl(0.07, 0.06, 0.85, pants, 0.1, 0.45, 0);
+      if (def.leaning) {
+        // ---- leaning on a rail: chest tipped forward, arms out, hands on the bar ----
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.62, 0.24), coat);
+        torso.position.set(0, 1.14, 0.05); torso.rotation.x = 0.15; g.add(torso);
+        // one continuous limb per side: shoulder joint -> hand on the rail,
+        // hands resting side by side (nearly touching) on the bar
+        for (const sx of [-0.22, 0.22]) {
+          const S = new THREE.Vector3(sx, 1.35, 0.05);
+          const H = new THREE.Vector3(Math.sign(sx) * 0.06, 1.0, 0.52);
+          const d = H.clone().sub(S);
+          const a = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.045, d.length(), 10), coat);
+          a.position.copy(S).addScaledVector(d, 0.5);
+          a.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+          g.add(a);
+          const hand = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), skin);
+          hand.position.copy(H); g.add(hand);
+        }
+        cyl(0.05, 0.06, 0.1, skin, 0, 1.48, 0.08);      // neck
+      } else {
+        // ---- standing straight: torso, arms ----
+        const torso = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.62, 0.24), coat);
+        torso.position.set(0, 1.16, 0); g.add(torso);
+        cyl(0.05, 0.045, 0.6, coat, -0.25, 1.12, 0);
+        cyl(0.05, 0.045, 0.6, coat, 0.25, 1.12, 0);
+        const lh = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), skin);
+        lh.position.set(-0.25, 0.8, 0); g.add(lh);
+        const rh = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), skin);
+        rh.position.set(0.25, 0.8, 0); g.add(rh);
+        cyl(0.05, 0.06, 0.1, skin, 0, 1.52, 0);         // neck
+      }
+    }
+    // head + hair (lowered when seated, tipped forward when leaning)
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 12), skin);
-    head.position.set(0, 1.66, 0); g.add(head);
+    head.position.set(0, headY, headZ); g.add(head);
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.126, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), hair);
-    cap.position.set(0, 1.675, -0.008); cap.scale.set(1, 1.05, 1.06); g.add(cap);
+    cap.position.set(0, headY + 0.015, headZ - 0.008); cap.scale.set(1, 1.05, 1.06); g.add(cap);
     if (def.long) {   // a panel of long hair down the back
       const back = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.34, 0.06), hair);
-      back.position.set(0, 1.5, -0.115); g.add(back);
+      back.position.set(0, headY - 0.16, headZ - 0.115); g.add(back);
     }
     if (def.bandage) {  // the fresh wound, wrapped
       const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.07, 10),
         new THREE.MeshStandardMaterial({ color: 0xe9e4d8, roughness: 1 }));
-      wrap.position.set(0.25, 0.8, 0.01); g.add(wrap);
+      if (def.sitting) wrap.position.set(0.2, 0.55, 0.33);
+      else if (def.leaning) wrap.position.set(0.25, 1.0, 0.52);
+      else wrap.position.set(0.25, 0.8, 0.01);
+      g.add(wrap);
     }
     g.position.copy(def.pos);
     return g;
@@ -292,11 +350,14 @@ export class CityLevel {
   _buildNpcs() {
     for (const def of this.npcs) {
       const g = this._person(def);
-      g.rotation.y = Math.PI;       // face along the road initially
+      g.rotation.y = (typeof def.face === 'number') ? def.face
+        : (typeof def.sitFace === 'number') ? def.sitFace : Math.PI;
       this.city.add(g);
-      const hit = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.8, 0.7),
+      const hitH = def.sitting ? 1.5 : 1.8;
+      const hitY = def.sitting ? 0.72 : 0.9;
+      const hit = new THREE.Mesh(new THREE.BoxGeometry(0.8, hitH, 0.8),
         new THREE.MeshBasicMaterial());
-      hit.position.set(def.pos.x, 0.9, def.pos.z);
+      hit.position.set(def.pos.x, hitY, def.pos.z);
       hit.visible = false; hit.userData.noShadow = true;
       hit.userData.npc = def;
       this.city.add(hit);
@@ -304,6 +365,342 @@ export class CityLevel {
       def.questioned = false; def.asked = {}; def._phase = Math.random() * 6.28;
       this.npcObjs.push(def);
     }
+  }
+
+  // =========================================================
+  // CAFÉ TERRACE — tables + chairs outside, seats for witnesses
+  // (west sidewalk, clear of the traffic lanes)
+  // =========================================================
+  _buildTerrace() {
+    const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.9 });
+    const woodDark = new THREE.MeshStandardMaterial({ color: 0x3d2c1c, roughness: 0.9 });
+    const iron = new THREE.MeshStandardMaterial({ color: 0x22262c, roughness: 0.5, metalness: 0.6 });
+    const cupMat = new THREE.MeshStandardMaterial({ color: 0xd9d4c4, roughness: 0.7 });
+
+    // chair faces local +Z (backrest on the local -Z side)
+    const makeChair = (x, z, rotY) => {
+      const ch = new THREE.Group();
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.06, 0.45), wood);
+      seat.position.y = 0.45; ch.add(seat);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.55, 0.06), wood);
+      back.position.set(0, 0.75, -0.2); ch.add(back);
+      const legG = new THREE.CylinderGeometry(0.025, 0.025, 0.45, 8);
+      for (const [lx, lz] of [[-0.19, -0.19], [0.19, -0.19], [-0.19, 0.19], [0.19, 0.19]]) {
+        const leg = new THREE.Mesh(legG, woodDark);
+        leg.position.set(lx, 0.225, lz); ch.add(leg);
+      }
+      ch.position.set(x, 0, z); ch.rotation.y = rotY;
+      this.city.add(ch);
+      return ch;
+    };
+
+    const makeTable = (x, z) => {
+      const t = new THREE.Group();
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 18), wood);
+      top.position.y = 0.72; t.add(top);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.68, 10), iron);
+      leg.position.y = 0.37; t.add(leg);
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.3, 0.05, 14), iron);
+      base.position.y = 0.03; t.add(base);
+      // cups left on the table
+      const cupG = new THREE.CylinderGeometry(0.035, 0.03, 0.09, 10);
+      for (const [cx, cz] of [[0.2, 0.1], [-0.15, -0.2]]) {
+        const cup = new THREE.Mesh(cupG, cupMat);
+        cup.position.set(cx, 0.79, cz); t.add(cup);
+      }
+      t.position.set(x, 0, z);
+      this.city.add(t);
+      this.colliders.push(new THREE.Box3(
+        new THREE.Vector3(x - 0.55, 0, z - 0.55),
+        new THREE.Vector3(x + 0.55, 0.8, z + 0.55)));
+      return t;
+    };
+
+    // Table A: Naledi sits west of it, facing the table and the road (+X)
+    const nal = this.npcs.find((n) => n.id === 'naledi');
+    makeTable(-10.6, 24.2);
+    makeChair(nal.pos.x, nal.pos.z, Math.PI / 2);   // Naledi's own chair
+    makeChair(-9.7, 24.2, -Math.PI / 2);            // empty guest chair
+    // Table B: two empty chairs
+    makeTable(-11.0, 28.8);
+    makeChair(-11.9, 28.8, Math.PI / 2);
+    makeChair(-10.1, 28.8, -Math.PI / 2);
+
+    // crate the watchman sits on (Anele has a public bench by the water)
+    const crateMat = new THREE.MeshStandardMaterial({ color: 0x5a4630, roughness: 1 });
+    for (const id of ['sipho']) {
+      const def = this.npcs.find((n) => n.id === id);
+      if (!def) continue;
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 0.5), crateMat);
+      crate.position.set(def.pos.x, 0.225, def.pos.z);
+      this.city.add(crate);
+    }
+
+    // chalk menu board facing the road and the incoming player
+    const boardTex = canvasTex(256, 192, (g2, w, h) => {
+      g2.fillStyle = '#14181e'; g2.fillRect(0, 0, w, h);
+      g2.strokeStyle = '#e8dcc0'; g2.lineWidth = 6; g2.strokeRect(8, 8, w - 16, h - 16);
+      g2.fillStyle = '#f2d9a0'; g2.textAlign = 'center';
+      g2.font = 'bold 44px "Courier New", monospace';
+      g2.fillText('CAFÉ', w / 2, 62);
+      g2.font = '24px "Courier New", monospace'; g2.fillStyle = '#d7dde8';
+      g2.fillText('FISH · CHIPS', w / 2, 108);
+      g2.fillText('COFFEE', w / 2, 142);
+    });
+    const board = new THREE.Group();
+    for (const sx of [-0.35, 0.35]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.0, 0.06), woodDark);
+      leg.position.set(sx, 0.5, 0); board.add(leg);
+    }
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.7, 0.05),
+      new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.9 }));
+    panel.position.y = 1.05; panel.rotation.x = -0.08; board.add(panel);
+    board.position.set(-9.3, 0, 21.0); board.rotation.y = Math.PI / 4;
+    this.city.add(board);
+    this.colliders.push(new THREE.Box3(
+      new THREE.Vector3(-9.8, 0, 20.5), new THREE.Vector3(-8.8, 1.4, 21.5)));
+
+    // warm lamp over the terrace
+    const lamp = new THREE.PointLight(0xffb36b, 10, 13, 1.7);
+    lamp.position.set(-11, 2.6, 26.5);
+    this.city.add(lamp);
+
+    // illuminated CAFÉ sign on the tower face behind the terrace
+    // (west spire tower, east face at x -15) so the building reads as a coffee shop
+    const signTex = canvasTex(1024, 256, (g2, w, h) => {
+      g2.fillStyle = '#0d1117'; g2.fillRect(0, 0, w, h);
+      g2.strokeStyle = '#f2b84b'; g2.lineWidth = 8; g2.strokeRect(10, 10, w - 20, h - 20);
+      g2.textAlign = 'center';
+      g2.fillStyle = '#ffd9a0'; g2.font = 'bold 120px "Courier New", monospace';
+      g2.fillText('CAFÉ', w / 2, 140);
+      g2.fillStyle = '#d7dde8'; g2.font = '44px "Courier New", monospace';
+      g2.fillText('FISH · CHIPS · COFFEE — OPEN LATE', w / 2, 205);
+    });
+    const signMat = new THREE.MeshStandardMaterial({
+      map: signTex, emissive: 0xffffff, emissiveMap: signTex,
+      emissiveIntensity: 1.2, roughness: 0.8 });
+    const signBack = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.15, 4.4), woodDark);
+    signBack.position.set(-14.8, 3.1, 26.2); this.city.add(signBack);
+    const signFace = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.95), signMat);
+    signFace.rotation.y = Math.PI / 2;
+    signFace.position.set(-14.53, 3.1, 26.2); this.city.add(signFace);
+
+    // blade sign jutting toward the street so walkers see it coming either way
+    const bladeTex = canvasTex(256, 128, (g2, w, h) => {
+      g2.fillStyle = '#0d1117'; g2.fillRect(0, 0, w, h);
+      g2.strokeStyle = '#f2b84b'; g2.lineWidth = 6; g2.strokeRect(6, 6, w - 12, h - 12);
+      g2.fillStyle = '#ffd9a0'; g2.textAlign = 'center';
+      g2.font = 'bold 56px "Courier New", monospace';
+      g2.fillText('CAFÉ', w / 2, 84);
+    });
+    const bracket = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.06, 0.06), iron);
+    bracket.position.set(-14.4, 3.75, 22.5); this.city.add(bracket);
+    const blade = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.7),
+      new THREE.MeshStandardMaterial({ map: bladeTex, emissive: 0xffffff,
+        emissiveMap: bladeTex, emissiveIntensity: 1.2,
+        side: THREE.DoubleSide, roughness: 0.8 }));
+    blade.position.set(-14.3, 3.3, 22.5); this.city.add(blade);
+  }
+
+  // =========================================================
+  // STREET LAMPS — the legacy lamps only cover z <= 25 (west)
+  // / z <= 0 (east), leaving the whole south road dark; these
+  // fill the gameplay stretch. Real point lights, no shadows.
+  // =========================================================
+  _buildStreetLamps() {
+    const metal = new THREE.MeshStandardMaterial({ color: 0x1c2026, roughness: 0.55, metalness: 0.6 });
+    const headMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2d33, emissive: 0xffe2b0, emissiveIntensity: 3 });
+    const poleG = new THREE.CylinderGeometry(0.09, 0.13, 5.0, 10);
+    const baseG = new THREE.CylinderGeometry(0.16, 0.22, 0.4, 10);
+    const armG = new THREE.BoxGeometry(1.3, 0.09, 0.09);
+    const headG = new THREE.BoxGeometry(0.55, 0.12, 0.26);
+
+    const mkLamp = (x, z) => {
+      const g = new THREE.Group();
+      const dir = x > 0 ? -1 : 1;      // arm reaches toward the road
+      const base = new THREE.Mesh(baseG, metal); base.position.y = 0.2; g.add(base);
+      const pole = new THREE.Mesh(poleG, metal); pole.position.y = 2.8; g.add(pole);
+      const arm = new THREE.Mesh(armG, metal); arm.position.set(dir * 0.6, 5.25, 0); g.add(arm);
+      const head = new THREE.Mesh(headG, headMat); head.position.set(dir * 1.2, 5.2, 0); g.add(head);
+      const pl = new THREE.PointLight(0xffd9a0, 16, 20, 1.8);
+      pl.position.set(dir * 1.2, 5.0, 0); g.add(pl);
+      g.position.set(x, 0, z);
+      this.city.add(g);
+      this.colliders.push(new THREE.Box3(
+        new THREE.Vector3(x - 0.25, 0, z - 0.25),
+        new THREE.Vector3(x + 0.25, 5.0, z + 0.25)));
+    };
+
+    mkLamp(-8.6, 48);
+    mkLamp(8.6, 30);
+    mkLamp(-8.6, 8);
+    mkLamp(8.6, -14);
+    mkLamp(-8.6, -56);
+  }
+
+  // =========================================================
+  // BASE LIGHTING — lift the night scene so nothing gameplay-
+  // relevant needs the UV torch to be seen (UV stays reserved
+  // for the one UV-only clue). No shadows: cheap fill only.
+  // =========================================================
+  _buildCityLights() {
+    const hemi = new THREE.HemisphereLight(0x8a90c8, 0x1c1728, 0.85);
+    this.city.add(hemi);
+    const fill = new THREE.DirectionalLight(0x9fb2ff, 0.5);
+    fill.position.set(-40, 60, 80);
+    this.city.add(fill);
+    // warm pool over the quay benches and cool pool at the dome;
+    // the road itself is covered by the street lamps below
+    for (const [color, i, d, x, y, z] of [
+      [0xffc98a, 9, 13, 6.0, 2.8, 4.0],
+      [0xbfd4ff, 9, 15, -42.0, 3.2, -16.0],
+    ]) {
+      const pl = new THREE.PointLight(color, i, d, 1.8);
+      pl.position.set(x, y, z);
+      this.city.add(pl);
+    }
+  }
+
+  // =========================================================
+  // WATERFRONT — public benches, a quay railing and the boats
+  // out on the water (sea level is y -6, east of x 10.5)
+  // =========================================================
+  _buildWaterfront() {
+    const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.9 });
+    const woodDark = new THREE.MeshStandardMaterial({ color: 0x3d2c1c, roughness: 0.9 });
+    const iron = new THREE.MeshStandardMaterial({ color: 0x22262c, roughness: 0.5, metalness: 0.6 });
+
+    // bench seats along Z so the sitter faces the water (+X);
+    // seat top at 0.45 to match the seated pose
+    const makeBench = (x, z) => {
+      const b = new THREE.Group();
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 1.8), wood);
+      seat.position.y = 0.41; b.add(seat);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 1.8), wood);
+      back.position.set(-0.28, 0.7, 0); b.add(back);
+      const supG = new THREE.BoxGeometry(0.5, 0.37, 0.12);
+      for (const sz of [-0.7, 0.7]) {
+        const sup = new THREE.Mesh(supG, woodDark);
+        sup.position.set(0, 0.185, sz); b.add(sup);
+      }
+      b.position.set(x, 0, z);
+      this.city.add(b);
+      this.colliders.push(new THREE.Box3(
+        new THREE.Vector3(x - 0.4, 0, z - 1.0),
+        new THREE.Vector3(x + 0.4, 0.9, z + 1.0)));
+      return b;
+    };
+
+    // Anele's bench, plus an empty one further along the quay
+    const an = this.npcs.find((n) => n.id === 'anale');
+    makeBench(an.pos.x, an.pos.z);
+    makeBench(6.8, 10.5);
+
+    // quay railing: posts + two bars at x 7.4, z -6..14
+    const rail = new THREE.Group();
+    const postG = new THREE.BoxGeometry(0.08, 1.05, 0.08);
+    for (let z = -6; z <= 14; z += 2) {
+      const p = new THREE.Mesh(postG, iron);
+      p.position.set(7.4, 0.525, z); rail.add(p);
+    }
+    const topBar = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 20), iron);
+    topBar.position.set(7.4, 1.0, 4); rail.add(topBar);
+    const midBar = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 20), iron);
+    midBar.position.set(7.4, 0.6, 4); rail.add(midBar);
+    this.city.add(rail);
+    this.colliders.push(new THREE.Box3(
+      new THREE.Vector3(7.3, 0, -6), new THREE.Vector3(7.5, 1.1, 14)));
+
+    // ---- boats riding at sea level (y -6), gently bobbing ----
+    this.boats = [];
+    const hullMat = new THREE.MeshStandardMaterial({ color: 0x27333d, roughness: 0.7 });
+    const trimMat = new THREE.MeshStandardMaterial({ color: 0xd9d4c4, roughness: 0.8 });
+    const winMat = new THREE.MeshStandardMaterial({
+      color: 0xffc27a, emissive: 0xffbe78, emissiveIntensity: 1.6 });
+
+    const mkBoat = (x, z, rotY, phase) => {
+      const b = new THREE.Group();
+      const hull = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.1, 5.0), hullMat);
+      hull.position.y = 0.45; b.add(hull);
+      const rim = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.15, 5.2), trimMat);
+      rim.position.y = 1.0; b.add(rim);
+      const cab = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.0, 1.6), trimMat);
+      cab.position.set(0, 1.5, -0.5); b.add(cab);
+      const lampM = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), winMat);
+      lampM.position.set(0, 1.6, 0.35); b.add(lampM);
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.0, 8), trimMat);
+      mast.position.set(0, 2.4, -0.5); b.add(mast);
+      b.position.set(x, -6, z); b.rotation.y = rotY;
+      b.userData = { baseY: -6, phase, bobF: 0.8, bobA: 0.15 };
+      this.city.add(b); this.boats.push(b);
+    };
+    mkBoat(26, -4, 0.4, 0);
+    mkBoat(34, 22, -0.5, 2.1);
+
+    // distant ship: dark hull, lit window strip, funnel
+    const s = new THREE.Group();
+    const sHull = new THREE.Mesh(new THREE.BoxGeometry(7, 3.5, 24), hullMat);
+    sHull.position.y = 1.35; s.add(sHull);
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(7.1, 0.5, 18), winMat);
+    strip.position.y = 2.6; s.add(strip);
+    const castle = new THREE.Mesh(new THREE.BoxGeometry(5, 2.5, 4), trimMat);
+    castle.position.set(0, 4.2, -8); s.add(castle);
+    const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.0, 2.5, 10), hullMat);
+    funnel.position.set(0, 6, -8); s.add(funnel);
+    s.position.set(75, -6, -45); s.rotation.y = 0.25;
+    s.userData = { baseY: -6, phase: 1.2, bobF: 0.5, bobA: 0.2 };
+    this.city.add(s); this.boats.push(s);
+  }
+
+  // =========================================================
+  // TRAFFIC — low-poly cars passing on the road (ambient only:
+  // no collision, no interaction, left-hand traffic)
+  // =========================================================
+  _buildTraffic() {
+    this.cars = [];
+    const wheelGeo = new THREE.CylinderGeometry(0.33, 0.33, 0.24, 14);
+    wheelGeo.rotateZ(Math.PI / 2);                 // axle along X: spin via rotation.x
+    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.9 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x10141c, roughness: 0.2, metalness: 0.6 });
+    const headMat = new THREE.MeshStandardMaterial({
+      color: 0xfff2c0, emissive: 0xffedb5, emissiveIntensity: 4 });
+    const tailMat = new THREE.MeshStandardMaterial({
+      color: 0xff2a1a, emissive: 0xff2015, emissiveIntensity: 3 });
+    const tyreG = wheelGeo;
+
+    const mkCar = (color, laneX, z0, speed, dir) => {
+      const g = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.5 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.55, 3.9), bodyMat);
+      body.position.y = 0.62; g.add(body);
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.5, 2.0), glassMat);
+      cabin.position.set(0, 1.12, -0.2); g.add(cabin);
+      const wheels = [];
+      for (const [wx, wz] of [[-0.82, 1.3], [0.82, 1.3], [-0.82, -1.3], [0.82, -1.3]]) {
+        const w = new THREE.Mesh(tyreG, wheelMat);
+        w.position.set(wx, 0.33, wz); g.add(w); wheels.push(w);
+      }
+      const hlG = new THREE.BoxGeometry(0.28, 0.14, 0.06);
+      for (const sx of [-0.55, 0.55]) {            // headlights (local +Z = front)
+        const hl = new THREE.Mesh(hlG, headMat);
+        hl.position.set(sx, 0.66, 1.96); g.add(hl);
+        const tl = new THREE.Mesh(hlG, tailMat);   // taillights
+        tl.position.set(sx, 0.66, -1.96); g.add(tl);
+      }
+      g.position.set(laneX, 0, z0);
+      if (dir < 0) g.rotation.y = Math.PI;
+      g.userData = { speed, dir, wheels };
+      this.city.add(g);
+      this.cars.push(g);
+    };
+
+    // east lane (+X) heads +Z, west lane heads -Z; staggered so they keep passing
+    mkCar(0xc9a227, 2.5, -60, 9, 1);    // taxi
+    mkCar(0x8c1f28, 2.5, 30, 11, 1);
+    mkCar(0x3a3f45, 2.5, 110, 9.5, 1);
+    mkCar(0x2b5f9e, -2.5, 60, 8, -1);
+    mkCar(0x9aa0a8, -2.5, -20, 10, -1);
   }
 
   // =========================================================
@@ -410,7 +807,7 @@ export class CityLevel {
     ui.root = mk('div', 'position:fixed;inset:0;pointer-events:none;z-index:50;font-family:"Courier New",monospace;color:#f2d9a0;');
     ui.prompt = mk('div', 'position:absolute;left:50%;bottom:22%;transform:translateX(-50%);font-size:15px;letter-spacing:1px;text-shadow:0 1px 3px #000;display:none;', ui.root);
     ui.counter = mk('div', 'position:absolute;left:18px;top:16px;font-size:13px;letter-spacing:1px;opacity:.85;', ui.root, '');
-    ui.uvTag = mk('div', 'position:absolute;right:18px;top:16px;font-size:13px;letter-spacing:2px;color:#b58cff;display:none;text-shadow:0 0 10px #7a3cff;', ui.root, 'UV LAMP ON');
+    ui.uvTag = mk('div', 'position:absolute;right:18px;top:224px;font-size:13px;letter-spacing:2px;color:#b58cff;display:none;text-shadow:0 0 10px #7a3cff;', ui.root, 'UV LAMP ON');
     ui.toast = mk('div', 'position:absolute;left:50%;top:9%;transform:translate(-50%,0);width:min(680px,92vw);text-align:center;opacity:0;transition:opacity .4s;', ui.root);
 
     ui.dialogue = mk('div', 'position:fixed;left:50%;bottom:2vh;transform:translateX(-50%);width:min(880px,94vw);max-height:52vh;overflow:auto;display:none;background:rgba(4,6,10,.93);border:1px solid #3c4656;padding:18px 22px;z-index:9500;font-family:"Courier New",monospace;color:#e9d9b0;pointer-events:auto;box-shadow:0 0 40px rgba(0,0,0,.7);');
@@ -607,7 +1004,7 @@ export class CityLevel {
     this.ui.suspects.innerHTML = `
       <div style="max-width:min(760px,94vw);font-family:'Courier New',monospace;color:#e9d9b0;background:rgba(8,10,16,.96);border:1px solid #3c4656;padding:26px 30px">
         <h2 style="letter-spacing:3px;color:#f2b84b">THE SUSPECT LIST</h2>
-        <p>Name the three who must answer for Dr. Nkosi's death. An innocent name on this list means the real trio walks — and you start the city over.</p>
+        <p>Name the three who will be brought in for Dr. Nkosi's death. There is no second list. Whoever you leave off walks free, and whoever you bring in will be questioned in the cells.</p>
         ${rows}
         <p id="sf-count" style="color:#7fd4ff;margin-top:12px">Selected: 0 / 3</p>
         <button id="sf-confirm" disabled style="font:inherit;padding:10px 24px;background:#2a2f3a;color:#8b93a3;border:0;margin-right:10px">Confirm the list</button>
@@ -640,47 +1037,31 @@ export class CityLevel {
     this.ui.suspects.style.display = 'none';
     this.verdictOpen = true;
     window.__uiCapture = true;
-    const right = CORRECT_SUSPECTS;
-    const wrong = picks.filter((p) => !right.includes(p));
+
+    // hand the picks and the record of who was questioned to Level 3
+    window.__caseProgress = window.__caseProgress || { l1: {} };
+    window.__caseProgress.picks = picks.slice();
+    window.__caseProgress.questioned = this.npcObjs.filter((n) => n.questioned).map((n) => n.id);
+    window.__caseProgress.city = Object.assign({}, window.__caseProgress.city, this.collected);
+
     const nameOf = (id) => (this.npcs.find((n) => n.id === id) || { name: id }).name;
 
-    if (!wrong.length) {
-      this.ui.verdict.innerHTML = `
-        <h2 style="letter-spacing:4px;color:#f2b84b;max-width:80vw">THE LIST IS SEALED</h2>
-        <p style="max-width:min(720px,88vw);line-height:1.7;font-size:16px">
-          ${nameOf('kyle')}, who bled on a handkerchief and lied about a fence.
-          ${nameOf('sipho')}, whose unregistered gun kept him silent under the dome.
-          ${nameOf('naledi')}, who begged a dead man to keep quiet and could not.<br><br>
-          The woman at the water and the fixer on the bridge stay off the list — their alibis
-          buy each other. The accusation will be made in front of all three, with the evidence
-          laid out name by name. That is <b style="color:#7fd4ff">LEVEL 3 — coming soon</b>.
-        </p>
-        <div style="margin-top:26px;display:flex;gap:14px">
-          <button id="vd-close" style="font:inherit;padding:12px 24px;background:#1f6f5c;color:#fff;border:0;cursor:pointer">Keep working the city</button>
-          <button id="vd-again" style="font:inherit;padding:12px 24px;background:#141a24;color:#e9d9b0;border:1px solid #334052;cursor:pointer">Restart the level</button>
-        </div>`;
-    } else {
-      this.ui.verdict.innerHTML = `
-        <h2 style="letter-spacing:4px;color:#d34a3f;max-width:80vw">THE LIST BREAKS</h2>
-        <p style="max-width:min(720px,88vw);line-height:1.7;font-size:16px">
-          You put <b>${wrong.map(nameOf).join(', ')}</b> on it — and the evidence against
-          ${wrong.length > 1 ? 'them' : 'that name'} is thin to nothing. Someone with an alibi
-          paid in fish and invoices is now on the run from you, while the actual trio heard the
-          whole list read out over the radio.<br><br>
-          The city closes its doors. You start again from the beginning of Level 2 — this time,
-          weigh what each name actually has against it.
-        </p>
-        <div style="margin-top:26px">
-          <button id="vd-restart" style="font:inherit;padding:12px 26px;background:#a1241c;color:#fff;border:0;cursor:pointer">Restart Level 2 &rarr;</button>
-        </div>`;
-    }
+    this.ui.verdict.innerHTML = `
+      <h2 style="letter-spacing:4px;color:#f2b84b;max-width:80vw">THE LIST IS SEALED</h2>
+      <p style="max-width:min(720px,88vw);line-height:1.7;font-size:16px">
+        ${picks.map(nameOf).join(', ')} will be taken to the station and put in the cells.<br><br>
+        Everyone else is free to go. There is no second list.
+      </p>
+      <div style="margin-top:26px">
+        <button id="vd-go" style="font:inherit;padding:12px 26px;background:#a1241c;color:#fff;border:0;cursor:pointer">Take them in &rarr;</button>
+      </div>`;
     this.ui.verdict.style.display = 'flex';
-    const close = this.ui.verdict.querySelector('#vd-close');
-    const again = this.ui.verdict.querySelector('#vd-again');
-    const restart = this.ui.verdict.querySelector('#vd-restart');
-    if (close) close.addEventListener('click', () => this._closeVerdict());
-    if (again) again.addEventListener('click', () => this._restart());
-    if (restart) restart.addEventListener('click', () => this._restart());
+
+    const go = this.ui.verdict.querySelector('#vd-go');
+    if (go) go.addEventListener('click', () => {
+      if (typeof window.__switchLevel === 'function') window.__switchLevel(3);
+      else this._closeVerdict();
+    });
   }
 
   _closeVerdict() {
@@ -730,6 +1111,9 @@ export class CityLevel {
     }
     c.found = true;
     this.collected[c.id] = true;
+    window.__caseProgress = window.__caseProgress || { l1: {} };
+    window.__caseProgress.city = window.__caseProgress.city || {};
+    window.__caseProgress.city[c.id] = true;
     c.hit.userData = {};                    // no longer interactable
     this.city.remove(c.hit);
     if (c.glint) this.city.remove(c.glint.mesh);
@@ -821,6 +1205,26 @@ export class CityLevel {
           n.group.rotation.y = cur + diff * Math.min(1, dt * 2.5);
         }
         n.group.position.y = Math.sin(this.time * 1.3 + n._phase) * 0.012;
+      }
+    }
+
+    // ambient traffic: loop along the road, spin the wheels
+    if (this.cars) {
+      for (const c of this.cars) {
+        const u = c.userData;
+        c.position.z += u.dir * u.speed * dt;
+        if (c.position.z > 138) c.position.z = -138;
+        else if (c.position.z < -138) c.position.z = 138;
+        for (const w of u.wheels) w.rotation.x -= (u.speed * dt) / 0.33;
+      }
+    }
+
+    // boats ride the swell
+    if (this.boats) {
+      for (const b of this.boats) {
+        const u = b.userData;
+        b.position.y = u.baseY + Math.sin(this.time * u.bobF + u.phase) * u.bobA;
+        b.rotation.z = Math.sin(this.time * u.bobF * 0.8 + u.phase) * 0.02;
       }
     }
 

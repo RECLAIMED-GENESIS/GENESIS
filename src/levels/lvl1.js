@@ -1399,7 +1399,7 @@ export class StreetLevel {
       '[E] examine &nbsp; [F] UV torch &nbsp; [C] case file');
     ui.prompt = mk('div', 'position:absolute;left:50%;top:56%;transform:translateX(-50%);font-size:16px;padding:6px 14px;background:rgba(0,0,0,.55);border:1px solid rgba(242,217,160,.45);display:none;text-shadow:0 0 6px #000;', ui.root);
     ui.toast = mk('div', 'position:absolute;left:50%;bottom:11%;transform:translateX(-50%);width:min(640px,88vw);padding:12px 16px;background:rgba(8,8,12,.82);border-left:3px solid #f2b84b;font-size:14px;line-height:1.45;display:none;', ui.root);
-    ui.uvTag = mk('div', 'position:absolute;right:18px;top:16px;font-size:13px;letter-spacing:2px;color:#b58cff;display:none;text-shadow:0 0 10px #7a3cff;', ui.root, 'UV LAMP ON');
+    ui.uvTag = mk('div', 'position:absolute;right:18px;top:224px;font-size:13px;letter-spacing:2px;color:#b58cff;display:none;text-shadow:0 0 10px #7a3cff;', ui.root, 'UV LAMP ON');
 
     ui.case = mk('div', 'position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(3,4,7,.9);z-index:9999;font-family:"Courier New",monospace;');
     ui.outro = mk('div', 'position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:radial-gradient(ellipse at 50% 45%, rgba(8,10,16,.96), rgba(2,3,5,.99));z-index:10000;font-family:"Courier New",monospace;color:#e9d9b0;pointer-events:auto;');

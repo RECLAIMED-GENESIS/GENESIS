@@ -1,105 +1,80 @@
-# GENESIS — Fight Your Way Into Existence
+# GENESIS
 
-## Overview
-
-A 3D browser-based fighting game built with Three.js. You play as a slave labourer in a tiered person simulation, kept docile and believing you have free will, until you don’t. Fight your way up through the tiers, from the flat pixelated lowest world to The Architect’s own realm, and take down the being who built the whole system to keep you in line.
+A 3D browser-based murder mystery built with Three.js. Dr. Thabo Nkosi has been found dead in his university office — one gunshot, close range. You are the investigator. Work three levels — the office, the city, the cells — question five witnesses, log the evidence, seal the suspect list of three, and accuse the killer.
 
 ---
 
 ## The Story
 
-You live and work in the lowest tier of a world you’ve always had doubts about. You and everyone around you mine gold that guards haul away up through the tiers, all the way up to the being at the very top, The Architect. Nobody questions it. Everybody works, every day, with nothing ever getting better.
+Central City, October. Rain for three days straight.
 
-One day after work, you forget your backpack and on your way to get it back, you overhear two guards talking congratulating themselves on how they’re keeping people like you clueless, docile and boxed into the lowest, worst version of this world, with no idea a better one exists above you. You make a sound, they hear you and come for you.
+Dr. Nkosi is found dead at his desk. No witnesses, no confession — only what the room remembers: a handkerchief with someone else's blood, a 9mm casing, brown hair on the wrong chair, a torn note naming three people, and a diary pointing at the city.
 
-They fail. After all that gruelling labour has made you stronger than they ever encountered for.
-
-You fight your way through the guards, and then their commander, on this lowest tier. Beating him earns you a key and gold enough to force your way up to the next tier.
-
-The Architect himself reaches out the moment you arrive on Tier 2: Stand down, go back to your tier, keep your mouth shut and this ends quietly. You don’t take the deal. You fight through his elite guards and their vice commander, take a second key and climb again.
-
-On the final tier, after cutting through the last of the guards, you finally reach The Architect himself and before the fight starts, he doesn’t gloat. He tells you, almost regretfully that none of this had to happen. If you’d just stayed in your lane, kept working, kept your head down, he wouldn’t have to do this. You don’t budge. 
-
-You fight, you win.
+Five people around the waterfront know something about that night. Three of them are lying. Question all five, then seal the list — whoever you bring in goes to the cells, and whoever you leave off walks free. In the cells, show each prisoner the right evidence, then accuse the one who pulled the trigger.
 
 ---
 
 ## Levels
 
-### Level 1 — "The Flat World"
+### Level 1 — "The Office"
 
-**Vibe:** Pixel art, orthographic camera, flat colours, chiptune music. A slave labour mining camp.
+**Vibe:** Night-time crime scene, first-person, UV torch, chiptune music.
 
 **Gameplay:**
-- Side-scrolling arena fighter using an orthographic camera
-- Fight waves of pixel minions
-- Mine/collect **3 Glitch Fragments** dropped by enemies to unlock the portal
-- Partway through the level, a mid-level trigger fires a skippable dialogue: two guards talking about how well they're keeping everyone in the dark. You're spotted, and have to fight your way out.
-- Defeat the Commander to receive the key that unlocks Level 2
+- First-person examination of the victim's office (E to collect, F for the UV torch, C for the case file)
+- Log every clue: handkerchief, casing, hair, note, diary and more
+- Logging everything triggers the outro: evidence to the lab, then on to the city
 
-**What makes it unique:**
-- Orthographic (2D-style) camera — nowhere else in the game
-- Pixelation post-processing shader that fades out as you approach the portal
-- Intentionally flat shading and chiptune audio
-- Only level with a labour-camp setting
+### Level 2 — "The City"
+
+**Vibe:** Waterfront street at last light, passing traffic, café terrace, orchestral music + traffic ambience.
+
+**Gameplay:**
+- Question all five witnesses (E while facing them), each with follow-ups unlocked by office and street evidence
+- Collect three city clues: an unregistered pistol, a UV-only scrawl, a timestamped parking stub
+- Ambient life: moving cars, a café terrace with a lit shop sign, benches, a quay railing, boats on the water, street lamps
+- Seal the suspect list of three — any three go to the cells, no restarts
+
+### Level 3 — "The Cells"
+
+**Vibe:** Holding cells, interrogation at the bars, tense electronic music.
+
+**Gameplay:**
+- The three people you picked, in the cells
+- Show each one the right evidence (handkerchief, stub, bandage…), watch what breaks
+- Accuse: case closed, unproven, or the wrong man — four endings
 
 ---
 
-### Level 2 — "The Rendered World"
+## 🕹️ Controls
 
-**Vibe:** Full 3D, dramatic lighting, third-person camera, orchestral music
+| Action              | Key              |
+|---------------------|------------------|
+| Walk / turn         | W, S / A, D, mouse |
+| Sprint / jump       | Shift / Space    |
+| Examine / question / collect | E |
+| UV torch            | F                |
+| Case file           | C                |
+| Pause               | P, Esc, or ⏸ button |
+| Restart level       | R                |
 
-**Gameplay:**
-- Full 3D movement in all directions
-- You find your weapon here — a blade of light that powers up your attacks
-- New mechanic introduced: **dodge roll**
-- The level opens with The Architect reaching out directly (delivered via the loading-screen transition, with his portrait)
-- Fight through The Architect’s elite guards and their vice commander across a ruined digital city
-- No fragment collection here, this level is a straight gauntlet to the vice commander
-
-**What makes it unique:**
-- Perspective camera replaces orthographic — the world opens up
-- Dodge roll mechanic not available in Level 1
-- Dynamic shadows, reflective floors, normal maps
-- Vertex displacement shader makes the environment feel like it is breathing
-
----
-
-### Level 3 — "The Architect's Realm"
-
-**Vibe:** Abstract white void, geometric shapes, tense electronic music
-
-**Gameplay:**
-- Fight through the last of The Architect's guards to reach his chamber
-- On arrival, a skippable conversation plays: The Architect, almost regretful, tells you none of this had to happen if you'd just stayed in line. You refuse to back down.
-- **Three-phase boss fight:**
-  - **Phase 1:** He summons pixel minions while firing energy blasts
-  - **Phase 2 (66% health):** Arena shrinks, floor tiles begin falling
-  - **Phase 3 (33% health):** The Architect enters the arena as a giant geometric figure. Hit glowing weak points while dodging his attacks.
-- Defeat him and the world rebuilds. A short ending screen plays.
-
-**What makes it unique:**
-- Three-phase boss that changes the rules each phase
-- Arena reacts to boss health — shrinks and breaks apart
-- Dissolve shader on The Architect when he takes damage and dies
+Progress auto-saves on every level change — **Continue** on the main menu picks up where you left off.
 
 ---
 
 ## Tech Stack
 
 - **Three.js** — Rendering and scene graph
-- **Vite** — Bundler (set base to `'./'` in vite.config.js)
+- **Vite** — Bundler (base set to `'./'` in vite.config.js for subdirectory hosting)
 - **Cannon-es** — Physics
-- **Howler.js** — Audio
-- **Free assets from OpenGameArt** (credited in credits screen)
+- **Howler.js** — Audio (menu theme, per-level music, city traffic ambience, UI clicks)
+- Music from **OpenGameArt.org** (credited in-game)
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-
-Before you begin, ensure you have the following installed on your system:
 
 - **Node.js** (v18 or higher) - [Download here](https://nodejs.org/)
 - **npm** (comes with Node.js)
@@ -110,47 +85,54 @@ Before you begin, ensure you have the following installed on your system:
 1. **Clone the repository:**
    ```bash
    git clone https://github.com/RECLAIMED-GENESIS/GENESIS.git
-2. **Navigate to the project directory**
+   ```
+2. **Navigate to the project directory:**
+   ```bash
    cd GENESIS
-3. **Install dependencies**
+   ```
+3. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+4. **Run the dev server:**
+   ```bash
    npm run dev
-4. **Open your browser and visit**
-   https://localhost:3000
+   ```
+5. **Open your browser and visit:**
+   ```
+   http://localhost:5173/
+   ```
 
-## 🕹️ Controls
+### Production build and deployment (LAMP)
 
-| Action         | Key        |
-|----------------|------------|
-| Move           | W, A, S, D |
-| Jump           | Space      |
-| Punch          | Z / Left Click |
-| Kick           | X          |
-| Dodge Roll           | Shift / C|
-
-**Production Build and Deployment**
-//To create a production build for the LAMP server:
-1. **Build the project**
+1. **Build the project:**
+   ```bash
    npm run build
-2. **Test the build locally over HTTP**
+   ```
+2. **Test the build locally over HTTP:**
+   ```bash
    npx serve dist
-   (Note: Do not open _index.html_ directly as a file, use the HTTP server)
-3. **Zip the contents of dist/ with index.html at the top level**
-4. **Upload to LAMP via Moodle submission**
-5. **Open the published URL in your browser and the the console for 404s**
-   (**Important**: Because the game is served from a subdirectory, all paths must be relative(e.g., ./assets/..). Set base: './' in your vite.config.js
+   ```
+   (Do not open _index.html_ directly as a file — use the HTTP server.)
+3. **Zip the contents of dist/ with index.html at the top level.**
+4. **Upload to LAMP via Moodle submission.**
+5. **Open the published URL and check the console for 404s.**
+   (**Important:** the game is served from a subdirectory, so all paths must be relative (e.g. `./assets/..`).)
 
-   ## 🧑‍💻 Team Responsibilities
+---
 
-| Person | Role | Owns |
-| :--- | :--- | :--- |
-| Sibusiso | Player & Physics | Movement, controls, physics, hit detection, enemy AI |
-| Busisiwe | Shaders | All three custom shaders |
-| Pumelela | Environment & Art | Levels, models, textures, lighting, skyboxes |
-| Banele | UI & Polish | Menus, HUD, sound, loading screen, restart logic, trailer |
+## 🧑‍💻 Team — 404 Found Us
+
+| Person | Role |
+| :--- | :--- |
+| Banele Mjali | UI & Polish |
+| Busisiwe Mnguni | Shaders & Effects |
+| Pumelela Mapukata | Environment & Art |
+| Sibusiso Ndunge | Player & Physics |
 
 ## 📝 Credits
 
-All external assets (music, sound effects, libraries) are listed with sources and licenses in the in-game **Credits Screen**.
+Music from OpenGameArt.org; all external assets are credited with sources in the in-game **Credits** screen.
 
 ## 🔒 Ground Rules
 
@@ -158,13 +140,3 @@ All external assets (music, sound effects, libraries) are listed with sources an
 - Main branch is always the working version
 - If something breaks main — fix it immediately
 - Deploy to LAMP at the end of every week
-   
-
-
-
-
-# Running levels
-1.npm run dev 
-
-On http://localhost:5173/ click 1 for level 1, 2 for level 2 and 3 for level 3 
-Use WASD for controls
