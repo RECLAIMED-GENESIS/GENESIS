@@ -37,17 +37,19 @@ export function createHUD() {
       "></div>
     </div>
 
-    <div style="margin-bottom: 6px; color: #aaa; font-size: 13px; letter-spacing: 1px; text-transform: uppercase;">
-      📡 Wave
-    </div>
-    <div id="waveCounter" style="
-      color: #ffffff;
-      font-size: 16px;
-      font-weight: bold;
-      text-shadow: 0 0 15px rgba(255,255,255,0.2);
-      margin-bottom: 18px;
-    ">
-      WAVE 0 / 3
+    <div id="waveSection">
+      <div style="margin-bottom: 6px; color: #aaa; font-size: 13px; letter-spacing: 1px; text-transform: uppercase;">
+        📡 Wave
+      </div>
+      <div id="waveCounter" style="
+        color: #ffffff;
+        font-size: 16px;
+        font-weight: bold;
+        text-shadow: 0 0 15px rgba(255,255,255,0.2);
+        margin-bottom: 18px;
+      ">
+        WAVE 0 / 3
+      </div>
     </div>
 
     <div id="levelIndicator" style="
@@ -67,8 +69,9 @@ export function createHUD() {
 }
 
 // Kept for compatibility — main.js calls this each frame
-export function updateHUD(playerHealth, maxHealth, fragmentsCollected, totalFragments, currentWave, totalWaves, levelName) {
+export function updateHUD(playerHealth, maxHealth, fragmentsCollected, totalFragments, currentWave, totalWaves, levelName, showWaves = true) {
   const healthBar = document.getElementById('healthBar');
+  const waveSection = document.getElementById('waveSection');
   const waveCounter = document.getElementById('waveCounter');
   const levelIndicator = document.getElementById('levelIndicator');
 
@@ -80,7 +83,11 @@ export function updateHUD(playerHealth, maxHealth, fragmentsCollected, totalFrag
     else                          healthBar.style.background = '#ff0000';
   }
 
-  if (waveCounter) {
+  if (waveSection) {
+    waveSection.style.display = showWaves ? '' : 'none';
+  }
+
+  if (waveCounter && showWaves) {
     waveCounter.textContent = 'WAVE ' + currentWave + ' / ' + totalWaves;
   }
 

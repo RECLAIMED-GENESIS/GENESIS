@@ -855,7 +855,8 @@ function tick() {
   }
 
   // ── Update HUD every frame (health, wave counter, level name) ──
-  const waveCurrent = (typeof level.waveIndex === 'number') ? level.waveIndex : 0;
+  const hasWaves    = (typeof level.waveIndex === 'number');
+  const waveCurrent = hasWaves ? level.waveIndex : 0;
   const waveTotal   = (level.waves ? level.waves.length : 3);
   updateHUD(
     playerHealth.hp,
@@ -864,7 +865,8 @@ function tick() {
     0,           // fragments — unused
     waveCurrent,
     waveTotal,
-    level.name || 'LEVEL 1'
+    level.name || 'LEVEL 1',
+    hasWaves     // levels 2 & 3 have no waves — hide the counter
   );
 
   const CAM_DIST   = 5.5;
