@@ -2,6 +2,7 @@
 // Isolated 3D scene for the main menu — Sorini left, Architect right
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { attachChestArtifact } from '../player/chestArtifact.js';
 
 // ── Throne dimensions — MIRRORS architect.js (Level 3) ──
 // The Dreyar rig ships with a RECLINED sit pose, so the throne is
@@ -78,7 +79,6 @@ export class MenuScene {
     // ── Load both characters ──
     this._loadSorini();
     this._loadArchitect();
-    this._createAxiomOrb();
 
     this._time = 0;
     // The render loop is NOT running yet — main.js calls start()
@@ -124,6 +124,15 @@ export class MenuScene {
       });
       this.scene.add(fbx);
       this.sorini = fbx;
+
+      // Iron-Man-style Axiom artifact embedded in her chest.
+      // Attached to Spine2 so it rides every idle-animation sway.
+      const artifact = attachChestArtifact(fbx);
+      if (artifact) {
+        this.chestArtifact = artifact;
+      } else {
+        console.warn('MenuScene: chest bone not found — artifact skipped');
+      }
 
       // Idle animation
       loader.load('./assets/models/player/idle.fbx', (animFbx) => {
@@ -288,29 +297,6 @@ export class MenuScene {
     parent.add(rim);
   }
 
-  // ─────────────────────────────────────────
-  // AXIOM ORB — floating in Sorini's hands
-  // ─────────────────────────────────────────
-  _createAxiomOrb() {
-    this.axiomOrb = new THREE.Mesh(
-      new THREE.OctahedronGeometry(0.26, 0),
-      new THREE.MeshStandardMaterial({
-        color: 0x88ddff,
-        emissive: 0x88ddff,
-        emissiveIntensity: 3,
-        transparent: true,
-        opacity: 0.95,
-      })
-    );
-    // Position: at Sorini's chest/front, roughly where her hands are
-    this.axiomOrb.position.set(-3.6, 1.1, 0.4);
-    this.scene.add(this.axiomOrb);
-
-    this.axiomLight = new THREE.PointLight(0x88ddff, 4, 5, 2);
-    this.axiomLight.position.copy(this.axiomOrb.position);
-    this.scene.add(this.axiomLight);
-  }
-
   start() {
     if (this._running) return;
     this._running = true;
@@ -322,13 +308,17 @@ export class MenuScene {
       if (this.mixer) this.mixer.update(0.016);
       if (this.architectMixer) this.architectMixer.update(0.016);
 
-      // Pulse in the CYAN range — high emissive through ACES tone
-      // mapping clamps to white, which made the orb read as a white
-      // speck instead of the glowing artifact.
+      // Chest artifact — always glowing in the CYAN range. High
+      // emissive through ACES tone mapping clamps the core toward
+      // white (white-hot reactor centre) while the ring stays cyan.
       const pulse = 0.6 + Math.sin(this._time * 2) * 0.4;
-      this.axiomOrb.material.emissiveIntensity = 1.1 + pulse * 0.9;
-      this.axiomLight.intensity = 3 + pulse * 3;
-      this.axiomOrb.rotation.y += 0.01;
+      if (this.chestArtifact) {
+        const a = this.chestArtifact;
+        a.ring.material.emissiveIntensity = 1.8 + pulse * 1.2;
+        a.core.material.emissiveIntensity = 3.0 + pulse * 1.3;
+        a.light.intensity = 1.8 + pulse * 2.0;
+        a.coreSpin.rotation.z += 0.02;   // slow spin in the chest plane
+      }
 
       // Gentle camera drift
       this.camera.position.x = Math.sin(this._time * 0.3) * 0.15;
