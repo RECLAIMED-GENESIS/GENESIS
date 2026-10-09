@@ -29,6 +29,11 @@ export class CinematicCamera {
    *   { pos: [x,y,z], look: [x,y,z], duration: 4000, transition: 800, ease: 'in-out' }
    *   ...
    * ]
+   * pos / look may instead be functions returning { x, y, z } — they are
+   * re-evaluated every frame, so a shot can track a moving subject (a
+   * walking enemy, the player). Optional `drift: [x,y,z]` slides the shot
+   * target slowly across its duration (drift * (progress - 0.5)), keeping
+   * the camera creeping even when the targets themselves are still.
    */
   play(shots) {
     this.shots = shots.slice();
@@ -52,8 +57,8 @@ export class CinematicCamera {
     }
 
     const shot = this.shots[this.currentShotIndex];
-    this._toPos.set(shot.pos[0], shot.pos[1], shot.pos[2]);
-    this._toLook.set(shot.look[0], shot.look[1], shot.look[2]);
+    this._resolve(shot.pos, this._toPos);
+    this._resolve(shot.look, this._toLook);
     this.shotTimer = 0;
 
     if (instant || !shot.transition) {
@@ -70,6 +75,18 @@ export class CinematicCamera {
 
   }
 
+  // Resolve a shot target. `v` may be a plain [x,y,z] array or a function
+  // returning { x, y, z }. The function form is re-evaluated every frame so
+  // shots can track moving subjects.
+  _resolve(v, out) {
+    if (typeof v === 'function') {
+      const p = v();
+      out.set(p.x, p.y, p.z);
+    } else {
+      out.set(v[0], v[1], v[2]);
+    }
+  }
+
   update(dt) {
     if (!this.active) return;
 
@@ -77,6 +94,17 @@ export class CinematicCamera {
     if (!shot) return;
 
     this.shotTimer += dt * 1000;
+
+    // Re-resolve the targets every frame (they may track moving subjects)
+    // and apply the optional slow `drift` across the shot.
+    this._resolve(shot.pos, this._toPos);
+    this._resolve(shot.look, this._toLook);
+    if (shot.drift) {
+      const dp = Math.min(this.shotTimer / this._currentDuration, 1) - 0.5;
+      this._toPos.x += shot.drift[0] * dp;
+      this._toPos.y += shot.drift[1] * dp;
+      this._toPos.z += shot.drift[2] * dp;
+    }
 
     // Interpolate toward the target if we're in the transition window
     let t = 1;

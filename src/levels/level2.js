@@ -559,6 +559,10 @@ this._buildHazardTiles();
 
                 if (window.__audioManager) window.__audioManager.pauseMusic();
 
+        // Cinematic camera — establishing shots, Sorini close-ups and the
+        // Enforcer marching toward her while she speaks
+        this._playConfrontationIntro();
+
         // Stop any previously playing voice before starting
         const voice = (key) => {
             if (!window.__audioManager) return;
@@ -595,6 +599,9 @@ this._buildHazardTiles();
         );
                 if (window.__audioManager) window.__audioManager.resumeMusic();
 
+        // Dialogue over — hand the camera straight back to gameplay
+        if (window.__cinematicCamera) window.__cinematicCamera.stop();
+
         // Hide dialogue, start combat
         dlg.hide();
         dlg.dispose();
@@ -607,6 +614,112 @@ this._buildHazardTiles();
         // Post-dialogue tips — the new danger and the new move
         this._showDangerTips();
 
+    }
+
+    // =========================================================
+    // CONFRONTATION CAMERA — the intro dialogue cinematic.
+    // Shows Sorini, the surroundings, and spends real time on the
+    // Enforcer as she walks toward Sorini: her physique, her pace,
+    // how intimidating she looks.
+    // =========================================================
+    _playConfrontationIntro() {
+        const cine = window.__cinematicCamera;
+        const player = window.__player;
+        if (!cine || !player || !this.enforcer) return;
+
+        const enf = this.enforcer;
+        const p = player.pos;
+        const yaw = player.cameraYaw || 0;
+        // Same basis main.js uses for the gameplay camera:
+        // front = (sin yaw, cos yaw), right = (cos yaw, -sin yaw).
+        const fx = Math.sin(yaw), fz = Math.cos(yaw);
+        const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+
+        // Live targets — CinematicCamera re-resolves these every frame, so
+        // the shots keep tracking both characters while they move.
+        const soriniHead = () => ({ x: p.x, y: p.y + 1.25, z: p.z });
+        const enfHead = () => {
+            const e = enf.getPosition();
+            return { x: e.x, y: e.y + 2.4, z: e.z };
+        };
+        // Midpoint between the two, at chest height — used by the drone shot
+        const midStreet = () => {
+            const e = enf.getPosition();
+            return { x: (e.x + p.x) * 0.5, y: Math.max(e.y, p.y) + 1.6, z: (e.z + p.z) * 0.5 };
+        };
+        // Camera `dist` units in front of the Enforcer (level with her path
+        // toward Sorini) at height h — she walks into the shot while the
+        // camera retreats ahead of her.
+        const inFrontOfEnf = (dist, h) => () => {
+            const e = enf.getPosition();
+            const dx = p.x - e.x, dz = p.z - e.z;
+            const len = Math.hypot(dx, dz) || 1;
+            return { x: e.x + (dx / len) * dist, y: e.y + h, z: e.z + (dz / len) * dist };
+        };
+
+        cine.play([
+            // 1 — High drone: Sorini from behind, the whole street and the
+            //     far end of the road where the Enforcer appears
+            {
+                pos: () => ({ x: p.x - fx * 9, y: p.y + 11, z: p.z - fz * 9 }),
+                look: midStreet,
+                drift: [fx * 2.5, -0.8, fz * 2.5],
+                duration: 4500,
+                transition: 0,
+                ease: 'in-out',
+            },
+            // 2 — Front medium of Sorini at eye level, slowly sliding sideways
+            {
+                pos: () => ({ x: p.x + fx * 4.2, y: p.y + 1.5, z: p.z + fz * 4.2 }),
+                look: soriniHead,
+                drift: [rx * 1.2, 0, rz * 1.2],
+                duration: 4500,
+                transition: 1600,
+                ease: 'in-out',
+            },
+            // 3 — The Enforcer portrait: low front angle, camera retreating
+            //     with her as she marches down the street at Sorini
+            {
+                pos: inFrontOfEnf(6.0, 1.4),
+                look: enfHead,
+                drift: [rx * -1.5, 0, rz * -1.5],
+                duration: 8000,
+                transition: 2600,
+                ease: 'in-out',
+            },
+            // 4 — Side profile dolly alongside her walk, showing the stride
+            {
+                pos: () => {
+                    const e = enf.getPosition();
+                    return { x: e.x + rx * 5.5, y: e.y + 2.0, z: e.z + rz * 5.5 };
+                },
+                look: () => {
+                    const e = enf.getPosition();
+                    return { x: e.x, y: e.y + 1.8, z: e.z };
+                },
+                duration: 6000,
+                transition: 2000,
+                ease: 'in-out',
+            },
+            // 5 — Wide of the surroundings from above, coming back to Sorini
+            {
+                pos: () => ({ x: p.x + rx * 7 - fx * 6, y: p.y + 7.5, z: p.z + rz * 7 - fz * 6 }),
+                look: soriniHead,
+                drift: [fx * 1.2, 0, fz * 1.2],
+                duration: 4500,
+                transition: 1900,
+                ease: 'in-out',
+            },
+            // 6 — Return to Sorini up close for the tail of the speech
+            {
+                pos: () => ({ x: p.x + fx * 3.8, y: p.y + 1.45, z: p.z + fz * 3.8 }),
+                look: soriniHead,
+                drift: [-fx * 0.9, 0, -fz * 0.9],
+                duration: 3500,
+                transition: 1700,
+                ease: 'in-out',
+            },
+        ]);
     }
 
     // =========================================================
