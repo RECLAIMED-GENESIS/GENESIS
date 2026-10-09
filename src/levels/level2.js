@@ -7088,6 +7088,8 @@ createCityBackground() {
     // =============================================================
     dispose(outerScene = null) {
         if (this.streetEnemies) { this.streetEnemies.dispose(); this.streetEnemies = null; }
+        if (this.bossHealthBar) { this.bossHealthBar.dispose(); this.bossHealthBar = null; }
+        if (this.enforcer) { this.enforcer.dispose(); this.enforcer = null; }
         const sceneToClean = outerScene && outerScene.isScene ? outerScene : this.scene;
         // detach primary group / sky from whatever scene they live in
         if (this.level && this.level.parent) this.level.parent.remove(this.level);

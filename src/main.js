@@ -596,6 +596,16 @@ function disposeCurrentLevel() {
         if (level.level && level.level.parent) level.level.parent.remove(level.level);
       }
     } catch (e) { console.warn('dispose error', e); }
+
+    // Boss HP bar lives in the DOM (document.body), not the scene — make
+    // sure it is removed on switch even if the level's own dispose missed
+    // it or threw before reaching it. Otherwise the bar keeps showing on
+    // the next level and steals the new bar's id-based DOM lookups.
+    if (level.bossHealthBar) {
+      try { level.bossHealthBar.dispose(); } catch (e) {}
+      level.bossHealthBar = null;
+    }
+
     if (level.root && scene.children.includes(level.root)) scene.remove(level.root);
     if (level.level && scene.children.includes(level.level)) scene.remove(level.level);
     if (level.sky && scene.children.includes(level.sky)) scene.remove(level.sky);
@@ -657,6 +667,10 @@ function switchLevel(n) {
     };
     level.playerHealth = playerHealth;
   }
+
+  // Fresh start — Sorini always begins a level at full health, no matter
+  // how beaten up she finished the previous fight
+  playerHealth.reset();
 
   if (level.scene && level.scene !== scene) {
     if (level.scene.background) scene.background = level.scene.background;

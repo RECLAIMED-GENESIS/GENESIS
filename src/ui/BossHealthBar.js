@@ -58,6 +58,11 @@ export class BossHealthBar {
       ">PHASE I</div>
     `;
 
+    // If a previous level's bar was never disposed, drop it now — the
+    // id-based lookups in setHealth/setName/setPhase would otherwise
+    // keep resolving to that stale node instead of this new bar.
+    document.querySelectorAll('#boss-health-bar').forEach((el) => el.remove());
+
     document.body.appendChild(this.container);
   }
 
