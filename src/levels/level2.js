@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { StreetEnemies } from '../player/streetEnemies.js';
 import { Enforcer } from '../enemies/enforcer.js';
+import { GruntManager } from '../enemies/grunts.js';
 import { BossHealthBar } from '../ui/BossHealthBar.js';
+import { MinionHealthBar } from '../ui/MinionHealthBar.js';
 
 export class AlienLevel {
 
@@ -536,6 +538,12 @@ this._buildHazardTiles();
                 if (this._onEnforcerDeath) this._onEnforcerDeath();
             }
         });
+
+        // ── Minion support (grunts unleashed by the dialogue) ──
+        this.grunts = new GruntManager(this.level, (x, z) => this.getSurfaceHeight(x, z));
+        this.minionHealthBar = new MinionHealthBar(window.__camera || null);
+        this._minionsUnleashed = false;
+        this._minionUnleashTimers = [];
     }
 
         // =========================================================
@@ -668,6 +676,34 @@ this._buildHazardTiles();
         this.bossHealthBar.setName('THE ENFORCER');
         this.bossHealthBar.show();
 
+        // "Minions — unleash." — grunts start streaming out of the
+        // far-end portal, one after the other, spaced along the street.
+        this._unleashMinions();
+
+    }
+
+    // =========================================================
+    // UNLEASH MINIONS — staged grunt spawns from the far portal
+    // =========================================================
+    _unleashMinions() {
+        if (this._minionsUnleashed) return;
+        this._minionsUnleashed = true;
+
+        const spawnMinion = () => {
+            if (!this.grunts) return;
+            // A single grunt emerging from the far-end portal area
+            const pos = new THREE.Vector3(-4, 0, 112);
+            if (typeof this.getSurfaceHeight === 'function') {
+                pos.y = this.getSurfaceHeight(pos.x, pos.z);
+            }
+            this.grunts.spawnWave(pos, 1);
+            const g = this.grunts.grunts[this.grunts.grunts.length - 1];
+            if (g && this.minionHealthBar) this.minionHealthBar.register(g);
+        };
+
+        spawnMinion();
+        this._minionUnleashTimers.push(setTimeout(spawnMinion, 4000));
+        this._minionUnleashTimers.push(setTimeout(spawnMinion, 8000));
     }
 
       _onEnforcerDeath() {
@@ -6947,6 +6983,16 @@ createCityBackground() {
         if (this.enforcer && player) {
           this.enforcer.update(deltaTime, player.pos);
         }
+
+                // update minions (grunts unleashed by the Enforcer)
+        if (this.grunts && player) {
+          this.grunts.update(deltaTime, player.pos, (dmg) => {
+            if (this.onDamagePlayer) this.onDamagePlayer(dmg);
+          });
+        }
+        if (this.minionHealthBar) {
+          this.minionHealthBar.update();
+        }
                 // update boss HP bar
         if (this.enforcer && this.bossHealthBar) {
           this.bossHealthBar.setHealth(this.enforcer.health, this.enforcer.MAX_HEALTH);
@@ -7097,6 +7143,9 @@ createCityBackground() {
         if (this.streetEnemies) { this.streetEnemies.dispose(); this.streetEnemies = null; }
         if (this.bossHealthBar) { this.bossHealthBar.dispose(); this.bossHealthBar = null; }
         if (this.enforcer) { this.enforcer.dispose(); this.enforcer = null; }
+        if (this.grunts) { this.grunts.killAll(); this.grunts = null; }
+        if (this.minionHealthBar) { this.minionHealthBar.clear(); this.minionHealthBar = null; }
+        for (const t of this._minionUnleashTimers || []) clearTimeout(t);
         const sceneToClean = outerScene && outerScene.isScene ? outerScene : this.scene;
         // detach primary group / sky from whatever scene they live in
         if (this.level && this.level.parent) this.level.parent.remove(this.level);
