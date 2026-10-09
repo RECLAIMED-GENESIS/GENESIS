@@ -297,7 +297,18 @@ addEventListener('keydown', e => {
     // Space/Enter skips the current line
     if (e.code === 'Space' || e.code === 'Enter') {
       e.preventDefault();
-      if (typeof window.__dialogue.skip === 'function') window.__dialogue.skip();
+      if (typeof window.__dialogue.skip === 'function') {
+        // Skipping a line also cuts its voice — otherwise the speech
+        // keeps playing over whatever comes next.
+        if (window.__audioManager) {
+          for (const k of Object.keys(window.__audioManager.sounds)) {
+            if (/^l1_intro$|^l1_axiom_|^l1_ship_|^l2_enforcer_|^l3_architect_|^l3_ending_/.test(k)) {
+              window.__audioManager.sounds[k].stop();
+            }
+          }
+        }
+        window.__dialogue.skip();
+      }
       return;
     }
     window.__dialogue.handleKey(e.code);
@@ -1108,7 +1119,7 @@ function showControlsOverlay() {
     justify-content: center;
     color: white;
     font-family: 'Courier New', monospace;
-    z-index: 200;
+    z-index: 400;   // above the pause menu (300) so it also works when opened from pause
     overflow-y: auto;
     padding: 20px;
   `;
@@ -1166,6 +1177,9 @@ const pauseMenu = new PauseMenu({
   onRestartLevel: () => {
     pauseMenu.hide();
     switchLevel(current);
+  },
+  onControls: () => {
+    showControlsOverlay();
   },
   onQuitToMenu: () => restartToMenu(),
 });

@@ -12,6 +12,7 @@ export class PauseMenu {
     onSensitivityChange = () => {},
     onResume = () => {},
     onRestartLevel = () => {},
+    onControls = () => {},
     onQuitToMenu = () => {},
   }) {
     this.audioManager = audioManager;
@@ -20,6 +21,7 @@ export class PauseMenu {
     this._onSensitivityChange = onSensitivityChange;
     this._onResume = onResume;
     this._onRestartLevel = onRestartLevel;
+    this._onControls = onControls;
     this._onQuitToMenu = onQuitToMenu;
 
     this.container = document.createElement('div');
@@ -61,6 +63,7 @@ export class PauseMenu {
 
     panel.appendChild(this._makeButton('RESUME', () => this._onResume()));
     panel.appendChild(this._makeButton('RESTART LEVEL', () => this._onRestartLevel()));
+    panel.appendChild(this._makeButton('CONTROLS', () => this._onControls()));
     panel.appendChild(this._makeButton('QUIT TO MENU', () => this._onQuitToMenu()));
 
     // ── Options ──
