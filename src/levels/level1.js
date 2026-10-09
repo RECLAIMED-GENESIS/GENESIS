@@ -600,7 +600,7 @@ export class StreetLevel {
 
         if (window.__cinematicCamera) window.__cinematicCamera.stop();
     clearInterval(pulseInterval);
-    if (axiom) axiom.setIntensity(0.4);
+    if (axiom) axiom.setIntensity(1.0);
 
     if (window.__audioManager) window.__audioManager.resumeMusic();
     dlg.hide();

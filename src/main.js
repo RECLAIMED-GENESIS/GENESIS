@@ -7,6 +7,7 @@ import { StreetLevel } from './levels/level1.js';
 import { AlienLevel } from './levels/level2.js';
 import { ArchitectLevel } from './levels/level3.js';
 import { PlayerHealth } from './player/PlayerHealth.js';
+import { attachChestArtifact } from './player/chestArtifact.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { loadAllAudio } from './audio/loadAudio.js';
 import { Dialogue } from './ui/dialogue.js';
@@ -110,36 +111,21 @@ window.__playerHealth = playerHealth;
 const soriniGroup = new THREE.Group();
 scene.add(soriniGroup);
 
-// ── Axiom (the artifact) — a glowing point at Sorini's chest ──
-const axiomLight = new THREE.PointLight(0x88ddff, 0, 6, 2);
-axiomLight.position.set(0, 1.1, 0.3);
-soriniGroup.add(axiomLight);
-
-const axiomMesh = new THREE.Mesh(
-  new THREE.OctahedronGeometry(0.12, 0),
-  new THREE.MeshStandardMaterial({
-    color: 0x88ddff,
-    emissive: 0x88ddff,
-    emissiveIntensity: 0,
-    transparent: true,
-    opacity: 0,
-  })
-);
-axiomMesh.position.set(0, 1.1, 0.3);
-soriniGroup.add(axiomMesh);
+// ── Axiom (the artifact) — the glowing reactor in Sorini's chest ──
+// The visible reactor comes from chestArtifact.js and hooks onto her
+// Spine2 bone once the model loads (below). This block keeps the
+// legacy intensity API: axiomLevel scales the always-on chest glow
+// (1 = baseline brightness), used by the Axiom Dash flash and the
+// Level-1 dialogue pulse.
+let chestArtifact = null;
+let axiomLevel = 1;
 
 window.__axiom = {
-  light: axiomLight,
-  mesh: axiomMesh,
   activate() {
-    axiomLight.intensity = 0;
-    axiomMesh.material.opacity = 0;
-    axiomMesh.material.emissiveIntensity = 0;
+    axiomLevel = 1;
   },
   setIntensity(v) {
-    axiomLight.intensity = v;
-    axiomMesh.material.opacity = Math.min(1, v);
-    axiomMesh.material.emissiveIntensity = v * 3;
+    axiomLevel = v;
   },
 };
 
@@ -259,6 +245,12 @@ new FBXLoader().load('./assets/models/player/sorini.fbx', (fbx) => {
     }
   });
   soriniGroup.add(fbx);
+
+  // Iron-Man-style Axiom reactor embedded in her chest — the same
+  // module the main menu uses; rides every animation via the Spine2 bone.
+  chestArtifact = attachChestArtifact(fbx);
+  window.__chestArtifact = chestArtifact;
+  if (!chestArtifact) console.warn('sorini.fbx: chest bone not found — artifact skipped');
 
   soriniMixer = new THREE.AnimationMixer(fbx);
   for (const k of Object.keys(soriniClips)) _bindSoriniClip(k);
@@ -469,11 +461,11 @@ function _triggerDash() {
     window.__playerHealth._hurtCooldown = dash.iframeDuration;
   }
 
-  // Axiom glow flash
+  // Axiom glow flash — 3× burst, then back to the baseline glow
   if (window.__axiom) {
     window.__axiom.setIntensity(3.0);
     setTimeout(() => {
-      if (window.__axiom) window.__axiom.setIntensity(0.4);
+      if (window.__axiom) window.__axiom.setIntensity(1.0);
     }, 300);
   }
 
@@ -845,6 +837,18 @@ function tick() {
 
   stepPlayer(dt);
   if (soriniMixer) soriniMixer.update(dt);
+
+  // ── Axiom chest reactor — always-on breathing glow ──
+  // Mirrors the main-menu pulse; axiomLevel scales it for the Axiom
+  // Dash flash and the Level-1 dialogue pulse.
+  if (chestArtifact) {
+    const p = 0.6 + Math.sin(t * 2) * 0.4;
+    chestArtifact.ring.material.emissiveIntensity = (1.8 + p * 1.2) * axiomLevel;
+    chestArtifact.core.material.emissiveIntensity = (3.0 + p * 1.3) * axiomLevel;
+    chestArtifact.light.intensity = (1.8 + p * 2.0) * axiomLevel;
+    chestArtifact.coreSpin.rotation.z += 0.02;
+  }
+
   if (typeof level.update === 'function') {
     try { level.update(dt, t, player); }
     catch (e) { console.warn('level.update error', e); }

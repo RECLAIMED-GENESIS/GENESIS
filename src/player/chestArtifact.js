@@ -8,7 +8,7 @@
 // chest frame (up / side / front) is derived from the pose itself, so
 // it works on any Mixamo rig regardless of bone-axis conventions.
 //
-// Used by the main menu scene today; the in-game avatar later.
+// Used by the main menu scene and the in-game avatar.
 import * as THREE from 'three';
 
 function normalizeName(name) {
