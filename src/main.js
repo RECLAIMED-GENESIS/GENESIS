@@ -1201,12 +1201,16 @@ uiManager.registerScreen('main-menu', mainMenuElement);
 // ── Main Menu 3D Scene ──
 const menuCanvas = document.createElement('canvas');
 menuCanvas.id = 'menu-canvas';
-// z-index 20 sits ABOVE #ui-container (z-10): Chromium does not
-// composite this canvas under that overlay (its backdrop-filter
-// panel isolates the stack), which blacked out the whole scene.
-// The canvas is transparent where nothing is drawn, so the menu
-// DOM still shows through, and pointer-events:none keeps the
-// buttons clickable underneath.
+// z-index 20 sits BELOW the UI stack (#ui-container is z-30, see
+// UIManager.js) so the DOM menu always draws over this canvas.
+// History: the canvas used to sit ABOVE the UI as a workaround for
+// a Chromium compositing blackout caused by a backdrop-filter on
+// the menu panel — that filter was removed, and the old stacking
+// hid the panel's lower DOM (PLAY/CREDITS) behind the scene's
+// opaque ground plane.
+// The canvas is transparent where nothing is drawn, so the 3D
+// characters blend behind the menu DOM, and pointer-events:none
+// keeps stray clicks off the canvas.
 menuCanvas.style.cssText = `
   position: fixed;
   top: 0; left: 0;

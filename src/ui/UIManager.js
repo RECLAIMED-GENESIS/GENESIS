@@ -9,7 +9,10 @@ export class UIManager {
         this.container.id = 'ui-container';
         document.body.appendChild(this.container);
 
-        // Add a global style to ensure UI layers correctly over the canvas
+        // Add a global style to ensure UI layers correctly over the canvas.
+        // #ui-container is z-30: above the main-menu 3D canvas (#menu-canvas,
+        // z-20 in main.js) and below the body-level overlays (credits z-200,
+        // pause z-300, ...).
         this.injectGlobalStyles();
     }
     
@@ -28,7 +31,10 @@ export class UIManager {
                 width: 100%;
                 height: 100%;
                 pointer-events: none;
-                z-index: 10;
+                /* Must stay ABOVE #menu-canvas (z-20) or the menu
+                   scene's opaque ground plane paints over the DOM
+                   menu panel (PLAY/CREDITS buttons vanish). */
+                z-index: 30;
             }
             #ui-container > * {
                 pointer-events: auto;
