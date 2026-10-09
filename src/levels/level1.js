@@ -275,66 +275,83 @@ export class StreetLevel {
     window.__dialogue = dlg;
 
         // ── Cinematic intro shots ──
+    // Live targets + drift keep the camera moving through every view,
+    // and the sequence ends settled back on Sorini at the gameplay angle.
     const p = window.__player.pos;
-    const px = p.x;
-    const py = p.y;
-    const pz = p.z;
+    const yaw = window.__player.yaw;
+    const fx = Math.sin(yaw), fz = Math.cos(yaw);      // the way she faces
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);     // her right side
+    const shipY = (typeof this._h === 'function') ? this._h(24, 24) : 0;
+    const wreckY = (typeof this._h === 'function') ? this._h(-32, 45) : 0;
+    const soriniHead = () => ({ x: p.x, y: p.y + 1.25, z: p.z });
+    const gameplayPos = () => ({
+      x: p.x - Math.sin(window.__player.cameraYaw) * 5.5,
+      y: p.y + 2.8,
+      z: p.z - Math.cos(window.__player.cameraYaw) * 5.5,
+    });
 
     if (window.__cinematicCamera) {
       window.__cinematicCamera.play([
-        // Shot 1 — High wide drone of the village
+        // Shot 1 — High wide drone of the village, slowly settling
         {
-          pos: [px + 15, py + 25, pz + 30],
-          look: [px, py, pz - 30],
+          pos: () => ({ x: p.x + 15, y: p.y + 25, z: p.z + 30 }),
+          look: () => ({ x: p.x, y: p.y, z: p.z - 30 }),
+          drift: [-4, -3, -6],
           duration: 2500,
           transition: 0,
         },
-        // Shot 2 — Sweep toward the crashed ship (24, 24)
+        // Shot 2 — Close pass on the crashed grunt-ship (24, 24)
         {
-          pos: [30, 8, 30],
-          look: [24, 1.5, 24],
-          duration: 2000,
-          transition: 1200,
+          pos: () => ({ x: 30, y: shipY + 8, z: 30 }),
+          look: [24, shipY + 2, 24],
+          drift: [-4.5, -1.5, -4.5],
+          duration: 3500,
+          transition: 1800,
           ease: 'in-out',
         },
-        // Shot 3 — Fly toward Sorini from down the path
+        // Shot 3 — The second wreck off to the northeast
         {
-          pos: [px + 2, py + 3, pz - 30],
-          look: [px, py + 1.2, pz],
-          duration: 2500,
-          transition: 1500,
+          pos: () => ({ x: -24, y: wreckY + 7, z: 39 }),
+          look: [-32, wreckY + 3, 45],
+          drift: [-1.5, -0.8, -1],
+          duration: 3000,
+          transition: 1600,
           ease: 'in-out',
         },
-        // Shot 4 — Behind Sorini (gameplay angle)
+        // Shot 4 — Fly in toward Sorini from down the path
         {
-          pos: [px - Math.sin(window.__player.cameraYaw) * 5.5, py + 2.8, pz - Math.cos(window.__player.cameraYaw) * 5.5],
-          look: [px, py + 1.2, pz],
-          duration: 2000,
-          transition: 1500,
+          pos: () => ({ x: p.x + fx * 2, y: p.y + 3, z: p.z + fz * 28 }),
+          look: soriniHead,
+          drift: [-fx * 3, -0.8, -fz * 3],
+          duration: 3000,
+          transition: 1700,
           ease: 'in-out',
         },
-        // Shot 5 — Over the shoulder looking down the path
+        // Shot 5 — Front close-up of Sorini's face
         {
-          pos: [px + 0.5, py + 2.2, pz + 2.5],
-          look: [px, py + 1.0, pz - 15],
+          pos: () => ({ x: p.x + fx * 4.2, y: p.y + 1.6, z: p.z + fz * 4.2 }),
+          look: soriniHead,
+          drift: [rx * 1.4, 0, rz * 1.4],
           duration: 3000,
           transition: 1500,
           ease: 'in-out',
         },
-        // Shot 6 — Front view of Sorini
+        // Shot 6 — Over her shoulder, down the path she must walk
         {
-          pos: [px - Math.sin(window.__player.yaw) * 4, py + 1.8, pz - Math.cos(window.__player.yaw) * 4],
-          look: [px, py + 1.3, pz],
-          duration: 3500,
+          pos: () => ({ x: p.x - fx * 2.5, y: p.y + 2.3, z: p.z - fz * 2.5 }),
+          look: () => ({ x: p.x + fx * 12, y: p.y + 1, z: p.z + fz * 12 }),
+          drift: [fx * 1.2, 0, fz * 1.2],
+          duration: 2500,
           transition: 1500,
           ease: 'in-out',
         },
-        // Shot 7 — Return to gameplay camera
+        // Shot 7 — Return to the gameplay angle behind Sorini
         {
-          pos: [px - Math.sin(window.__player.cameraYaw) * 5.5, py + 2.8, pz - Math.cos(window.__player.cameraYaw) * 5.5],
-          look: [px, py + 1.2, pz],
-          duration: 2000,
-          transition: 1500,
+          pos: gameplayPos,
+          look: soriniHead,
+          drift: [0, -0.3, 0],
+          duration: 2500,
+          transition: 1800,
           ease: 'in-out',
         },
       ]);
@@ -488,67 +505,90 @@ export class StreetLevel {
     window.__dialogue = dlg;
 
         // ── Cinematic shots for the Axiom reveal ──
-    const px = this.pathX(-58);
-    const pz = -58;   // shrine is here — but Axiom plays wherever the Commander died
-    // Use the actual player position
-    const playerPos = window.__player.pos;
+    // Same treatment as the intro: live targets, gentle drift on every
+    // view, and a final settle back to the gameplay angle behind Sorini.
+    const p = window.__player.pos;
+    const yaw = window.__player.cameraYaw || 0;
+    const fx = Math.sin(yaw), fz = Math.cos(yaw);      // the way she faces
+    const rx = Math.cos(yaw), rz = -Math.sin(yaw);     // her right side
+    const head = () => ({ x: p.x, y: p.y + 1.25, z: p.z });
+    const gameplayPos = () => ({
+      x: p.x - Math.sin(window.__player.cameraYaw) * 5.5,
+      y: p.y + 2.8,
+      z: p.z - Math.cos(window.__player.cameraYaw) * 5.5,
+    });
 
     if (window.__cinematicCamera) {
       window.__cinematicCamera.play([
         // Shot 1 — Wide establishing shot of the arena
         {
-          pos: [playerPos.x + 6, playerPos.y + 8, playerPos.z + 6],
-          look: [playerPos.x, playerPos.y + 1, playerPos.z],
+          pos: () => ({ x: p.x + fx * 7 + rx * 5, y: p.y + 8, z: p.z + fz * 7 + rz * 5 }),
+          look: head,
+          drift: [-rx * 2, -0.8, -rz * 2],
           duration: 2500,
           transition: 0,
         },
         // Shot 2 — Front view of Sorini (see her chest glow)
-                // Shot 2 — Front view of Sorini (see her chest glow)
         {
-          pos: [playerPos.x - Math.sin(window.__player.yaw) * 4.5, playerPos.y + 1.8, playerPos.z - Math.cos(window.__player.yaw) * 4.5],
-          look: [playerPos.x, playerPos.y + 1.2, playerPos.z],
+          pos: () => ({ x: p.x + fx * 4.5, y: p.y + 1.8, z: p.z + fz * 4.5 }),
+          look: head,
+          drift: [rx * 1.2, 0, rz * 1.2],
           duration: 5000,
-          transition: 1200,
+          transition: 1600,
           ease: 'in-out',
         },
-        // Shot 3 — Close-up on her chest (Axiom view)
+        // Shot 3 — Close on the chest light while Axiom says "look down"
         {
-          pos: [playerPos.x + 1.8, playerPos.y + 1.4, playerPos.z + 0.5],
-          look: [playerPos.x, playerPos.y + 1.1, playerPos.z],
-          duration: 5500,
-          transition: 1000,
+          pos: () => ({ x: p.x + fx * 1.9 + rx * 0.6, y: p.y + 1.45, z: p.z + fz * 1.9 + rz * 0.6 }),
+          look: () => ({ x: p.x, y: p.y + 1.05, z: p.z }),
+          drift: [-rx * 0.5, 0.1, -rz * 0.5],
+          duration: 6500,
+          transition: 1400,
           ease: 'in-out',
         },
-        // Shot 4 — Hero low-angle wide shot
+        // Shot 4 — Hero low-angle wide as she takes it in
         {
-          pos: [playerPos.x + 5, playerPos.y + 0.6, playerPos.z + 5],
-          look: [playerPos.x, playerPos.y + 1.5, playerPos.z],
+          pos: () => ({ x: p.x + fx * 5 + rx * 4, y: p.y + 0.6, z: p.z + fz * 5 + rz * 4 }),
+          look: head,
+          drift: [-rx * 1.5, 0.4, -rz * 1.5],
           duration: 8500,
-          transition: 1500,
+          transition: 1800,
           ease: 'in-out',
         },
-        // Shot 5 — Pull back as she absorbs it
+        // Shot 5 — Pull back and rise as she absorbs it
         {
-          pos: [playerPos.x, playerPos.y + 3, playerPos.z + 8],
-          look: [playerPos.x, playerPos.y + 1, playerPos.z],
+          pos: () => ({ x: p.x + fx * 4, y: p.y + 2.5, z: p.z + fz * 4 }),
+          look: head,
+          drift: [-fx * 2, 1.5, -fz * 2],
+          duration: 11000,
+          transition: 2200,
+          ease: 'in-out',
+        },
+        // Shot 6 — 3/4 side view, slowly sliding, through the long speech
+        {
+          pos: () => ({ x: p.x + rx * 5, y: p.y + 2, z: p.z + rz * 5 }),
+          look: head,
+          drift: [rx * 1.6, -0.3, rz * 1.6],
           duration: 12000,
-          transition: 2500,
+          transition: 1800,
           ease: 'in-out',
         },
-        // Shot 6 — 3/4 side view as Axiom finishes
+        // Shot 7 — Low hero angle for the tail of the speech
         {
-          pos: [playerPos.x + 3, playerPos.y + 2, playerPos.z - 3],
-          look: [playerPos.x, playerPos.y + 1.2, playerPos.z],
-          duration: 12000,
-          transition: 1500,
+          pos: () => ({ x: p.x - fx * 4 + rx * 3.5, y: p.y + 0.8, z: p.z - fz * 4 + rz * 3.5 }),
+          look: head,
+          drift: [rx * -2.2, 0.2, rz * -2.2],
+          duration: 13000,
+          transition: 1800,
           ease: 'in-out',
         },
-        // Shot 7 — Return to gameplay camera
+        // Shot 8 — Return to the gameplay angle behind Sorini
         {
-          pos: [playerPos.x, playerPos.y + 2.8, playerPos.z + 5.5],
-          look: [playerPos.x, playerPos.y + 1.2, playerPos.z],
-          duration: 3800,
-          transition: 1500,
+          pos: gameplayPos,
+          look: head,
+          drift: [0, -0.3, 0],
+          duration: 5000,
+          transition: 2000,
           ease: 'in-out',
         },
       ]);
