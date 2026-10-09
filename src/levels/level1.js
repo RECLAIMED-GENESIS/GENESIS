@@ -2,7 +2,7 @@
 // LEVEL 1 — THE GROVE VILLAGE
 // ============================================================
 import * as THREE from 'three';
-import { VillageNPCs } from '../player/villageNPCs.js';
+import { VillageNPCs, showDialogue } from '../player/villageNPCs.js';
 import { Commander } from '../enemies/commander.js';
 import { GruntManager } from '../enemies/grunts.js';
 import { BossHealthBar } from '../ui/BossHealthBar.js';
@@ -225,6 +225,13 @@ export class StreetLevel {
     this.waveActive = false;
     this._commanderCalled = false;
 
+    // ── Spaceship reaction barks — spoken as she passes points on the arrow path ──
+    this._shipBarks = [
+      { key: 'l1_ship_1', text: 'So many spaceships.', fired: false },                        // past the arrow at z = 45
+      { key: 'l1_ship_2', text: 'Is this an invasion? I need to stop them.', fired: false },  // past the arrow at z = 15
+      { key: 'l1_ship_3', text: "There's more on my right.", fired: false },                  // wave 3 pours out of the east wreck
+    ];
+
     // Wave definitions — triggerZ gates when the wave fires
     // shipPos determines which wrecked ship they come from
     this.waves = [
@@ -249,6 +256,7 @@ export class StreetLevel {
     ];
 
     this._introPlayed = false;
+    this._introDone = false;
     setTimeout(() => {
       if (!this._introPlayed) {
         this._introPlayed = true;
@@ -332,20 +340,24 @@ export class StreetLevel {
     }
     if (window.__audioManager) window.__audioManager.pauseMusic();
 
+    await dlg.say("...", 800);
+
+    // Voice starts with the first spoken line; block timings follow the real
+    // speech boundaries of l1_intro.mp3 (verified with a silence scan).
     if (window.__audioManager) {
       window.__audioManager.playSfx('l1_intro');
     }
 
-    await dlg.say("...", 800);
-    await dlg.say("Where... where am I?\nThis isn't home.", 3200);
-    await dlg.say("The air tastes strange.\nEverything feels... lighter.", 3000);
-    await dlg.say("And inside me... there's something moving.\nLike a heartbeat that isn't mine.", 4400);
-    await dlg.say("I can feel it. Power. Waiting.\nBut I don't know why it chose me.", 4900);
+    await dlg.say("Where... where am I?\nThis isn't home.", 3290);
+    await dlg.say("The air tastes strange.\nEverything feels... lighter.", 2865);
+    await dlg.say("And inside me... there's something moving.\nLike a heartbeat that isn't mine.", 5465);
+    await dlg.say("I can feel it. Power. Waiting.\nBut I don't know why it chose me.", 4530);
 
     dlg.hide();
     dlg.active = false;
     dlg.dispose();
     window.__dialogue = null;
+    this._introDone = true;
         if (window.__cinematicCamera) window.__cinematicCamera.stop();
 
     if (window.__audioManager) window.__audioManager.resumeMusic();
@@ -366,6 +378,9 @@ export class StreetLevel {
     const wave = this.waves[this.waveIndex];
     this.waveIndex++;
     this.waveActive = true;
+
+    // Third wave — grunts pour out of the east wreck; Sorini spots them
+    if (this.waveIndex === 3) this._playShipBark(2);
     this.waveSpawnPending = wave.count;
 
     const spawnPos = wave.shipPos.clone();
@@ -1624,11 +1639,41 @@ export class StreetLevel {
     this._petalV = new THREE.Vector3();
   }
 
+  // ── One spaceship reaction bark: villager-style subtitle + voice (when the file exists) ──
+  _playShipBark(i) {
+    const bark = this._shipBarks[i];
+    if (!bark) return;
+
+    let holdMs = 2600;
+    const am = window.__audioManager;
+    const s = am && am.sounds ? am.sounds[bark.key] : null;
+    if (s && s.state() === 'loaded') {
+      am.playSfx(bark.key);
+      holdMs = Math.max(1200, (s.duration() || 2.5) * 1000 + 350);
+    }
+
+    // Same subtitle box the villagers use
+    showDialogue(bark.text, holdMs);
+  }
+
   update(deltaTime, t, player) {
     this.time += deltaTime;
     for (const m of this.timeMats) m.uniforms.uTime.value = this.time;
 
     this._checkWaveStatus();
+
+    // ── Spaceship reaction barks — fire as she passes arrow points on the path ──
+    if (this._introDone &&
+        !(window.__dialogue && window.__dialogue.active) &&
+        !(window.__cinematicCamera && window.__cinematicCamera.active)) {
+      if (!this._shipBarks[0].fired && player.pos.z < 45) {
+        this._shipBarks[0].fired = true;
+        this._playShipBark(0);
+      } else if (!this._shipBarks[1].fired && player.pos.z < 15) {
+        this._shipBarks[1].fired = true;
+        this._playShipBark(1);
+      }
+    }
 
     if (this._shipSmoke) {
       const { points, speeds } = this._shipSmoke;

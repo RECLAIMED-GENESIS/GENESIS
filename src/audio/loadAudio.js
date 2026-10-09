@@ -54,6 +54,11 @@ export function loadAllAudio(audioManager) {
   audioManager.loadSound('l1_axiom_8', { src: './assets/audio/voices/l1_axiom_8.mp3', volume: 1.0 });
   audioManager.loadSound('l1_axiom_9', { src: './assets/audio/voices/l1_axiom_9.mp3', volume: 1.0 });
 
+    // ── LEVEL 1 SPACESHIP REACTION VOICES ──
+  audioManager.loadSound('l1_ship_1', { src: './assets/audio/voices/l1_ship_1.mp3', volume: 1.0 });
+  audioManager.loadSound('l1_ship_2', { src: './assets/audio/voices/l1_ship_2.mp3', volume: 1.0 });
+  audioManager.loadSound('l1_ship_3', { src: './assets/audio/voices/l1_ship_3.mp3', volume: 1.0 });
+
     // ── LEVEL 2 ENFORCER VOICES ──
   audioManager.loadSound('l2_enforcer_1', { src: './assets/audio/voices/l2_enforcer_1.mp3', volume: 1.0 });
   audioManager.loadSound('l2_enforcer_2', { src: './assets/audio/voices/l2_enforcer_2.mp3', volume: 1.0 });
