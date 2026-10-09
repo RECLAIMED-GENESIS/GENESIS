@@ -289,6 +289,9 @@ const dash = {
   enabled: false,     // disabled until Level 2+
 };
 
+// Arrow keys mirror WASD — same movement, nothing else changes.
+const ARROW_TO_KEY = { ArrowUp: 'KeyW', ArrowLeft: 'KeyA', ArrowDown: 'KeyS', ArrowRight: 'KeyD' };
+
 addEventListener('keydown', e => {
   if (window.__dialogue && window.__dialogue.active) {
     // Space/Enter skips the current line
@@ -321,6 +324,8 @@ addEventListener('keydown', e => {
   if (pauseMenu.visible) return;   // gameplay input frozen while paused
 
   keys[e.code] = true;
+  // Arrows drive the same movement keys as WASD
+  if (ARROW_TO_KEY[e.code]) keys[ARROW_TO_KEY[e.code]] = true;
   if (e.code === 'Space') e.preventDefault();
 
     // ── Axiom Dash: Shift + Space ──
@@ -403,6 +408,7 @@ function _damageEnemiesIfClose(damage) {
 
 addEventListener('keyup', e => {
   keys[e.code] = false;
+  if (ARROW_TO_KEY[e.code]) keys[ARROW_TO_KEY[e.code]] = false;
   if (e.code === 'Space') keys._spaceConsumed = false;
 });
 
@@ -1087,6 +1093,65 @@ function showCreditsOverlay() {
   });
 }
 
+// Controls overlay — how to play
+function showControlsOverlay() {
+  const controlsDiv = document.createElement('div');
+  controlsDiv.id = 'controls-overlay';
+  controlsDiv.style.cssText = `
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-family: 'Courier New', monospace;
+    z-index: 200;
+    overflow-y: auto;
+    padding: 20px;
+  `;
+    controlsDiv.innerHTML = `
+    <h1 style="color: #00ffff; font-size: 36px; margin-bottom: 30px;">CONTROLS</h1>
+    <div style="text-align: left; font-size: 16px; line-height: 2; color: #aaa; max-width: 600px;">
+      <h2 style="color: #ffffff; font-size: 20px; margin-bottom: 10px;">MOVEMENT</h2>
+      <p>● W / ↑ — Walk forward (hold SHIFT to sprint)</p>
+      <p>● S / ↓ — Turn around and walk the other way</p>
+      <p>● A / ← and D / → — Rotate Sorini</p>
+      <p>● Mouse — Look around (click the screen to capture the mouse)</p>
+
+      <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">COMBAT</h2>
+      <p>● F — Punch</p>
+      <p>● G — Kick</p>
+      <p>● H — Hook</p>
+
+      <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">MOVES</h2>
+      <p>● SPACE — Jump</p>
+      <p>● SHIFT + SPACE — Axiom dash (unlocks on Level 2)</p>
+
+      <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">GENERAL</h2>
+      <p>● SPACE / ENTER — Skip a dialogue line</p>
+      <p>● ESC — Pause menu</p>
+    </div>
+    <button id="controls-back" style="
+      margin-top: 40px;
+      background: #00ffff;
+      border: none;
+      color: #000;
+      padding: 12px 40px;
+      font-size: 18px;
+      font-family: 'Courier New', monospace;
+      cursor: pointer;
+      border-radius: 8px;
+    ">BACK</button>
+  `;
+  document.body.appendChild(controlsDiv);
+  document.getElementById('controls-back').addEventListener('click', () => {
+    controlsDiv.remove();
+  });
+}
+
 // ── Pause menu — options, restart level, quit to menu ──
 const pauseMenu = new PauseMenu({
   audioManager,
@@ -1209,6 +1274,10 @@ const mainMenuElement = createMainMenu(
         );
       }
     }, 200);
+  },
+  // CONTROLS
+  () => {
+    showControlsOverlay();
   },
   // CREDITS
   () => {

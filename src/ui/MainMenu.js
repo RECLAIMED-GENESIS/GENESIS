@@ -1,5 +1,5 @@
 // src/ui/MainMenu.js
-export function createMainMenu(onPlayClick, onCreditsClick) {
+export function createMainMenu(onPlayClick, onControlsClick, onCreditsClick) {
     const container = document.createElement('div');
     container.id = 'main-menu';
     container.className = 'ui-screen';
@@ -54,6 +54,20 @@ export function createMainMenu(onPlayClick, onCreditsClick) {
                 letter-spacing: 2px;
             ">▶ PLAY</button>
             <br>
+            <button id="controlsBtn" style="
+                background: transparent;
+                border: 2px solid #555;
+                color: #aaa;
+                padding: 10px 30px;
+                font-size: 0.9rem;
+                cursor: pointer;
+                border-radius: 8px;
+                transition: all 0.2s ease;
+                width: 220px;
+                font-family: 'Courier New', monospace;
+                letter-spacing: 1px;
+            ">CONTROLS</button>
+            <br>
             <button id="creditsBtn" style="
                 background: transparent;
                 border: 2px solid #555;
@@ -91,6 +105,19 @@ export function createMainMenu(onPlayClick, onCreditsClick) {
         playBtn.style.boxShadow = 'none';
     });
 
+    // Hover effects for Controls button
+    const controlsBtn = container.querySelector('#controlsBtn');
+    controlsBtn.addEventListener('mouseenter', () => {
+        controlsBtn.style.borderColor = '#00ffff';
+        controlsBtn.style.color = '#00ffff';
+        controlsBtn.style.background = 'rgba(0,255,255,0.1)';
+    });
+    controlsBtn.addEventListener('mouseleave', () => {
+        controlsBtn.style.borderColor = '#555';
+        controlsBtn.style.color = '#aaa';
+        controlsBtn.style.background = 'transparent';
+    });
+
     // Hover effects for Credits button
     const creditsBtn = container.querySelector('#creditsBtn');
     creditsBtn.addEventListener('mouseenter', () => {
@@ -106,6 +133,7 @@ export function createMainMenu(onPlayClick, onCreditsClick) {
 
     // Attach Event Listeners
     playBtn.addEventListener('click', onPlayClick);
+    controlsBtn.addEventListener('click', onControlsClick);
     creditsBtn.addEventListener('click', onCreditsClick);
 
     return container;
