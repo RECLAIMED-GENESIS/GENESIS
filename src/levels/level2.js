@@ -5,6 +5,7 @@ import { Enforcer } from '../enemies/enforcer.js';
 import { GruntManager } from '../enemies/grunts.js';
 import { BossHealthBar } from '../ui/BossHealthBar.js';
 import { MinionHealthBar } from '../ui/MinionHealthBar.js';
+import { showDialogue } from '../player/villageNPCs.js';
 
 export class AlienLevel {
 
@@ -544,6 +545,7 @@ this._buildHazardTiles();
         this.minionHealthBar = new MinionHealthBar(window.__camera || null);
         this._minionsUnleashed = false;
         this._minionUnleashTimers = [];
+        this._tipTimers = [];
     }
 
         // =========================================================
@@ -602,6 +604,27 @@ this._buildHazardTiles();
         // Trigger combat
         this.triggerCombat();
 
+        // Post-dialogue tips — the new danger and the new move
+        this._showDangerTips();
+
+    }
+
+    // =========================================================
+    // POST-DIALOGUE TIPS — glowing tiles + the new dash move
+    // =========================================================
+    _showDangerTips() {
+        // Reuse the shared dialogue overlay so the notices match the
+        // rest of the game's on-screen text design.
+        showDialogue(
+            'Be careful of the glowing tiles — when one lights up it electrifies. Don\'t stand on it.',
+            5200
+        );
+        this._tipTimers.push(setTimeout(() => {
+            showDialogue(
+                'New move: press SHIFT + SPACE to dash forward — dodge the tiles or escape when the danger gets too much.',
+                5600
+            );
+        }, 5400));
     }
 
         // =========================================================
@@ -7146,6 +7169,7 @@ createCityBackground() {
         if (this.grunts) { this.grunts.killAll(); this.grunts = null; }
         if (this.minionHealthBar) { this.minionHealthBar.clear(); this.minionHealthBar = null; }
         for (const t of this._minionUnleashTimers || []) clearTimeout(t);
+        for (const t of this._tipTimers || []) clearTimeout(t);
         const sceneToClean = outerScene && outerScene.isScene ? outerScene : this.scene;
         // detach primary group / sky from whatever scene they live in
         if (this.level && this.level.parent) this.level.parent.remove(this.level);
