@@ -40,15 +40,20 @@ function ensureDialogueBox() {
 }
 
 let _dialogueTimer = null;
+let _dialogueHideTimer = null;
 export function showDialogue(text, duration = 4500) {
   const box = ensureDialogueBox();
   box.innerText = text;
   box.style.display = 'block';
   box.style.opacity  = '1';
   clearTimeout(_dialogueTimer);
+  // A previous message may be mid-fade with its delayed hide still
+  // pending — cancel it, or it would blank this message right after
+  // it appears (the L2 dash tip was being hidden 120 ms in).
+  clearTimeout(_dialogueHideTimer);
   _dialogueTimer = setTimeout(() => {
     box.style.opacity = '0';
-    setTimeout(() => { box.style.display = 'none'; }, 420);
+    _dialogueHideTimer = setTimeout(() => { box.style.display = 'none'; }, 420);
   }, duration);
 }
 

@@ -727,17 +727,19 @@ this._buildHazardTiles();
     // =========================================================
     _showDangerTips() {
         // Reuse the shared dialogue overlay so the notices match the
-        // rest of the game's on-screen text design.
+        // rest of the game's on-screen text design. Both stay up long
+        // enough to actually read mid-fight — the dash move is a
+        // brand-new control to learn, so it gets the most screen time.
         showDialogue(
             'Be careful of the glowing tiles — when one lights up it electrifies. Don\'t stand on it.',
-            5200
+            8000
         );
         this._tipTimers.push(setTimeout(() => {
             showDialogue(
                 'New move: press SHIFT + SPACE to dash forward — dodge the tiles or escape when the danger gets too much.',
-                5600
+                10000
             );
-        }, 5400));
+        }, 8300));
     }
 
         // =========================================================
