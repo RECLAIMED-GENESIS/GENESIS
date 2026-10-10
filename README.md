@@ -61,6 +61,12 @@ desperate.
 - **Vite** — dev server and production bundler
 - **Howler.js** — music, SFX and voice lines (per-level themes, character voice acting)
 - **Custom collision** — hand-rolled capsule-vs-AABB system; no physics engine
+- **Custom GLSL shaders** — a procedural cratered moon over the village, living
+  nebula sky domes behind the menu and the moon monument, god-ray shafts in
+  the throne hall, and a dissolve pass that burns defeated grunts away
+- **Procedural PBR detail** — canvas-painted normal maps and equirectangular
+  environment maps give the monument plaza, the throne hall floor and the
+  wet neon street real reflections; zero extra asset files
 - **Mixamo** — animation clips, retargeted onto our character rigs at load time
 - **git-lfs** — all binary assets (FBX models, audio) are LFS-tracked
 
@@ -74,7 +80,7 @@ Prerequisites:
 ```bash
 git clone https://github.com/RECLAIMED-GENESIS/GENESIS.git
 cd GENESIS
-git lfs pull          # fetch ~200 MB of FBX/audio assets
+git lfs pull          # fetch ~150 MB of FBX/audio assets
 npm install
 npm run dev           # → http://localhost:5173
 ```
@@ -101,8 +107,10 @@ src/
                       CinematicCamera · PauseMenu · dialogue · LoadingScreen
   audio/             AudioManager (Howler) · loadAudio
   physics/           CollisionSystem (custom AABB/sphere)
-  shaders/           custom GLSL (moon, river)
-  utils/             CharacterLoader · AnimationController
+  shaders/           custom GLSL — shared library (nebula sky, god rays,
+                      dissolve) + moon, river
+  utils/             CharacterLoader · AnimationController · utils
+                      (procedural textures, normal/env-map generators)
 ```
 
 ## Credits
