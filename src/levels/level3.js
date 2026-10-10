@@ -12,6 +12,35 @@ import { STATE } from '../player/streetEnemies.js';
 import { BossHealthBar } from '../ui/BossHealthBar.js';
 import { worldColliders } from '../physics/CollisionSystem.js';
 import { NebulaSkyMaterial, GodRayMaterial } from '../shaders/shaders.js';
+import { mulberry32, normalMapFromHeight, moonEnvTexture } from '../utils/utils.js';
+
+// Shared bump generator for the monument's metal: faint brushed streaks
+// over a machined panel grid. The same paint feeds the plaza disc and the
+// hall floor (at matching world tile size) so the finish stays continuous
+// through the arch.
+function moonSteelNormal(repeatX, repeatY) {
+  const rnd = mulberry32(88);
+  const tex = normalMapFromHeight(256, (g, s) => {
+    g.fillStyle = '#808080'; g.fillRect(0, 0, s, s);
+    for (let i = 0; i < 260; i++) {            // brushed streaks
+      const v = 118 + Math.floor(rnd() * 24);
+      g.strokeStyle = `rgb(${v},${v},${v})`;
+      g.lineWidth = 1;
+      const y = rnd() * s;
+      g.beginPath();
+      g.moveTo(rnd() * s * 0.4, y);
+      g.lineTo(s * (0.5 + rnd() * 0.5), y + (rnd() - 0.5) * 3);
+      g.stroke();
+    }
+    g.strokeStyle = '#6a6a6a'; g.lineWidth = 2;   // machined panel seams
+    for (let i = 0; i <= 4; i++) {
+      g.beginPath(); g.moveTo(i * s / 4, 0); g.lineTo(i * s / 4, s); g.stroke();
+      g.beginPath(); g.moveTo(0, i * s / 4); g.lineTo(s, i * s / 4); g.stroke();
+    }
+  }, 1.6);
+  tex.repeat.set(repeatX, repeatY);
+  return tex;
+}
 
 export class ArchitectLevel {
 
@@ -739,6 +768,18 @@ export class ArchitectLevel {
     const plazaMat = new THREE.MeshStandardMaterial({
       color: 0xc9d4dc, roughness: 0.18, metalness: 0.88,
     });
+
+    // The monument is near-pure metal, and with nothing to mirror a
+    // metal surface is just dark paint — the level-2 glass hit the
+    // same problem. Give it the void itself (stars, Earth-glow, a
+    // whisper of nebula) as a procedural equirect envMap, plus a
+    // machined-panel bump so the disc isn't optically flat. Additive
+    // only: colour, roughness and metalness are untouched.
+    this._monumentEnv = moonEnvTexture();
+    plazaMat.envMap = this._monumentEnv;
+    plazaMat.envMapIntensity = 0.75;
+    plazaMat.normalMap = moonSteelNormal(16, 16);   // ~7.5u tiles across the 120u disc
+    plazaMat.normalScale.set(0.35, 0.35);
     const plaza = new THREE.Mesh(
       new THREE.CylinderGeometry(60, 60, 1.2, 64),
       plazaMat
@@ -751,6 +792,8 @@ export class ArchitectLevel {
     const ringMat = new THREE.MeshStandardMaterial({
       color: 0xaebcc8, roughness: 0.22, metalness: 0.92,
     });
+    ringMat.envMap = this._monumentEnv;
+    ringMat.envMapIntensity = 0.75;
     const ring = new THREE.Mesh(
       new THREE.CylinderGeometry(22, 22, 0.22, 48),
       ringMat
@@ -763,6 +806,8 @@ export class ArchitectLevel {
     const stepMat = new THREE.MeshStandardMaterial({
       color: 0xb8c4cf, roughness: 0.3, metalness: 0.75,
     });
+    stepMat.envMap = this._monumentEnv;
+    stepMat.envMapIntensity = 0.75;
     const stairBaseZ = 15;
     const stairTopZ  = 0;
     const STEPS      = 8;
@@ -1033,6 +1078,13 @@ export class ArchitectLevel {
       roughness: 0.18,     // was 0.45
       metalness: 0.88,     // was 0.5
     });
+    // Same env + bump as the plaza, at the same world tile size, so
+    // the hall floor stays continuous with the exterior through the
+    // arch now that both reflect the void.
+    floorMat.envMap = this._monumentEnv;
+    floorMat.envMapIntensity = 0.75;
+    floorMat.normalMap = moonSteelNormal(8, 16);    // 60x120 slab → same ~7.5u tiles
+    floorMat.normalScale.set(0.35, 0.35);
     const trimMat = new THREE.MeshStandardMaterial({
       color: 0x00d9ff,
       emissive: 0x00d9ff,
@@ -1938,6 +1990,7 @@ export class ArchitectLevel {
     this.fleetShips = null;
     this.timeMats = [];
     this.godRays = null;
+    this._monumentEnv = null;   // texture itself dies with its materials in the traverse
     this.colliders = [];
   }
 }

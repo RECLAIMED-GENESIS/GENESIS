@@ -212,3 +212,138 @@ export function dissolveNoiseTexture(size = 256) {
     g.putImageData(img, 0, 0);
   }, { srgb: false });
 }
+
+// ---------- normal maps (bump detail without extra geometry) ----------
+
+// Turns a grayscale height canvas into a tangent-space normal texture
+// via a wrapped sobel pass (wrapped so the result tiles seamlessly).
+// Stays in linear color space — normal maps must never be sRGB-encoded.
+function heightCanvasToNormalTexture(c, strength) {
+  const size = c.width;
+  const g = c.getContext('2d');
+  const src = g.getImageData(0, 0, size, size).data;
+  const h = new Float32Array(size * size);
+  for (let i = 0; i < h.length; i++) h[i] = src[i * 4] / 255;
+  const at = (x, y) => h[((y + size) % size) * size + ((x + size) % size)];
+  const out = g.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Canvas y grows downward while tangent v grows upward, so the
+      // green channel takes the raw canvas gradient and red the
+      // negated one — the standard height-to-normal orientation.
+      const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
+      const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+      const inv = 1 / Math.hypot(dx, dy, 1);
+      const k = (y * size + x) * 4;
+      out.data[k] = (-dx * inv * 0.5 + 0.5) * 255;
+      out.data[k + 1] = (dy * inv * 0.5 + 0.5) * 255;
+      out.data[k + 2] = (inv * 0.5 + 0.5) * 255;
+      out.data[k + 3] = 255;
+    }
+  }
+  g.putImageData(out, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  return t;
+}
+
+// Paint a height field with drawHeight(ctx, size) (grayscale = height)
+// and get back a matching normal-map texture.
+export function normalMapFromHeight(size, drawHeight, strength = 2) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  drawHeight(c.getContext('2d'), size);
+  return heightCanvasToNormalTexture(c, strength);
+}
+
+// Bump from an existing diffuse texture: treats its luminance as a
+// height field. Resolves null if the image fails to load.
+export function normalMapFromImageURL(url, { size = 512, strength = 1.2 } = {}) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = c.height = size;
+      c.getContext('2d').drawImage(img, 0, 0, size, size);
+      resolve(heightCanvasToNormalTexture(c, strength));
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+// ---------- environment maps (reflections without asset files) ----------
+
+// Little equirectangular skies for envMap duty. Drawn on a canvas, so
+// they cost nothing to load, and the renderer converts them to a
+// filtered PMREM automatically when a PBR material uses them.
+function equirectTexture(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.mapping = THREE.EquirectangularReflectionMapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;   // clean longitude seam
+  return t;
+}
+
+// The moon-monument void: near-black sky, dense stars, a soft Earth
+// glow and a whisper of nebula — what a polished plaza should mirror.
+export function moonEnvTexture() {
+  const rnd = mulberry32(2024);
+  return equirectTexture(1024, 512, (g, w, h) => {
+    g.fillStyle = '#04040a'; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 26; i++) {                     // nebula wisps
+      g.globalAlpha = 0.05 + rnd() * 0.06;
+      g.fillStyle = rnd() < 0.5 ? '#5a3d8f' : '#1d4f66';
+      g.beginPath();
+      g.ellipse(rnd() * w, rnd() * h, 60 + rnd() * 160, 30 + rnd() * 80, rnd() * 3, 0, 7);
+      g.fill();
+    }
+    for (let i = 0; i < 1400; i++) {                   // stars
+      g.globalAlpha = 0.3 + rnd() * 0.7;
+      g.fillStyle = rnd() < 0.85 ? '#ffffff' : '#bcd7ff';
+      g.beginPath();
+      g.arc(rnd() * w, rnd() * h, rnd() < 0.9 ? 0.8 : 1.5, 0, 7);
+      g.fill();
+    }
+    g.globalAlpha = 1;
+    const ex = w * 0.3, ey = h * 0.62;                 // Earth glow
+    const grd = g.createRadialGradient(ex, ey, 4, ex, ey, 90);
+    grd.addColorStop(0, 'rgba(120,170,255,0.95)');
+    grd.addColorStop(0.35, 'rgba(60,110,200,0.5)');
+    grd.addColorStop(1, 'rgba(20,40,90,0)');
+    g.fillStyle = grd;
+    g.beginPath(); g.arc(ex, ey, 90, 0, 7); g.fill();
+  });
+}
+
+// Neon-street night: deep navy sky with glowing sign bands around the
+// horizon — what wet asphalt should mirror.
+export function neonEnvTexture() {
+  const rnd = mulberry32(77);
+  return equirectTexture(1024, 512, (g, w, h) => {
+    const grd = g.createLinearGradient(0, 0, 0, h);
+    grd.addColorStop(0, '#05060f');
+    grd.addColorStop(0.55, '#0a1030');
+    grd.addColorStop(0.78, '#1a1440');
+    grd.addColorStop(1, '#05060f');
+    g.fillStyle = grd; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 240; i++) {                    // sparse stars
+      g.globalAlpha = 0.2 + rnd() * 0.5;
+      g.fillStyle = '#cfe0ff';
+      g.beginPath(); g.arc(rnd() * w, rnd() * h * 0.4, 0.8, 0, 7); g.fill();
+    }
+    g.globalAlpha = 1;
+    const cols = ['#ff2d95', '#00e5ff', '#ffb300', '#7c4dff'];
+    for (let i = 0; i < 14; i++) {                     // neon sign bands
+      const y = h * (0.45 + rnd() * 0.25);
+      g.fillStyle = cols[Math.floor(rnd() * cols.length)];
+      g.globalAlpha = 0.5 + rnd() * 0.5;
+      g.fillRect(rnd() * w, y, 30 + rnd() * 130, 3 + rnd() * 8);
+    }
+    g.globalAlpha = 1;
+  });
+}

@@ -6,6 +6,7 @@ import { GruntManager } from '../enemies/grunts.js';
 import { BossHealthBar } from '../ui/BossHealthBar.js';
 import { MinionHealthBar } from '../ui/MinionHealthBar.js';
 import { showDialogue } from '../player/villageNPCs.js';
+import { neonEnvTexture, normalMapFromImageURL } from '../utils/utils.js';
 
 export class AlienLevel {
 
@@ -228,6 +229,25 @@ this._buildHazardTiles();
                 roughness: 0.15,
                 metalness: 0.7
             });
+
+        // Wet-street reflections. The material is already roughness .15 /
+        // metalness .7 — wet asphalt begging for an environment — but with
+        // nothing to mirror it renders as dark paint — the glass-cluster
+        // buildings hit the same trap. A tiny procedural neon-sky envMap gives
+        // the surface sign bands to pick up, and a bump derived from the
+        // road texture's own luminance adds wet-asphalt grain. Additive:
+        // map, roughness and metalness are untouched.
+        roadMaterial.envMap = neonEnvTexture();
+        roadMaterial.envMapIntensity = 0.6;
+        normalMapFromImageURL(
+            './assets/textures/Road.png'
+        ).then((bump) => {
+            if (!bump) return;
+            bump.repeat.set(1, 8);   // match roadTexture so relief aligns with the diffuse
+            roadMaterial.normalMap = bump;
+            roadMaterial.normalScale.set(0.4, 0.4);
+            roadMaterial.needsUpdate = true;   // adding a normal map recompiles the material
+        });
 
         const road =
             new THREE.Mesh(
