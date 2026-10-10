@@ -37,16 +37,18 @@ with the god who made your parasite?
 
 | Input | Action |
 |-------|--------|
-| `W` / `S` | Move forward / back |
-| `A` / `D` | Turn Sorini |
+| `W` / `↑` | Walk forward (hold `Shift` to sprint) |
+| `S` / `↓` | Turn Sorini around and walk the other way |
+| `A` / `←` · `D` / `→` | Rotate Sorini |
 | **Mouse** | Camera look (click the canvas to capture the pointer) |
 | `Shift` | Sprint |
 | `Space` | Jump |
-| `Shift` + `Space` | **Axiom Dash** — burst of the Axiom's power, on a cooldown |
+| `Shift` + `Space` | **Axiom Dash** — burst of the Axiom's power, on a cooldown (unlocks on Level 2) |
 | `F` | Punch |
 | `G` | Kick (heavier) |
 | `H` | Hook (heavier) |
-| `Esc` | Pause menu (volumes, mouse sensitivity, restart, quit to menu) |
+| `R` | Restart the current level |
+| `Esc` | Pause menu — resume, restart, a full controls reference, volumes, mouse sensitivity, quit to menu |
 | `Space` / `Enter` | Skip the current dialogue line |
 | `1` / `2` / `3` | Pick a dialogue/ending choice |
 
