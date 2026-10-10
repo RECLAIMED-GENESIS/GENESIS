@@ -26,3 +26,4 @@ dist-ssr
 # Local test artifacts & reference docs
 /screenshot_*.png
 *.pdf
+.qoder/
