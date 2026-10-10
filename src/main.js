@@ -778,6 +778,15 @@ for (let i = 0; i < MAX_DOTS; i++) {
 const GRAV = 30, SPEED = 4.5, SPRINT = 9;
 const TURN_SPEED = 2.2;
 
+// Scratch objects for stepPlayer's collider pass, created once and
+// reused every frame — the hottest path in the game used to hand the
+// GC three fresh objects per tick, the classic source of micro-stutter.
+// _pb aliases _pMin/_pMax (Box3's constructor stores the vectors by
+// reference), so refilling them refreshes the box with zero allocations.
+const _pMin = new THREE.Vector3();
+const _pMax = new THREE.Vector3();
+const _pb = new THREE.Box3(_pMin, _pMax);
+
 function stepPlayer(dt) {
   const isSprint = keys.ShiftLeft || keys.ShiftRight;
   const sp = isSprint ? SPRINT : SPEED;
@@ -827,18 +836,20 @@ function stepPlayer(dt) {
 
   // ── Colliders ──
   const colliders = (level && Array.isArray(level.colliders)) ? level.colliders : [];
-  const pMin = new THREE.Vector3(player.pos.x - player.R, player.pos.y, player.pos.z - player.R);
-  const pMax = new THREE.Vector3(player.pos.x + player.R, player.pos.y + player.H, player.pos.z + player.R);
-  const pb = new THREE.Box3(pMin, pMax);
+  _pMin.set(player.pos.x - player.R, player.pos.y, player.pos.z - player.R);
+  _pMax.set(player.pos.x + player.R, player.pos.y + player.H, player.pos.z + player.R);
   for (const c of colliders) {
     if (!c || typeof c.intersectsBox !== 'function') continue;
-    if (!c.intersectsBox(pb)) continue;
-    const ox = Math.min(pMax.x - c.min.x, c.max.x - pMin.x);
-    const oz = Math.min(pMax.z - c.min.z, c.max.z - pMin.z);
-    if (ox < oz) player.pos.x += (pMax.x - c.min.x < c.max.x - pMin.x) ? -ox : ox;
-    else         player.pos.z += (pMax.z - c.min.z < c.max.z - pMin.z) ? -oz : oz;
-    pMin.set(player.pos.x - player.R, player.pos.y, player.pos.z - player.R);
-    pMax.set(player.pos.x + player.R, player.pos.y, player.pos.z + player.R);
+    if (!c.intersectsBox(_pb)) continue;
+    const ox = Math.min(_pMax.x - c.min.x, c.max.x - _pMin.x);
+    const oz = Math.min(_pMax.z - c.min.z, c.max.z - _pMin.z);
+    if (ox < oz) player.pos.x += (_pMax.x - c.min.x < c.max.x - _pMin.x) ? -ox : ox;
+    else         player.pos.z += (_pMax.z - c.min.z < c.max.z - _pMin.z) ? -oz : oz;
+    _pMin.set(player.pos.x - player.R, player.pos.y, player.pos.z - player.R);
+    // +H here — this refill used to drop the height term, collapsing
+    // the box to zero height after the first push-out so later
+    // colliders in the same frame were tested against a flat slab
+    _pMax.set(player.pos.x + player.R, player.pos.y + player.H, player.pos.z + player.R);
   }
 
   if (player.pos.y < -60) {
