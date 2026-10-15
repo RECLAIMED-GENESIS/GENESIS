@@ -91,6 +91,12 @@ export class Dialogue {
         if (resolved) return;
         resolved = true;
         this._skipResolve = null;
+        // A finished line must not keep swallowing gameplay input:
+        // clear the active flag and tuck the box away. Sequential
+        // lines re-activate within the same microtask, so nothing
+        // flickers and no keypress can slip between lines.
+        this.active = false;
+        if (this.container) this.container.style.display = 'none';
         resolve();
       };
       this._skipResolve = finish;

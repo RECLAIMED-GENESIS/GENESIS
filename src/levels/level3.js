@@ -2024,10 +2024,14 @@ export class ArchitectLevel {
         4800, 'THE ARCHITECT'
       );
 
+      // Restore gameplay input before the duel — a finished sequence
+      // must never leave the dialogue marked active (soft-lock).
+      d.hide();
       this._startArchitectFight();
     } catch (e) {
       console.warn('Dialogue error:', e);
       // Never leave the game soft-locked if dialogue throws
+      if (d && typeof d.hide === 'function') d.hide();
       this._startArchitectFight();
     }
   }
