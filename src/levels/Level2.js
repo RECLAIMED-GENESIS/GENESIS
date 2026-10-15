@@ -131,9 +131,9 @@ export class Level2 {
 
         this.scene.fog =
             new THREE.Fog(
-                0x10082a,
-                55,
-                270
+                0x1c1a38,
+                90,
+                400
             );
 
         this.level =
@@ -344,13 +344,14 @@ export class Level2 {
             8
         );
 
-        const roadMaterial =
-            new THREE.MeshStandardMaterial({
-                map: roadTexture,
-                roughness: 0.15,
-                metalness: 0.7
-            });
-
+	const roadMaterial = new THREE.MeshStandardMaterial({
+   		 map: roadTexture,
+   		 color: 0x2f3440,       // was default white — grey it out
+   		 roughness: 0.42,       // was 0.15 — mirror-metal reads black at night
+    		 metalness: 0.28,       // was 0.7 — no envmap in this scene, so metal = void
+    		 emissive: 0x0a0e18,    // faint ground bounce so the road never goes full black
+   		 emissiveIntensity: 0.9
+	});
         const road =
             new THREE.Mesh(
                 new THREE.BoxGeometry(

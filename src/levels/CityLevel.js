@@ -13,6 +13,10 @@
 // and seats for some witnesses) and drives
 // the first-person camera itself, exactly like Level 1 does. The player is a pure camera: no body.
 //
+// RANDOM CASE: the killer is rolled once per run (game/case.js). Everything that depends
+// on who did it (alibi, bandage, reactions) is generated in game/cityCast.js.
+// PHOTO CAMERA: [Q] raise, wheel zoom, click shoot (game/photoCamera.js).
+//
 // Difficulty above Level 1:
 //   * shorter examine reach (3.0 vs 3.6), no permanent glow markers
 //   * two witnesses stand at random spots every run
@@ -23,10 +27,16 @@
 import * as THREE from 'three';
 import { Level2 } from './Level2.js';
 import { CASE } from './lvl1.js';
-
+import { getStats } from '../game/stats.js';
+import { getCase, applyCaseToStory } from '../game/case.js';
+import { makeCast, CITY_CLUES, SPOTS } from '../game/cityCast.js';
+import { PhotoCamera, PHOTO } from '../game/photoCamera.js';
+import { play as sfx } from '../audio/sfx.js';
+import { EvidenceBoard } from '../game/EvidenceBoard.js';
+import { CaptainScene } from '../game/CaptainScene.js';
+import { newState, boardLink, boardSummary, captainDecision, request as caseRequest, TRUST_START, evidenceLinks } from '../game/investigation.js';
 const EYE = 1.7;
 const REACH = 3.0;
-const CORRECT_SUSPECTS = ['kyle', 'sipho', 'naledi'];
 
 // small canvas-texture helper (same idea as Level 1's)
 function canvasTex(w, h, draw, opts = {}) {
@@ -37,153 +47,17 @@ function canvasTex(w, h, draw, opts = {}) {
   return t;
 }
 
-// ------------------------------------------------------------
-// CITY CASE DATA — the five witnesses and their testimonies
-// hair: colour of the visible hair cap; long adds a back panel
-// spot: fixed Vector3, or 'random' (picked from SPOTS each run)
-// ------------------------------------------------------------
-const NPCS = [
-  {
-    id: 'sipho', name: 'Sipho Ndlovu', role: 'Night watchman',
-    spot: new THREE.Vector3(-42.2, 0, -15.5),          // behind the glass dome
-    sitting: true, sitFace: Math.PI / 2,               // on a crate, facing the plaza
-    hair: 0x14110f, long: false, bandage: false,
-    coat: 0x2e3a2a, pants: 0x1c1e22, skin: 0x7a5641,
-    where: '"From ten to midnight I walk the east side. After twelve I sit behind this dome where the wind cannot reach me. I heard nothing. I always hear nothing." — yet he is the only one who was under the dome the whole night.',
-    relate: '"The lecturer paid me to look the other way at the back gate. Everybody in this city has a price, and he knew his."',
-    react: 'He does not flinch. "I know. Somebody carried it through the gate at half ten and carried it out again at twenty-two to twelve. I did not write the name down." Too calm — and he volunteers a timestamp nobody asked for.',
-    follow: [
-      {
-        req: 'c:gun',
-        q: 'The pistol behind your dome.',
-        a: '"Yes. Mine. Case-hardened, unregistered — it fires .40. The slug that opened your lecturer was a 9mm, I read that from the cleaner\'s radio. Check the chamber yourself if you do not believe an old watchman. I was paid to guard a dome, not to hunt lecturers."',
-        log: 'Sipho\'s pistol is .40 — the office casing was 9mm. The gun is real, the bullet does not match.',
-      },
-    ],
-  },
-  {
-    id: 'anale', name: 'Anele Mahlangu', role: 'Department administrator',
-    spot: new THREE.Vector3(6.8, 0, 6),                // public bench by the water
-    sitting: true, sitFace: Math.PI / 2,               // on the bench, facing the water
-    hair: 0x4a2c17, long: true, bandage: false,
-    coat: 0x53324a, pants: 0x23242a, skin: 0x8a6248,
-    where: '"Quarter past nine I was already down at the water. I sell fish on the quay now, I have a licence. The trader beside me can vouch for me — my hands have not touched university paper since half past seven that evening."',
-    relate: '"I typed his letters. I locked the Staff Common Room with him — his last message, 23:19, that was after I left. I was the last person to see him whole, and I will carry that whichever way this breaks."',
-    react: 'She goes very still and looks down at the water. "I saw the police tape from the bridge." Her voice does not shake; her hands do, on the railing. She asks WHEN, not WHO — innocent people ask who.',
-    follow: [
-      {
-        req: 'l1:hair',
-        q: 'Brown hair on the guest chair.',
-        a: '"Half the women in this department have brown hair. That was my office chair? Check the armrests — I touched nothing but the door handle when we locked up. I did not sit opposite Thabo while he drank. Ask who sat there. Ask whose handkerchief was on the floor beside that chair."',
-        log: 'Anele was locked out of the building at 23:19 with the victim — her own account matches his final message. The fish trader confirms it.',
-      },
-    ],
-  },
-  {
-    id: 'naledi', name: 'Prof. Naledi Dube', role: 'Head of Department',
-    spot: new THREE.Vector3(-11.5, 0, 24.2),           // café terrace, west of the road
-    sitting: true, sitFace: Math.PI / 2,               // at a table, facing the road
-    hair: 0x14110f, long: false, bandage: false,
-    coat: 0x30425c, pants: 0x20242c, skin: 0x6f4d3a,
-    where: '"Marks board ran late in the faculty until ten. Then I walked to the taxi rank along this road. Alone. There is no receipt for that; there is no CCTV on this street."',
-    relate: '"Thabo came to me the day before he died. He said he would report the altered marks to the board. I asked him to wait until after the meeting. He would not. We parted badly at noon, and by midnight he was the only one left who could still speak."',
-    react: '"That — that is impossible. I saw him at noon." Her hand flies to her mouth. She checks the road behind her twice in five seconds, and asks: "Is my name on something? Because if it is, I would rather hear it from you than read it."',
-    follow: [
-      {
-        req: 'l1:note',
-        q: 'The torn note: three names, one of them lying.',
-        a: '"If I had doctored those marks to shelter my nephew, the note would have vanished with Thabo, not survived under a moving box. I did not kill him, detective. I did the second-worst thing — I begged him to keep quiet, and he refused."',
-        log: 'Naledi admits she pressured the victim to delay his report — motive without means. Her hands were never near the gun or the chair.',
-      },
-      {
-        req: 'c:stub',
-        q: 'Parking stub stamped 23:38.',
-        a: '"Mine was in the workshop all week — that is why I took the road home. Whatever your stub belongs to, it is not mine. Ask the student body who parked faculty-side after hours."',
-      },
-    ],
-  },
-  {
-    id: 'kyle', name: 'Kyle Pretorius', role: 'PhD student & tutor',
-    spot: new THREE.Vector3(6.85, 0, -2.0),            // at the quay railing, watching the ships
-    leaning: true, face: Math.PI / 2,                 // hands resting on the rail, facing the water
-    hair: 0x4a2c17, long: true, bandage: true,
-    coat: 0x414b3c, pants: 0x22232a, skin: 0x8a6248,
-    where: '"Home. Asleep by eleven — I have an eight o\'clock tutorial." He says it too fast, and he has clearly rehearsed it. Nobody in this city is asleep by eleven.',
-    relate: '"Thabo was my supervisor. He was going to ruin me — I mean — he WAS a good man. He was going to ruin—"',
-    react: 'The news lands like a handshake. "I — I see." He repeats it twice, as though buying seconds. His right hand — the bandaged one — twitches toward his pocket and stays there.',
-    follow: [
-      {
-        req: 'l1:handkerchief',
-        q: 'Show him the handkerchief: K.P., with dried blood.',
-        a: '"Where did you —" He stops himself. Too late. "It was lost. At the faculty. I cut that hand on a nail at the garage, on my way home from the depot." Except: the garage locks at 20:00, and he said asleep by eleven. And the cut is on the FRONT of the hand — the way a hand bleeds against a pistol barrel, not a nail.',
-        log: 'K.P. flinched at the monogram before he could stop himself, and his wound is on the front of the hand — exactly where the office handkerchief said it was NOT the victim\'s.',
-      },
-      {
-        req: 'always',
-        q: 'Ask about the bandage on his hand.',
-        a: 'The wrap is fresh — the skin under it sealed with clinic glue, and it smells of iodine from the after-hours practice, not of any garage nail. A nail does not get stitched at 00:30.',
-        log: 'The bandage was dressed at the after-hours clinic within hours of the killing. Whatever opened that hand happened before the stitching, not after.',
-      },
-      {
-        req: 'c:stub',
-        q: 'Show him the parking stub: 23:38, faculty side.',
-        a: 'He reads the timestamp four times and says nothing for four seconds. "I — parked — at the faculty that evening. I told you I was home." Four seconds is a verdict on its own.',
-        log: 'Kyle\'s alibi died in four seconds: he parked faculty-side at 23:38 — nineteen minutes after the last message, nineteen floors below a man he now claims never to have visited.',
-      },
-    ],
-  },
-  {
-    id: 'mandla', name: 'Mandla Dlamini', role: 'Taxi rank fixer',
-    spot: 'random', hair: 0x4a2c17, long: false, bandage: false,
-    coat: 0x4c3524, pants: 0x2b2118, skin: 0x5d4436,
-    where: '"Ten to three, drinking, in this city, for cash. I saw plenty from the footbridge and I will sell you what I saw."',
-    relate: '"The lecturer? Never met him. I know his FACE from the campus gate — I watch gates, it is what I am for."',
-    react: 'He shrugs, easy as rain. "A lot of men die in October." Too relaxed — until he leans in: "But if you want the name of who walked fast down those back stairs, that costs extra."',
-    follow: [
-      {
-        req: 'always',
-        q: 'What did you see from the bridge?',
-        a: '"Twenty to twelve, a young person came down the back stairs — dark t-shirt, walking fast. Fast is not guilty, friend. But fast is guilty-adjacent." And the fish he sold that night? "The lady at the water. My invoice is her alibi."',
-        log: 'An unrelated witness puts a fast-walking young person on the back stairs at 23:40, and independently alibis the woman at the water.',
-      },
-      {
-        req: 'c:stub',
-        q: 'The parking stub, stamped 23:38.',
-        a: 'He whistles through his teeth. "Faculty exit stamp. 23:38. Whoever punched that ticket was on that campus while your lecturer was already cooling on his own floor."',
-      },
-    ],
-  },
-];
-
-// city clue definitions (found in the world, logged with E)
-const CITY_CLUES = {
-  gun: {
-    name: 'Unregistered pistol (.40)',
-    note: 'A service pistol with the serial filed to scratches, hidden under a tarp behind the glass dome — exactly where the watchman sits after midnight. It is not the gun that fired the 9mm in the office, but it is a gun, and it is his, and he never mentioned it.',
-  },
-  uvtrail: {
-    name: 'UV: bootprints & scrawl',
-    note: 'Under the torch: a drag of muddy bootprints circling the dome\'s back side and, scrawled on the plaza kerb in something that fluoresces like detergent, two words and a place — "DEPOT — HE KNOWS". The victim\'s own diary said the same: city, 14:00, depot.',
-  },
-  stub: {
-    name: 'Parking exit stub, 23:38',
-    note: 'A faculty-garage exit ticket, timestamped 23:38, skittered against a roadside bollard. Nineteen minutes after the victim sent "Heading to my office" — someone left that campus in a hurry, and did not know it was the night-cleaner\'s hour.',
-  },
-};
-
-// the roaming witness moves between these each run (no new buildings)
-const SPOTS = [
-  new THREE.Vector3(-9.5, 0, -6),
-  new THREE.Vector3(-8.6, 0, -34),
-  new THREE.Vector3(-13.5, 0, 11),
-  new THREE.Vector3(4.5, 0, -24),
-  new THREE.Vector3(-10.5, 0, -52),
-];
+// (the five witnesses, the city clues and the roaming-witness spots live in game/cityCast.js)
 
 // ------------------------------------------------------------
 export class CityLevel {
-  constructor(sceneOrRenderer = null) {
+  constructor(sceneOrRenderer = null, rendererMaybe = null) {
     this.scene = (sceneOrRenderer && sceneOrRenderer.isScene) ? sceneOrRenderer : new THREE.Scene();
+    this.renderer = rendererMaybe || (sceneOrRenderer && sceneOrRenderer.isWebGLRenderer ? sceneOrRenderer : null) || window.__renderer || null;
+
+    // ---- this run's case: who did it, the alibi, the wounded hand ----
+    this.case = getCase();
+    applyCaseToStory(CASE, this.case);   // Level 1's clue text now matches the killer
 
     // ---- the legacy street scene, hoisted into our scene ----
     this.inner = new Level2();
@@ -226,21 +100,76 @@ export class CityLevel {
     // Clone the definitions per instance: questioning state, hit boxes and
     // groups attach to the clones, so losing and restarting Level 2 wipes
     // everything clean instead of resuming with five already-heard witnesses.
-    this.npcs = NPCS.map((d) => ({ ...d }));
-    const idx = [...SPOTS.keys()].sort(() => Math.random() - 0.5);
+    this.npcs = makeCast(this.case);
+    const spots = SPOTS.map((a) => new THREE.Vector3(a[0], a[1], a[2]));
+    const idx = [...spots.keys()].sort(() => Math.random() - 0.5);
     const pick = [idx[0], idx[1]];
     let p = 0;
-    for (const def of this.npcs) def.pos = (def.spot === 'random') ? SPOTS[pick[p++]].clone() : def.spot.clone();
+    for (const def of this.npcs) {
+      def.pos = (def.spot === 'random') ? spots[pick[p++]].clone() : new THREE.Vector3(def.spot[0], def.spot[1], def.spot[2]);
+    }
 
     this._buildUvLight();
     this._buildCityLights();
     this._buildTerrace();
     this._buildWaterfront();
     this._buildStreetLamps();
+    this._brightenStreet();
     this._buildNpcs();
     this._buildTraffic();
     this._buildClues();
     this._buildUI();
+    this._buildCamera();
+
+    // ---- case board state (persists across restarts) ----
+    const saved = (window.__caseProgress && window.__caseProgress.board) || null;
+    this.state = saved
+      ? { trust: window.__caseProgress.trust ?? TRUST_START,
+          held: window.__caseProgress.held || [],
+          warrants: window.__caseProgress.warrants || [],
+          board: saved,
+          photos: window.__caseProgress.photos || [] }
+      : newState();
+
+    this.board = new EvidenceBoard({
+      getEvidence: () => this._evidenceList(),
+      getSuspects: () => this.npcs.map((n) => ({ id: n.id, name: n.name, role: n.role })),
+      getBoard: () => this.state.board,
+      getSummary: () => boardSummary(this.state.board, this.case),
+      tryLink: (eid, sid) => {
+        const ok = boardLink(this.state.board, sid, eid, this.case);
+        if (!ok) getStats().falsePresentations++;
+        return ok;
+      },
+      onChange: (o) => { if (o && o.failed) sfx('deflect'); else sfx('correct'); this._saveState(); this._refreshTrustHud(); },
+      onTakeToCaptain: (sid) => { this.board.close(); this.captain.open(sid); },
+      onClose: () => {},
+    });
+
+    this.captain = new CaptainScene({
+      getSuspect: (id) => this.npcs.find((n) => n.id === id) || { name: id, role: '' },
+      getSummaryFor: (id) => boardSummary(this.state.board, this.case)[id] || { kinds: [], score: 0, byKind: {} },
+      getTrust: () => this.state.trust,
+      applyAsk: (id, ask) => {
+        const r = caseRequest(this.state, id, ask, this.state.board[id] || [], this.case);
+        this.state = r.state;
+        this._saveState();
+        if (r.granted && r.got === 'warrant') {
+          // stakeout unlocks
+          this._stakeoutUnlocked = true;
+          setTimeout(() => this._offerStakeout(id), 2800);
+        }
+        if (r.reassigned) { setTimeout(() => this._reassigned(), 2800); }
+        if (r.partial || (r.granted && r.got === 'questioning')) {
+          if (!this.state.held.includes(id)) this.state.held.push(id);
+          this._saveState();
+        }
+        return r;
+      },
+      onDone: () => {},
+      onReassigned: () => this._reassigned(),
+    });
+    this._refreshTrustHud();
 
     this.city.traverse((o) => { if (o.isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; } });
 
@@ -248,8 +177,14 @@ export class CityLevel {
     this._onKey = (e) => this._handleKey(e);
     window.addEventListener('keydown', this._onKey);
 
-    this._toast('THE CITY — LAST LIGHT',
-      'Five people know something about tonight. Question them all.  [E] talk / collect   [F] UV torch   [C] case file', 9000);
+    // The lab dossier carries the run forward: two names, one killer hiding.
+    this.labDossier = (window.__caseProgress && window.__caseProgress.lab) || null;
+    const _labNames = this.labDossier && this.labDossier.names && this.labDossier.names.length
+      ? this.labDossier.names.join('  ·  ')
+      : null;
+    this._parkedAt = new THREE.Vector3(12, 0, 38);
+    this._buildStakeoutCar();
+    this._startArrivalRide(_labNames);
   }
 
   getSurfaceHeight() { return 0; }
@@ -338,9 +273,10 @@ export class CityLevel {
     if (def.bandage) {  // the fresh wound, wrapped
       const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.07, 10),
         new THREE.MeshStandardMaterial({ color: 0xe9e4d8, roughness: 1 }));
-      if (def.sitting) wrap.position.set(0.2, 0.55, 0.33);
-      else if (def.leaning) wrap.position.set(0.25, 1.0, 0.52);
-      else wrap.position.set(0.25, 0.8, 0.01);
+      const sgn = def.woundHand === 'left' ? -1 : 1;     // the hand the case says was hurt
+      if (def.sitting) wrap.position.set(0.2 * sgn, 0.55, 0.33);
+      else if (def.leaning) wrap.position.set(0.25 * sgn, 1.0, 0.52);
+      else wrap.position.set(0.25 * sgn, 0.8, 0.01);
       g.add(wrap);
     }
     g.position.copy(def.pos);
@@ -365,6 +301,120 @@ export class CityLevel {
       def.questioned = false; def.asked = {}; def._phase = Math.random() * 6.28;
       this.npcObjs.push(def);
     }
+  }
+
+  // =========================================================
+  // STAKEOUT CAR + ARRIVAL RIDE (Option A: the car is your office)
+  // A scripted 22s drive-in down the street, then the parked unmarked car
+  // is your observation post: dossier recap, radio log, long lens.
+  // =========================================================
+  _buildStakeoutCar() {
+    const g = new THREE.Group();
+    const paint = new THREE.MeshStandardMaterial({ color: 0x232830, roughness: 0.35, metalness: 0.6 });
+    const glassM = new THREE.MeshStandardMaterial({ color: 0x0d1218, roughness: 0.15, metalness: 0.4 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.55, 4.4), paint);
+    body.position.y = 0.65; g.add(body);
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 2.2), glassM);
+    cab.position.set(0, 1.1, -0.2); g.add(cab);
+    const wheelG = new THREE.CylinderGeometry(0.33, 0.33, 0.24, 14);
+    const wheelM = new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 0.9 });
+    for (const [x, z] of [[-0.85, 1.4], [0.85, 1.4], [-0.85, -1.4], [0.85, -1.4]]) {
+      const w = new THREE.Mesh(wheelG, wheelM);
+      w.rotation.z = Math.PI / 2; w.position.set(x, 0.33, z); g.add(w);
+    }
+    // headlights dark — stakeout discipline; dash glows faintly instead
+    const lampM = new THREE.MeshStandardMaterial({ color: 0x30363e, roughness: 0.4 });
+    for (const x of [-0.6, 0.6]) {
+      const lamp = new THREE.Mesh(new THREE.CircleGeometry(0.12, 12), lampM);
+      lamp.position.set(x, 0.68, 2.21); g.add(lamp);
+    }
+    const dash = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.06),
+      new THREE.MeshBasicMaterial({ color: 0x1d3a2a }));
+    dash.position.set(0, 0.95, 0.9); dash.rotation.x = -0.4; g.add(dash);
+    g.position.copy(this._parkedAt);
+    g.rotation.y = Math.PI + 0.25;   // nose toward the street
+    this.city.add(g);
+    this.colliders.push(new THREE.Box3(
+      new THREE.Vector3(this._parkedAt.x - 1.2, 0, this._parkedAt.z - 2.4),
+      new THREE.Vector3(this._parkedAt.x + 1.2, 1.5, this._parkedAt.z + 2.4)));
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.8, 4.8), new THREE.MeshBasicMaterial());
+    hit.visible = false; hit.position.set(this._parkedAt.x, 0.9, this._parkedAt.z);
+    hit.userData.post = true;
+    this.city.add(hit);
+    this._postHit = hit;
+  }
+
+  _startArrivalRide(labNames) {
+    this.ride = {
+      active: true, t: 0, dur: 22,
+      from: new THREE.Vector3(0, 2.1, 110),
+      to: new THREE.Vector3(this._parkedAt.x - 1.5, 1.9, this._parkedAt.z + 6),
+      look: new THREE.Vector3(0, 1.5, 20),
+      lines: [
+        [0, 'Unmarked car. Engine low. The city slides past the glass.'],
+        [5, 'Wipers going. Two photos paper-clipped to the sun visor.'],
+        [10, labNames ? 'Two names from the lab: ' + labNames + '. One killed him. One ran.' : 'Five people know something about tonight.'],
+        [15, 'Radio: "keep it dark, keep it quiet. No sirens until the captain says."'],
+        [19, 'Engine off. This is your post now.'],
+      ],
+      shown: 0,
+    };
+    window.__uiCapture = true;
+    if (document.exitPointerLock) document.exitPointerLock();
+    const root = document.createElement('div');
+    root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:60;font-family:"Courier New",monospace;';
+    root.innerHTML =
+      '<div style="position:absolute;top:0;left:0;right:0;height:10vh;background:#000"></div>' +
+      '<div style="position:absolute;bottom:0;left:0;right:0;height:10vh;background:#000"></div>' +
+      '<div class="ride-cap" style="position:absolute;bottom:12vh;left:0;right:0;text-align:center;color:#e9d9b0;font-size:16px;letter-spacing:1px;text-shadow:0 2px 6px #000;padding:0 8vw"></div>' +
+      '<div style="position:absolute;top:11vh;right:4vw;pointer-events:auto"><button class="ride-skip" style="font:inherit;padding:8px 18px;background:rgba(10,14,20,.7);color:#e9d9b0;border:1px solid #3c4656;cursor:pointer">SKIP RIDE &gt;&gt;</button></div>';
+    document.body.appendChild(root);
+    this.ride.ui = root;
+    root.querySelector('.ride-skip').addEventListener('click', () => this._endRide(true));
+  }
+
+  _endRide(skipped) {
+    if (!this.ride || !this.ride.active) return;
+    this.ride.active = false;
+    if (this.ride.ui) { this.ride.ui.remove(); this.ride.ui = null; }
+    window.__uiCapture = false;
+    const p = this._ridePlayer;
+    if (p && p.pos) {
+      p.pos.set(this._parkedAt.x - 2.5, 0, this._parkedAt.z + 1);
+      p.vel.set(0, 0, 0);
+      p.yaw = Math.PI / 2 - 0.3;
+      p.pitch = 0;
+    }
+    const names = this.labDossier && this.labDossier.names && this.labDossier.names.length
+      ? this.labDossier.names.join('  ·  ') : null;
+    this._toast('OBSERVATION POST',
+      (names ? 'The lab gave you two names: ' + names + '. Watch them before you speak to them. ' : 'Question the street. ') +
+      'The car is your post — [E] on it for the dossier and the radio. [Q] camera · [B] board · [C] file', 11000);
+  }
+
+  _openPost() {
+    this.caseOpen = true;   // reuse the case overlay flag so input stays frozen
+    window.__uiCapture = true;
+    if (document.exitPointerLock) document.exitPointerLock();
+    const lab = this.labDossier;
+    const names = lab && lab.names ? lab.names : [];
+    this.ui.case.innerHTML = `
+      <div style="max-width:min(760px,94vw);margin:6vh auto;font-family:'Courier New',monospace;color:#e9d9b0;background:rgba(8,10,16,.96);border:1px solid #3c4656;padding:26px 30px">
+        <h2 style="letter-spacing:3px;color:#f2b84b">STAKEOUT CAR — DASH</h2>
+        <p><b>NAMES ON THE VISOR:</b> ${names.length ? names.join(' · ') : '—'}${names.length === 2 ? ' — one killed him, one ran. The lab cannot say which.' : ''}</p>
+        <p><b>WEAPON:</b> ${(lab && lab.weapon) || '—'} &nbsp; <b>WINDOW:</b> ${(lab && lab.window) || '—'}</p>
+        <p><b>DEPOT:</b> ${(lab && lab.depot) || '—'} &nbsp; <b>TEMPERAMENT:</b> ${(lab && lab.temperament) || '—'}</p>
+        <h3 style="color:#7fd4ff">RADIO LOG</h3>
+        <ul style="line-height:1.8">
+          <li>"…movement near the bridge, one figure, unhurried."</li>
+          <li>"…terrace is quiet. Somebody keeps checking the road."</li>
+          <li>"…captain says: paper first. Nobody gets touched on a hunch."</li>
+        </ul>
+        <p style="opacity:.7">Watch their routines through the lens before you walk up. The nervous one is not always the guilty one.</p>
+        <button id="post-close" style="font:inherit;padding:10px 24px;background:#1f6f5c;color:#fff;border:0;cursor:pointer">Back to the street [C]</button>
+      </div>`;
+    this.ui.case.style.display = 'flex';
+    this.ui.case.querySelector('#post-close').addEventListener('click', () => this._closeCase());
   }
 
   // =========================================================
@@ -531,12 +581,19 @@ export class CityLevel {
         new THREE.Vector3(x - 0.25, 0, z - 0.25),
         new THREE.Vector3(x + 0.25, 5.0, z + 0.25)));
     };
-
-    mkLamp(-8.6, 48);
-    mkLamp(8.6, 30);
-    mkLamp(-8.6, 8);
-    mkLamp(8.6, -14);
-    mkLamp(-8.6, -56);
+    
+	  // player spawns at z=45 and looks toward -z; fill the whole run
+mkLamp(-8.6,  90);
+mkLamp( 8.6,  72);
+mkLamp(-8.6,  54);
+mkLamp( 8.6,  36);
+mkLamp(-8.6,  18);
+mkLamp( 8.6,   0);
+mkLamp(-8.6, -18);
+mkLamp( 8.6, -36);
+mkLamp(-8.6, -54);
+mkLamp( 8.6, -72);
+mkLamp(-8.6, -94);
   }
 
   // =========================================================
@@ -593,7 +650,8 @@ export class CityLevel {
     };
 
     // Anele's bench, plus an empty one further along the quay
-    const an = this.npcs.find((n) => n.id === 'anale');
+    // (id spelling: the cast normalises 'anale' -> 'anele'; accept either)
+    const an = this.npcs.find((n) => n.id === 'anele' || n.id === 'anale') || this.npcs[1];
     makeBench(an.pos.x, an.pos.z);
     makeBench(6.8, 10.5);
 
@@ -769,10 +827,15 @@ export class CityLevel {
     paper.rotation.x = -Math.PI / 2; paper.rotation.z = 0.7;
     paper.position.y = 0.012; stub.add(paper);
     stub.position.set(-7.0, 0, 39.5);
-    this._addClue('stub', stub, [0.5, 0.3, 0.5], new THREE.Vector3(-7.0, 0.1, 39.5));
+    // stub built here, but withheld until a crack tells you where to look
+    const stubClue = this._addClue('stub', stub, [0.5, 0.3, 0.5], new THREE.Vector3(-7.0, 0.1, 39.5));
+    stubClue.deferred = true;
+    this.city.remove(stub);          // was added by _addClue — pull it back out
+    this.city.remove(stubClue.hit);
 
     // faint proximity glints (harder than L1: no permanent auras)
     for (const c of this.clues) {
+      if (c.deferred) continue;      // a withheld clue gets no glow either
       const mat = new THREE.MeshBasicMaterial({
         color: 0x33ffee, transparent: true, opacity: 0, depthWrite: false,
         blending: THREE.AdditiveBlending,
@@ -795,6 +858,57 @@ export class CityLevel {
   }
 
   // =========================================================
+  // PHOTO CAMERA — [Q] raise, wheel zoom, click shoot.
+  // Targets: every witness (kind 'person', tag 'killer' for the real one, never
+  // shown to the player) and every clue not yet collected.
+  // =========================================================
+  _buildCamera() {
+    this._ptargets = [];
+    for (const n of this.npcObjs) {
+      this._ptargets.push({
+        id: n.id, name: n.name, kind: 'person', radius: 0.45,
+        tag: n.guilty ? 'killer' : null,
+        getPos: (v) => v.set(n.pos.x, n.sitting ? 1.15 : 1.5, n.pos.z),
+      });
+    }
+    for (const c of this.clues) {
+      this._ptargets.push({
+        id: c.id, name: c.def.name, kind: 'evidence', radius: 0.3, clue: c,
+        getPos: (v) => v.set(c.pos.x, 0.2, c.pos.z),
+      });
+    }
+    this.photoCam = new PhotoCamera({
+      scene: this.scene,
+      renderer: this.renderer,
+      getTargets: () => this._ptargets.filter((t) => !t.clue || (!t.clue.found && !t.clue.deferred)),
+      getColliders: () => this.colliders,
+      isBlocked: () => !!(window.__uiCapture || this.dialogueOpen || this.caseOpen || this.suspectsOpen || this.verdictOpen),
+      clockLabel: () => {
+        const m = Math.floor(this.time / 60), sec = Math.floor(this.time % 60);
+        return `T+${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+      },
+      onPhoto: (photo) => this._onPhoto(photo),
+    });
+    if (!this.renderer) console.warn('CityLevel: no renderer was passed, photos will be blank');
+  }
+
+  _onPhoto(photo) {
+    const sharpPeople = photo.subjects.filter((s) => s.kind === 'person' && s.sharp);
+    const sharpAny = photo.subjects.some((s) => s.sharp);
+    if (!sharpAny) getStats().wastedFilm++;
+    sfx('collect');
+    // metadata only (the pictures stay in memory) so Continue keeps the record
+    window.__caseProgress = window.__caseProgress || { l1: {} };
+    const rec = window.__caseProgress.photos = window.__caseProgress.photos || [];
+    rec.push({ id: photo.id, time: photo.time, subjects: photo.subjects.map((s) => ({ id: s.id, kind: s.kind, tag: s.tag, sharp: s.sharp, dist: s.dist })) });
+    const left = this.photoCam.film;
+    if (sharpPeople.length) this._toast(`PHOTO ${photo.id} — ${sharpPeople.map((s) => s.name).join(', ')}`, `${left} shots left`, 2500);
+    else if (sharpAny) this._toast(`PHOTO ${photo.id} — EVIDENCE`, `${left} shots left`, 2500);
+    else this._toast(`PHOTO ${photo.id} — NOTHING IN FOCUS`, 'Centre the subject in the frame and get closer (zoom helps at range).', 3500);
+    this._updateCounter();
+  }
+
+  // =========================================================
   // UI (DOM)
   // =========================================================
   _buildUI() {
@@ -805,8 +919,10 @@ export class CityLevel {
     };
     const ui = this.ui = {};
     ui.root = mk('div', 'position:fixed;inset:0;pointer-events:none;z-index:50;font-family:"Courier New",monospace;color:#f2d9a0;');
+    ui.flash = mk('div', 'position:fixed;inset:0;pointer-events:none;z-index:49;opacity:0;', ui.root);
     ui.prompt = mk('div', 'position:absolute;left:50%;bottom:22%;transform:translateX(-50%);font-size:15px;letter-spacing:1px;text-shadow:0 1px 3px #000;display:none;', ui.root);
     ui.counter = mk('div', 'position:absolute;left:18px;top:16px;font-size:13px;letter-spacing:1px;opacity:.85;', ui.root, '');
+    ui.trust = mk('div', 'position:absolute;left:18px;top:64px;font-size:13px;letter-spacing:1px;opacity:.85;', ui.root, '');
     ui.uvTag = mk('div', 'position:absolute;right:18px;top:224px;font-size:13px;letter-spacing:2px;color:#b58cff;display:none;text-shadow:0 0 10px #7a3cff;', ui.root, 'UV LAMP ON');
     ui.toast = mk('div', 'position:absolute;left:50%;top:9%;transform:translate(-50%,0);width:min(680px,92vw);text-align:center;opacity:0;transition:opacity .4s;', ui.root);
 
@@ -820,7 +936,8 @@ export class CityLevel {
   _updateCounter() {
     const qn = this.npcObjs.filter((n) => n.questioned).length;
     const cn = Object.keys(this.collected).length;
-    this.ui.counter.innerHTML = `WITNESSES QUESTIONED ${qn}/5 &nbsp;·&nbsp; CITY EVIDENCE ${cn}/3`;
+    const film = this.photoCam ? `${this.photoCam.film}/${PHOTO.film}` : `${PHOTO.film}/${PHOTO.film}`;
+    this.ui.counter.innerHTML = `WITNESSES QUESTIONED ${qn}/5 &nbsp;·&nbsp; CITY EVIDENCE ${cn}/3 &nbsp;·&nbsp; FILM ${film}<br><span style="opacity:.6">[Q] camera · wheel zoom · click shoot</span>`;
   }
 
   _toast(title, text, ms = 5000) {
@@ -853,12 +970,37 @@ export class CityLevel {
     return false;
   }
 
+_brightenStreet() {
+  // warm sky fill so the whole length of the road reads
+  const warm = new THREE.HemisphereLight(0xb0b8e0, 0x2a2038, 1.3);
+  this.city.add(warm);
+
+  // soft over-the-shoulder sun so silhouettes cast and volumes read
+  const sun = new THREE.DirectionalLight(0xffe0b0, 0.65);
+  sun.position.set(30, 70, 20);
+  sun.target.position.set(0, 0, 20);
+  sun.castShadow = false;
+  this.city.add(sun, sun.target);
+
+  // emissive kerb strips — the visual cue that there IS a road at night
+  const kerb = new THREE.MeshStandardMaterial({
+    color: 0x151a26, emissive: 0xffca80, emissiveIntensity: 0.55, roughness: 0.9
+  });
+  for (const sx of [-8.3, 8.3]) {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 240), kerb);
+    s.position.set(sx, 0.03, 0);
+    s.userData.noShadow = true;
+    this.city.add(s);
+  }
+}
+
   // =========================================================
   // DIALOGUE
   // =========================================================
   _openDialogue(npc) {
     this.currentNpc = npc;
     this.dialogueOpen = true;
+    this.presentMode = false;
     window.__uiCapture = true;           // main.js stops feeding keys to movement
     if (document.exitPointerLock) document.exitPointerLock();
     this._renderDialogue();
@@ -867,18 +1009,28 @@ export class CityLevel {
 
   _renderDialogue() {
     const npc = this.currentNpc;
-    const asks = npc.follow.filter((f) => this._reqOk(f.req));
+    if (!npc) return;
+    if (this.presentMode) return this._renderEvidencePicker();
+
+    // Evidence-gated follow-ups are NOT listed as questions — the player must
+    // choose to present that evidence (see _renderEvidencePicker). Only
+    // 'always'/'b:' follow-ups remain askable directly — unless a cracked
+    // story (_reopen) has opened that question up to be asked outright.
+    const asks = npc.follow.filter((f) => this._reqOk(f.req) &&
+      (f.req === 'always' || f.req.startsWith('b:') || npc._reopen));
     const items = [
       { q: 'Where were you last night, 22:00 to 01:00?', key: 'where' },
       { q: 'What was your relationship with Dr. Nkosi?', key: 'relate' },
       { q: 'Tell him: Dr. Nkosi was found dead.', key: 'react' },
       ...asks.map((f) => ({ q: f.q, key: `f${npc.follow.indexOf(f)}` })),
+      { q: 'Present evidence from the case file…', key: '__present' },
     ];
     npc._items = items;
     const hist = npc.history || (npc.history = []);
+    const cracks = npc.cracks ? ` &nbsp;·&nbsp; <span style="color:#f2b84b">${npc.cracks} contradiction${npc.cracks > 1 ? 's' : ''} cracked</span>` : '';
     this.ui.dialogue.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
-        <b style="letter-spacing:2px;color:#f2b84b">${npc.name.toUpperCase()} — ${npc.role.toUpperCase()}</b>
+        <b style="letter-spacing:2px;color:#f2b84b">${npc.name.toUpperCase()} — ${npc.role.toUpperCase()}${cracks}</b>
         <span style="font-size:12px;opacity:.7">[1-${items.length}] ask · [E] close</span>
       </div>
       <div id="dlg-log" style="font-size:14px;line-height:1.55;margin-bottom:12px;max-height:22vh;overflow:auto">
@@ -889,7 +1041,10 @@ export class CityLevel {
     const qs = this.ui.dialogue.querySelector('#dlg-qs');
     items.forEach((it, i) => {
       const b = document.createElement('button');
-      b.style.cssText = 'font:inherit;text-align:left;padding:7px 12px;background:#141a24;color:#e9d9b0;border:1px solid #33405266;cursor:pointer';
+      const present = it.key === '__present';
+      b.style.cssText = present
+        ? 'font:inherit;text-align:left;padding:7px 12px;background:#241d10;color:#f2b84b;border:1px solid #f2b84b66;cursor:pointer'
+        : 'font:inherit;text-align:left;padding:7px 12px;background:#141a24;color:#e9d9b0;border:1px solid #33405266;cursor:pointer';
       b.innerHTML = `<b style="color:#7fd4ff">${i + 1}.</b> ${it.q}`;
       b.addEventListener('click', () => this._ask(i));
       qs.appendChild(b);
@@ -898,10 +1053,98 @@ export class CityLevel {
     if (log) log.scrollTop = log.scrollHeight;
   }
 
+  // The evidence-picker: everything the player has logged, offered as proof
+  // against the witness currently being questioned.
+  _renderEvidencePicker() {
+    const npc = this.currentNpc;
+    const items = this._evidenceList();
+    const hist = npc.history || [];
+    this.ui.dialogue.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+        <b style="letter-spacing:2px;color:#f2b84b">${npc.name.toUpperCase()} — PRESENT EVIDENCE</b>
+        <span style="font-size:12px;opacity:.7">${items.length <= 9 ? '[1-' + items.length + '] present · ' : ''}[Esc] back to questions</span>
+      </div>
+      <div id="dlg-log" style="font-size:14px;line-height:1.55;margin-bottom:12px;max-height:22vh;overflow:auto">
+        ${hist.length ? hist.map((h) => `<p style="margin:0 0 10px"><i style="color:#9fb2cc">▸ ${h.q}</i><br>${h.a}</p>`).join('')
+        : `<p style="margin:0;color:#9fb2cc">Choose what to put in front of them. The right document cracks a lie; the wrong one costs you.</p>`}
+      </div>
+      <div id="dlg-qs" style="display:flex;flex-direction:column;gap:6px"></div>`;
+    const qs = this.ui.dialogue.querySelector('#dlg-qs');
+    items.forEach((it, i) => {
+      const b = document.createElement('button');
+      b.style.cssText = 'font:inherit;text-align:left;padding:7px 12px;background:#141a24;color:#e9d9b0;border:1px solid #33405266;cursor:pointer';
+      b.innerHTML = `${i < 9 ? `<b style="color:#f2b84b">${i + 1}.</b> ` : ''}${it.name} <span style="opacity:.5;font-size:12px">— ${it.from === 'l1' ? 'the office' : 'the city'}</span>`;
+      b.addEventListener('click', () => this._presentEvidence(it));
+      qs.appendChild(b);
+    });
+    if (!items.length) {
+      const p = document.createElement('p');
+      p.style.cssText = 'opacity:.6;font-size:13px;margin:0';
+      p.textContent = 'Your case file is empty.';
+      qs.appendChild(p);
+    }
+    const log = this.ui.dialogue.querySelector('#dlg-log');
+    if (log) log.scrollTop = log.scrollHeight;
+  }
+
+  _evidenceList() {
+    const list = [];
+    const prog = window.__caseProgress && window.__caseProgress.l1;
+    for (const id of Object.keys(CASE.clues)) if (!prog || prog[id]) list.push({ id, from: 'l1', name: CASE.clues[id].name });
+    for (const id of Object.keys(this.collected)) list.push({ id, from: 'c', name: CITY_CLUES[id].name });
+    return list;
+  }
+
+  // Show one piece of evidence to the current witness. If a follow-up is
+  // gated on exactly this evidence, it cracks open; otherwise the witness
+  // deflects and the run takes a rank penalty.
+  _presentEvidence(it) {
+    const npc = this.currentNpc;
+    if (!npc || !it) return;
+    let idx = -1;
+    for (let i = 0; i < npc.follow.length; i++) {
+      const f = npc.follow[i];
+      if (f.req === `${it.from}:${it.id}` && !npc.asked['f' + i]) { idx = i; break; }
+    }
+    if (idx >= 0) {
+      npc.cracks = (npc.cracks || 0) + 1;
+      sfx('crack');
+      this._flash('rgba(242,184,75,.35)');
+      const f = npc.follow[idx];
+      if (f.route) this._applyRoute(f.route, npc);
+      this._answerItem(npc, { q: npc.follow[idx].q, key: 'f' + idx });
+      return;
+    }
+    getStats().falsePresentations++;
+    sfx('deflect');
+    this._flash('rgba(161,36,28,.35)');
+    const lines = [
+      'They look at it, then back at you. "And? Should that mean something to me?"',
+      '"You are waving paper at the wrong person, detective."',
+      'A slow headshake. "That proves nothing about me."',
+    ];
+    npc.history.push({ q: `Shown: ${it.name}`, a: lines[(Math.random() * lines.length) | 0] });
+    this._renderDialogue();
+  }
+
+  _flash(color) {
+    const f = this.ui.flash;
+    if (!f) return;
+    f.style.transition = 'none';
+    f.style.background = color;
+    f.style.opacity = '0.3';
+    requestAnimationFrame(() => { f.style.transition = 'opacity .5s'; f.style.opacity = '0'; });
+  }
+
   _ask(i) {
     const npc = this.currentNpc;
     const it = npc._items[i];
     if (!it) return;
+    if (it.key === '__present') { this.presentMode = true; this._renderDialogue(); return; }
+    this._answerItem(npc, it);
+  }
+
+  _answerItem(npc, it) {
     let answer;
     if (it.key === 'where') answer = npc.where;
     else if (it.key === 'relate') answer = npc.relate;
@@ -930,6 +1173,7 @@ export class CityLevel {
 
   _closeDialogue() {
     this.dialogueOpen = false;
+    this.presentMode = false;
     window.__uiCapture = false;
     this.ui.dialogue.style.display = 'none';
     this.currentNpc = null;
@@ -941,6 +1185,82 @@ export class CityLevel {
       this.allQuestioned = true;
       this._toast('ALL FIVE HEARD YOU OUT',
         'The city has given its statements. Open the case file [C] and compile the suspect list — three names. Choose well.', 9000);
+    }
+  }
+
+  // =========================================================
+  // CASE BOARD — strings from evidence to mugshots; the
+  // captain decides what the paper supports; a granted
+  // warrant authorises the stakeout (the depot, 14:00).
+  // =========================================================
+  _saveState() {
+    window.__caseProgress = window.__caseProgress || { l1: {} };
+    // _onPhoto() writes the metadata record straight to __caseProgress —
+    // keep this.state.photos pointing at it instead of clobbering it
+    this.state.photos = window.__caseProgress.photos || this.state.photos;
+    window.__caseProgress.board = this.state.board;
+    window.__caseProgress.trust = this.state.trust;
+    window.__caseProgress.held = this.state.held;
+    window.__caseProgress.warrants = this.state.warrants;
+    window.__caseProgress.photos = this.state.photos;
+    if (typeof window.__saveRun === 'function') window.__saveRun();
+  }
+
+  _refreshTrustHud() {
+    if (!this.ui || !this.ui.trust || !this.state) return;
+    const t = this.state.trust;
+    const links = Object.values(this.state.board).reduce((a, b) => a + b.length, 0);
+    this.ui.trust.innerHTML =
+      `TRUST <span style="color:#f2b84b">${'●'.repeat(t)}</span><span style="opacity:.3">${'○'.repeat(Math.max(0, 3 - t))}</span>` +
+      ` &nbsp;·&nbsp; LINKS ${links}`;
+  }
+
+  _openBoard() { this.board.open(); }
+
+  _offerStakeout(id) {
+    const s = this.npcs.find((n) => n.id === id);
+    this._toast('WARRANT SIGNED',
+      `A stakeout is authorised on ${s ? s.name : id}. Go to the depot at 14:00.  [Y] accept · [N] keep investigating`,
+      12000);
+    this._stakeoutTarget = id;
+  }
+
+  _reassigned() {
+    // Captain took the file. Level 3 will start with a worse hand.
+    this._toast('CASE REASSIGNED',
+      'The captain has taken the file. The cells will still hear you — but you will not be signing anything.',
+      12000);
+    window.__caseProgress = window.__caseProgress || { l1: {} };
+    window.__caseProgress.reassigned = true;
+    this._saveState();
+  }
+
+  // A cracked follow-up can carry a route: reveal a hidden clue, name
+  // another witness, or unlock a question the person was sitting on.
+  _applyRoute(route, fromNpc) {
+    if (route.spawn && !this.collected[route.spawn]) {
+      // re-show the clue the level built but hid, if it was deferred
+      const clue = this.clues.find((c) => c.id === route.spawn);
+      if (clue && clue.deferred) {
+        clue.deferred = false;
+        this.city.add(clue.group); this.city.add(clue.hit);
+      }
+      this._toast('A LEAD OPENS', route.hint || 'Something you were told points at a place.', 9000);
+      this.logs.extra.push(`${fromNpc.name} → ${route.hint || 'a place worth looking at'}`);
+    }
+    if (route.witness) {
+      this.logs.extra.push(`${fromNpc.name} names ${route.witness} — worth finding.`);
+      this._toast('A NAME', route.hint || `${route.witness} knows something.`, 9000);
+    }
+    if (route.requestion) {
+      const t = this.npcs.find((n) => n.id === route.requestion);
+      if (t) {
+        t._reopen = true;               // evidence-gated follows become askable directly
+        this.logs.extra.push(route.hint ? `${fromNpc.name} — ${route.hint}` : `${fromNpc.name} says ${t.name} is holding back.`);
+      }
+    }
+    if (route.hint && !route.spawn && !route.witness) {
+      this.logs.extra.push(route.hint);
     }
   }
 
@@ -960,6 +1280,17 @@ export class CityLevel {
       ? Object.keys(this.collected).map((k) => `<li><b>${CITY_CLUES[k].name}</b> — ${CITY_CLUES[k].note}</li>`).join('')
       : '<li>The city has not yet spoken. Three things are out there: a gun, something only UV light will show, and something stamped with a time.</li>';
     const li = (arr) => arr.length ? arr.map((s) => `<li>${s}</li>`).join('') : '<li style="opacity:.5">— none recorded —</li>';
+    // Lab dossier handoff: the two names + facts Level 2 produced.
+    const lab = (window.__caseProgress && window.__caseProgress.lab) || null;
+    const labHtml = lab
+      ? `<h3>THE LAB — DOSSIER (${(lab.names || []).length} NAMES)</h3><ul>` +
+        `<li><b>Names:</b> ${(lab.names || []).join(' · ') || '—'} — one killed him, one ran. The lab cannot say which.</li>` +
+        `<li><b>Weapon:</b> ${lab.weapon || '—'}</li>` +
+        `<li><b>Window:</b> ${lab.window || '—'}</li>` +
+        `<li><b>Depot:</b> ${lab.depot || '—'}</li>` +
+        `<li><b>Temperament:</b> ${lab.temperament || '—'}</li>` +
+        `<li><b>Memo:</b> ${lab.memo || '—'}</li></ul>`
+      : '<h3>THE LAB — DOSSIER</h3><ul><li style="opacity:.5">No lab dossier on file (arrived without Level 2).</li></ul>';
 
     const btnState = this.allQuestioned
       ? '<button id="sf-go" style="font:inherit;letter-spacing:1px;padding:12px 26px;background:#a1241c;color:#fff;border:0;cursor:pointer">Compile the suspect list — three names &rarr;</button>'
@@ -970,17 +1301,27 @@ export class CityLevel {
         <h2 style="letter-spacing:4px;color:#f2b84b">CASE FILE #001 — <span style="color:#7fd4ff">THE CITY</span></h2>
         <p><b>VICTIM:</b> ${CASE.victim} — ${CASE.role}. ${CASE.found}. One gunshot, left chest, at close range.</p>
         <h3>THE OFFICE — EVIDENCE LOGGED (${l1Keys.length})</h3><ul>${l1Html}</ul>
+        ${labHtml}
         <h3>THE CITY — EVIDENCE LOGGED (${Object.keys(this.collected).length}/3)</h3><ul>${cityHtml}</ul>
         <h3>STATEMENTS — WHERE THEY WERE</h3><ul>${li(this.logs.statements)}</ul>
         <h3>RELATIONSHIPS WITH THE VICTIM</h3><ul>${li(this.logs.relationships)}</ul>
         <h3>REACTIONS ON HEARING OF DEATH</h3><ul>${li(this.logs.reactions)}</ul>
         <h3>CONTRADICTIONS & LEADS</h3><ul>${li(this.logs.extra)}</ul>
+        <h3>PHOTOGRAPHS (${this.photoCam ? this.photoCam.photos.length : 0}/${PHOTO.film})</h3><ul>${li(this._photoLines())}</ul>
         <div style="margin-top:18px">${btnState}</div>
         <p style="opacity:.6;margin-top:14px">[C] close — read it as often as you like; the witnesses remember you.</p>
       </div>`;
     this.ui.case.style.display = 'flex';
     const go = this.ui.case.querySelector('#sf-go');
     if (go) go.addEventListener('click', () => { this._closeCase(); this._openSuspects(); });
+  }
+
+  _photoLines() {
+    if (!this.photoCam) return [];
+    return this.photoCam.photos.map((p) => {
+      const who = p.subjects.map((s) => `${s.name || s.id}${s.sharp ? '' : ' (soft)'}`);
+      return `#${p.id} ${p.time}: ${who.length ? who.join(', ') : 'nothing in frame'}`;
+    });
   }
 
   _closeCase() {
@@ -1059,7 +1400,8 @@ export class CityLevel {
 
     const go = this.ui.verdict.querySelector('#vd-go');
     if (go) go.addEventListener('click', () => {
-      if (typeof window.__switchLevel === 'function') window.__switchLevel(3);
+      // Three levels only: the street hands straight to the depot stakeout.
+      if (typeof window.__switchLevel === 'function') window.__switchLevel('depot');
       else this._closeVerdict();
     });
   }
@@ -1071,7 +1413,7 @@ export class CityLevel {
   }
 
   _restart() {
-    if (typeof window.__switchLevel === 'function') window.__switchLevel(2);
+    if (typeof window.__switchLevel === 'function') window.__switchLevel(3);
     else this._closeVerdict();
   }
 
@@ -1080,15 +1422,30 @@ export class CityLevel {
   // =========================================================
   _handleKey(e) {
     if (e.repeat) return;
+    // the board and the captain own their overlays
+    if ((this.board && this.board.open_) || (this.captain && this.captain.open_)) return;
     if (this.verdictOpen) return;
     if (this.caseOpen) { if (e.code === 'KeyC' || e.code === 'Escape') this._closeCase(); return; }
     if (this.suspectsOpen) { if (e.code === 'Escape') this._closeSuspects(); return; }
     if (this.dialogueOpen) {
       const m = e.code.match(/^Digit([1-9])$/);
-      if (m) { this._ask(Number(m[1]) - 1); return; }
+      if (m) {
+        if (this.presentMode) this._presentEvidence(this._evidenceList()[Number(m[1]) - 1]);
+        else this._ask(Number(m[1]) - 1);
+        return;
+      }
+      if (this.presentMode && e.code === 'Escape') { this.presentMode = false; this._renderDialogue(); return; }
       if (e.code === 'KeyE' || e.code === 'Escape' || e.code === 'KeyC') this._closeDialogue();
       return;
     }
+    if (e.code === 'KeyB' && !this.dialogueOpen && !this.caseOpen) { this._openBoard(); return; }
+    if (e.code === 'KeyY' && this._stakeoutTarget) {
+      window.__caseProgress = window.__caseProgress || { l1: {} };
+      window.__caseProgress.stakeoutTarget = this._stakeoutTarget;
+      if (typeof window.__switchLevel === 'function') window.__switchLevel('depot');
+      return;
+    }
+    if (e.code === 'KeyN' && this._stakeoutTarget) { this._stakeoutTarget = null; return; }
     if (e.code === 'KeyC') { this._openCase(); return; }
     if (e.code === 'KeyF') {
       this.uvOn = !this.uvOn;
@@ -1100,6 +1457,7 @@ export class CityLevel {
       if (!this.focus) return;
       const f = this.focus;
       if (f.npc) this._openDialogue(f.npc);
+      else if (f.post) this._openPost();
       else if (f.clue && !f.clue.found) this._collect(f.clue);
     }
   }
@@ -1117,6 +1475,7 @@ export class CityLevel {
     c.hit.userData = {};                    // no longer interactable
     this.city.remove(c.hit);
     if (c.glint) this.city.remove(c.glint.mesh);
+    sfx('collect');
     this._updateCounter();
     this._toast(`CITY EVIDENCE ${Object.keys(this.collected).length}/3 — ${c.def.name.toUpperCase()}`, c.def.note, 11000);
     if (c.id === 'gun') this.logs.extra.push('An unregistered .40 pistol sat under a tarp where the watchman sits. He never mentioned carrying it.');
@@ -1142,13 +1501,24 @@ export class CityLevel {
     this._rc.far = REACH;
     const targets = [];
     for (const n of this.npcObjs) targets.push(n.hit);
-    for (const c of this.clues) if (!c.found) targets.push(c.hit);
+    for (const c of this.clues) if (!c.found && !c.deferred) targets.push(c.hit);
+    if (this._postHit) targets.push(this._postHit);
     const hits = this._rc.intersectObjects(targets, false);
     if (!hits.length) { this.ui.prompt.style.display = 'none'; return; }
+    // smallest target wins (car post sits near NPC/clue boxes)
+    const vol = (o) => {
+      const p = (o.geometry && o.geometry.parameters) || {};
+      return ((p.width || 1) * (p.height || 1) * (p.depth || 1));
+    };
+    hits.sort((a, b) => vol(a.object) - vol(b.object));
     const ud = hits[0].object.userData;
     if (ud.npc) {
       this.focus = { npc: ud.npc };
       this.ui.prompt.textContent = `[E] Question — ${ud.npc.name}`;
+      this.ui.prompt.style.display = 'block';
+    } else if (ud.post) {
+      this.focus = { post: true };
+      this.ui.prompt.textContent = `[E] Stakeout car — dossier & radio`;
       this.ui.prompt.style.display = 'block';
     } else if (ud.clue) {
       this.focus = { clue: ud.clue };
@@ -1161,7 +1531,13 @@ export class CityLevel {
     this.time += dt;
     const cam = window.__camera;
     const hasCam = !!(cam && cam.isCamera);
-    if (hasCam && player && player.pos) this._applyFirstPerson(player);
+    if (this.ride && this.ride.active) {
+      if (player) this._ridePlayer = player;
+      this._updateRide(dt);
+    } else {
+      if (hasCam && player && player.pos) this._applyFirstPerson(player);
+    }
+    if (this.photoCam) this.photoCam.update(dt, this.time);
 
     // UV light rides the camera
     if (this.uvLight) {
@@ -1230,7 +1606,38 @@ export class CityLevel {
 
     const overlay = this.caseOpen || this.dialogueOpen || this.suspectsOpen || this.verdictOpen;
     if (overlay) { this.ui.prompt.style.display = 'none'; this.focus = null; }
-    else if (hasCam) this._updateFocus(cam);
+    else if (hasCam && !(this.ride && this.ride.active)) this._updateFocus(cam);
+    else if (this.ride && this.ride.active) { this.ui.prompt.style.display = 'none'; this.focus = null; }
+  }
+
+  _updateRide(dt) {
+    const r = this.ride;
+    const cam = window.__camera;
+    if (!cam || !cam.isCamera) return;
+    r.t += dt;
+    const k = Math.min(1, r.t / r.dur);
+    const e = k * k * (3 - 2 * k);
+    cam.position.lerpVectors(r.from, r.to, e);
+    cam.rotation.order = 'YXZ';
+    const pan = Math.sin(r.t * 0.25) * 6;
+    cam.lookAt(r.look.x + pan, r.look.y, r.look.z);
+    if (r.ui) {
+      const cap = r.ui.querySelector('.ride-cap');
+      while (r.shown < r.lines.length && r.t >= r.lines[r.shown][0]) {
+        if (cap) cap.textContent = r.lines[r.shown][1];
+        r.shown++;
+      }
+    }
+    if (k >= 1) {
+      const p = this._ridePlayer;
+      if (p && p.pos) {
+        p.pos.set(this._parkedAt.x - 2.5, 0, this._parkedAt.z + 1);
+        p.vel.set(0, 0, 0);
+        p.yaw = Math.PI / 2 - 0.3;   // face the street from the car
+        p.pitch = 0;
+      }
+      this._endRide(false);
+    }
   }
 
   // =========================================================
@@ -1238,6 +1645,10 @@ export class CityLevel {
   // =========================================================
   dispose() {
     clearTimeout(this._toastTimer);
+    if (this.ride && this.ride.ui) { this.ride.ui.remove(); this.ride.ui = null; }
+    if (this.board) { this.board.dispose(); this.board = null; }
+    if (this.captain) { this.captain.dispose(); this.captain = null; }
+    if (this.photoCam) { this.photoCam.dispose(); this.photoCam = null; }
     window.removeEventListener('keydown', this._onKey);
     window.__firstPerson = false;
     window.__uiCapture = false;

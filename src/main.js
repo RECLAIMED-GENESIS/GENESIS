@@ -3,31 +3,26 @@
 // ============================================================
 import * as THREE from 'three';
 import { StreetLevel } from './levels/lvl1.js';
-import { CityLevel } from './levels/CityLevel.js';
-import { JailLevel } from './levels/JailLevel.js';
+import { LabLevel }    from './levels/LabLevel.js';
+import { CityLevel }   from './levels/CityLevel.js';
+import { DepotLevel }  from './levels/DepotLevel.js';
 import { GameShell } from './ui/GameShell.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { loadAllAudio } from './audio/loadAudio.js';
-// Mystery Level 1 is the victim's office; Level 2 is the city street the
-// desk calendar points to (CityLevel wraps the legacy Level2.js scene and
-// adds the five witnesses, UV torch and carried-over case file). Mystery
-// Level 3 is the holding cells: the people picked at the end of Level 2 are
-// interrogated there and one of them is accused.
+import { getStats } from './game/stats.js';
 
-// ---------- renderer ----------
+const LEVELS = { 1: StreetLevel, 2: LabLevel, 3: CityLevel, depot: DepotLevel };
+
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
-// NOTE: PCFSoftShadowMap was removed in recent three.js versions.
-// PCFShadowMap is the modern equivalent.
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 renderer.autoClear = false;
 document.body.appendChild(renderer.domElement);
 
-// Surface context-lost events so we can see them in the console
 renderer.domElement.addEventListener('webglcontextlost', (event) => {
   event.preventDefault();
   console.error('[GENESIS] WebGL context lost. Refresh the tab.');
@@ -41,7 +36,6 @@ const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 12
 camera.rotation.order = 'YXZ';
 window.__camera = camera;
 
-// ---------- player ----------
 const player = {
   pos: new THREE.Vector3(0, 0, 55),
   vel: new THREE.Vector3(),
@@ -52,19 +46,10 @@ const player = {
   R: 0.4, H: 1.8,
 };
 
-// ---------- player: CAMERA ONLY ----------
-// This game is first-person. There is no visible avatar and no body model:
-// the `player` object below only carries the camera transform (pos/yaw/pitch)
-// that stepPlayer() drives. Nothing here builds hands, a torso or legs.
-
-// ---------- input ----------
 const keys = {};
 let locked = false;
 
 addEventListener('keydown', e => {
-
-  // Pause / restart work from anywhere except inside a level's own UI
-  // (dialogue, case file, suspect list…), which owns the keyboard.
   if ((e.code === 'KeyP' || e.code === 'Escape') && !window.__uiCapture && !e.repeat) {
     if (appState === 'playing' && !levelUiOpen()) setPaused(!paused);
     return;
@@ -74,45 +59,39 @@ addEventListener('keydown', e => {
     return;
   }
 
-  // A level's dialogue/case-file UI is open: it owns the keyboard entirely
-  // (movement keys would also walk the player mid-conversation).
   if (window.__uiCapture) return;
 
-  // If dialogue is active, route keys to the dialogue system
   if (window.__dialogue && window.__dialogue.active) {
     window.__dialogue.handleKey(e.code);
     return;
   }
 
-  // A level overlay without capture (e.g. the L1 case file) still freezes input.
   if (levelUiOpen() || paused || appState !== 'playing') return;
 
   keys[e.code] = true;
   if (e.code === 'Space') e.preventDefault();
 
-  // ── Jump ── handled here so it fires once per press (not per frame)
   if (e.code === 'Space' && player.grounded) {
     player.vel.y = 12;
   }
-
-  // Combat keys (punch/kick/hook) belonged to the old fighting game and were
-  // removed: F is now the level's UV-light toggle, handled inside the level.
 });
 
 addEventListener('keyup', e => keys[e.code] = false);
+
 function lockPointer() {
   try {
     const p = renderer.domElement.requestPointerLock();
     if (p && typeof p.catch === 'function') p.catch(() => {});
-  } catch (err) { /* needs user gesture */ }
+  } catch (err) {}
 }
+
 renderer.domElement.addEventListener('click', () => {
   if (appState === 'playing' && !paused && !levelUiOpen()) lockPointer();
 });
+
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
   updateMsg();
-  // Esc drops pointer lock: treat a "clean" unlock as a pause request.
   if (!locked && appState === 'playing' && !paused && !levelUiOpen()) setPaused(true);
 });
 
@@ -122,16 +101,13 @@ addEventListener('mousemove', e => {
   player.pitch = Math.max(-1.4, Math.min(1.4, player.pitch - e.movementY * 0.0022));
 });
 
-// ---------- levels ----------
-const LEVELS = { 1: StreetLevel, 2: CityLevel, 3: JailLevel };
 let level = null, current = 1;
-let appState = 'menu';      // menu | intro | playing
+let appState = 'menu';
 let paused = false;
 const hud = document.getElementById('hud');
 const msgEl = document.getElementById('msg');
 const crossEl = document.getElementById('cross');
 
-// ---------- audio + shell ----------
 const audio = new AudioManager();
 try { loadAllAudio(audio); } catch (e) { console.warn('audio init failed', e); }
 
@@ -144,8 +120,6 @@ const shell = new GameShell({
   onQuitToMenu: () => quitToMenu(),
 });
 
-// True while any level overlay (dialogue, case file, lists, outros,
-// endings…) is on screen — whether or not it set __uiCapture.
 function levelUiOpen() {
   if (window.__uiCapture) return true;
   if (!level) return false;
@@ -166,7 +140,7 @@ function updateMsg() {
 
 function setPaused(p) {
   if (appState !== 'playing') return;
-  if (p && levelUiOpen()) return;        // never pause over a level overlay
+  if (p && levelUiOpen()) return;
   paused = p;
   window.__paused = p;
   if (p) {
@@ -193,7 +167,6 @@ function disposeLevel() {
   if (level.sky && scene.children.includes(level.sky)) scene.remove(level.sky);
   if (level.stars && scene.children.includes(level.stars)) scene.remove(level.stars);
   level = null;
-  // Clean up dialogue from a previous Level 3 session
   if (window.__dialogue) {
     try { window.__dialogue.dispose(); } catch (e) {}
     window.__dialogue = null;
@@ -203,7 +176,6 @@ function disposeLevel() {
 
 function buildLevel(n) {
   disposeLevel();
-  // ── Flush renderer caches ──
   try {
     if (renderer.renderLists) renderer.renderLists.dispose();
     if (renderer.info) renderer.info.reset();
@@ -212,13 +184,11 @@ function buildLevel(n) {
   current = n;
   try {
     level = new LEVELS[n](scene, renderer);
-    // Level 3 builds its own panels and endings, nothing to wire here.
   } catch (e) {
     console.warn(`Level ${n} primary constructor failed:`, e);
     try { level = new LEVELS[n](scene); } catch (e2) { level = new LEVELS[n](); }
   }
 
-  // If the level used its own scene, hoist things onto the main scene.
   if (level.scene && level.scene !== scene) {
     if (level.scene.background) scene.background = level.scene.background;
     scene.fog = level.scene.fog !== undefined ? level.scene.fog : null;
@@ -240,7 +210,6 @@ function buildLevel(n) {
     }
   }
 
-  // ── Spawn resolution ──
   if (typeof level.getSpawn === 'function') {
     try { level.spawn = level.getSpawn(); } catch (e) { console.warn('getSpawn failed:', e); }
   }
@@ -263,30 +232,34 @@ function buildLevel(n) {
   player.vel.set(0, 0, 0);
   player.yaw   = (typeof level.spawnYaw === 'number') ? level.spawnYaw : Math.PI;
   player.pitch = 0;
+
+  try { getStats().levelStartAt = Date.now(); } catch (e) {}
 }
 
-// Smooth level switch: fade to black, swap, show the level card, fade in.
-// Also saves progress and switches the music track.
 async function switchLevel(n, opts = {}) {
   if (!LEVELS[n]) {
     console.warn(`Level ${n} is not available yet.`);
     return;
   }
   const useCard = opts.card !== false;
-  await shell.transition(() => buildLevel(n), useCard ? n : 0);
+  try {
+    const st = getStats();
+    if (st.levelStartAt) st.elapsedMs += Date.now() - st.levelStartAt;
+    st.levelStartAt = 0;
+  } catch (e) {}
+  await shell.transition(() => buildLevel(n), useCard && typeof n === 'number' ? n : 0);
   paused = false;
   window.__paused = false;
   try { audio.playLevelMusic(n); } catch (e) {}
   try {
     audio.stopAmbience();
-    if (n === 2) audio.playAmbience('city_ambience');   // traffic bed under the city
+    if (n === 3) audio.playAmbience('city_ambience');
   } catch (e) {}
   try { shell.saveGame({ level: n, caseProgress: window.__caseProgress || null }); } catch (e) {}
   _lastHudString = '';
   updateMsg();
 }
 
-// ---------- menu flows ----------
 function onNewGame() {
   shell.clearSave();
   window.__caseProgress = null;
@@ -301,6 +274,7 @@ function onContinue() {
   const s = shell.loadGame();
   if (!s) return;
   window.__caseProgress = (s.caseProgress !== undefined) ? s.caseProgress : null;
+  try { getStats(); } catch (e) {}
   appState = 'playing';
   shell.hideAll();
   switchLevel(s.level || 1, { fade: true, card: true });
@@ -309,6 +283,10 @@ function onContinue() {
 function quitToMenu() {
   paused = false;
   window.__paused = false;
+  try {
+    const st = getStats();
+    if (st.levelStartAt) { st.elapsedMs += Date.now() - st.levelStartAt; st.levelStartAt = 0; }
+  } catch (e) {}
   disposeLevel();
   try { audio.stopMusic(); audio.stopAmbience(); } catch (e) {}
   scene.background = null;
@@ -319,14 +297,14 @@ function quitToMenu() {
   updateMsg();
 }
 
-// ── exposed so level UI buttons can drive the flow ──
-window.__switchLevel = (n) => { if (appState === 'playing') switchLevel(n, { fade: true, card: true }); };
+window.__switchLevel = (n) => { if (appState === 'playing') switchLevel(n, { fade: true, card: typeof n === 'number' }); };
 window.__showMenu = () => quitToMenu();
 window.__restartLevel = () => { if (appState === 'playing') switchLevel(current, { fade: true, card: true }); };
+window.__saveRun = () => { try { shell.saveGame({ level: current, caseProgress: window.__caseProgress || null }); } catch (e) {} };
 
-// ---------- minimap ----------
 const mini = new THREE.OrthographicCamera(-55, 55, 55, -55, 1, 300);
-mini.layers.set(1);
+mini.layers.enable(0);
+mini.layers.enable(1);
 mini.layers.enable(2);
 const marker = new THREE.Mesh(
   new THREE.ConeGeometry(1.1, 2.6, 6),
@@ -335,31 +313,27 @@ marker.rotation.order = 'YXZ';
 marker.layers.set(2);
 scene.add(marker);
 
-// ---------- physics ----------
 const GRAV = 30, SPEED = 4.5, SPRINT = 9;
-const TURN_SPEED = 2.2; // radians/sec for A/D turning
+const TURN_SPEED = 2.2;
 
 function stepPlayer(dt) {
   const isSprint = keys.ShiftLeft || keys.ShiftRight;
   const sp = isSprint ? SPRINT : SPEED;
-
-  // Frozen while paused or while a level overlay is open (e.g. reading the
-  // L1 case file): gravity and collisions still apply, input does not.
   const frozen = paused || levelUiOpen();
 
-  // A/D turn the view left/right
-  if (!frozen && keys.KeyA) player.yaw += TURN_SPEED * dt;
-  if (!frozen && keys.KeyD) player.yaw -= TURN_SPEED * dt;
+  if (!frozen && !locked) {
+    if (keys.KeyA) player.yaw += TURN_SPEED * dt;
+    if (keys.KeyD) player.yaw -= TURN_SPEED * dt;
+  }
 
-  // W/S move in the direction the camera faces
   const f = frozen ? 0 : (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
+  const s = (frozen || !locked) ? 0 : (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
-  player.vel.x = -sin * f * sp;
-  player.vel.z = -cos * f * sp;
 
-  // Gravity — jump velocity is set from the keydown handler
+  player.vel.x = (-sin * f + cos * s) * sp;
+  player.vel.z = (-cos * f - sin * s) * sp;
+
   player.vel.y -= GRAV * dt;
-
   player.pos.addScaledVector(player.vel, dt);
 
   let g = 0;
@@ -368,6 +342,7 @@ function stepPlayer(dt) {
     else if (level && typeof level.groundHeight === 'function') g = level.groundHeight(player.pos.x, player.pos.z, player.pos.y);
     else if (level && typeof level.terrainHeight === 'function') g = level.terrainHeight(player.pos.x, player.pos.z);
   } catch (e) { g = 0; }
+
   if (player.pos.y <= g) { player.pos.y = g; player.vel.y = 0; player.grounded = true; }
   else player.grounded = false;
 
@@ -393,22 +368,16 @@ function stepPlayer(dt) {
   }
 }
 
-// ---------- loop ----------
-// three.js deprecates Clock in favour of Timer.
 const timer = new THREE.Timer();
 let _rafId = 0;
-
-// HUD caching — innerHTML writes every frame are expensive.
 let _lastHudString = '';
 
 function renderScene() {
-  // ── Main render ──
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   renderer.clear();
   renderer.render(scene, camera);
 
-  // ── Minimap render ──
   const S = 200;
   renderer.setScissorTest(true);
   renderer.setViewport(innerWidth - S - 12, 12, S, S);
@@ -428,8 +397,8 @@ function tick() {
   const dt = Math.min(timer.getDelta(), 0.05);
   const t  = timer.getElapsed();
 
-  if (!level) { renderScene(); updateMsg(); return; }   // menu backdrop
-  if (paused) { renderScene(); return; }                // frozen under pause
+  if (!level) { renderScene(); updateMsg(); return; }
+  if (paused) { renderScene(); return; }
 
   stepPlayer(dt);
   if (typeof level.update === 'function') {
@@ -437,11 +406,6 @@ function tick() {
     catch (e) { console.warn('level.update error', e); }
   }
 
-  // ── Camera ──
-  // First-person levels (e.g. the Level 1 crime scene) drive the camera
-  // themselves inside level.update(). Every other level falls back to the
-  // first-person eye camera below — the player is a pure camera, there is
-  // no avatar to follow in third person.
   if (!window.__firstPerson) {
     const EYE = player.EYE || 1.7;
     camera.position.set(player.pos.x, player.pos.y + EYE, player.pos.z);
@@ -449,12 +413,9 @@ function tick() {
     camera.rotation.set(player.pitch, player.yaw, 0);
   }
 
-  // ── Minimap marker (top-down arrow only; never shown in the first-person view) ──
   marker.position.set(player.pos.x, player.pos.y + 2, player.pos.z);
   marker.rotation.set(-Math.PI / 2, player.yaw, 0);
 
-  // ── HUD (cached — only written when the string changes) ──
-  // Bottom-left on purpose: every level keeps its own counters top-left.
   const levelName = (level && level.name) ? level.name : `LEVEL ${current}`;
   const hudStr =
     `<b>GENESIS — ${levelName}</b><br>` +
@@ -474,19 +435,14 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// Boot into the menu; levels build on demand (New game / Continue).
 document.getElementById('pauseBtn').addEventListener('click', () => {
   if (appState === 'playing' && !paused && !levelUiOpen()) setPaused(true);
 });
 shell.showMenu();
-try { audio.playMusic('menu_theme'); } catch (e) {}   // starts on first unlock gesture
+try { audio.playMusic('menu_theme'); } catch (e) {}
 updateMsg();
 tick();
 
-// ---------- Vite HMR cleanup ----------
-// Without this, every hot reload leaks a WebGL context. Browsers cap
-// a tab at ~16 contexts, so after a dozen saves WebGL stops working
-// until you close the tab.
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     cancelAnimationFrame(_rafId);

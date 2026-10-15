@@ -9,16 +9,16 @@ const SAVE_KEY = 'genesis.save.v1';
 const SETTINGS_KEY = 'genesis.settings.v1';
 
 export const LEVEL_CARDS = {
-  1: { title: 'LEVEL 1', sub: 'THE OFFICE', line: 'Dr. Nkosi is dead. The room remembers everything.' },
-  2: { title: 'LEVEL 2', sub: 'THE CITY', line: 'Five people know something about tonight.' },
-  3: { title: 'LEVEL 3', sub: 'THE CELLS', line: 'Three names on the list. One pulled the trigger.' },
+  1: { title: 'LEVEL 1', sub: "THE VICTIM'S OFFICE", line: 'Dr. Nkosi is dead. The room remembers everything.' },
+  2: { title: 'LEVEL 2', sub: 'THE FORENSIC LAB', line: 'Eight objects. Two names. The lab cannot say which is which.' },
+  3: { title: 'LEVEL 3', sub: 'THE CITY', line: 'Two names walked out of that room. Find them both.' },
 };
 
 const CSS = `
 #gs-veil{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .45s ease;z-index:20000}
 #gs-veil.on{opacity:1;pointer-events:auto}
 .gs-screen{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:20001;
-  font-family:"Courier New",monospace;color:#e9d9b0;background:rgba(2,3,6,.88)}
+  font-family:"Courier New",monospace;color:#e9d9b0;background:linear-gradient(rgba(2,3,6,.84),rgba(2,3,6,.9)),url('assets/textures/scenary.jpg') center/cover no-repeat}
 .gs-screen.on{display:flex}
 .gs-card{max-width:min(680px,93vw);max-height:92vh;overflow:auto;text-align:center;
   background:rgba(6,8,13,.96);border:1px solid #3c4656;padding:34px 42px;box-shadow:0 0 60px rgba(0,0,0,.8)}
@@ -145,7 +145,15 @@ export class GameShell {
   }
   async transition(work, cardN = 0) {
     await this.fade(true);
-    await work();
+    try {
+      await work();
+    } catch (err) {
+      // Never strand the player on a black veil: lift it and say what broke.
+      console.error('[GENESIS] level swap failed:', err);
+      await this.fade(false);
+      this.showError(err);
+      return;
+    }
     if (cardN && LEVEL_CARDS[cardN]) {
       this.showCard(cardN);
       await new Promise((r) => setTimeout(r, 500));
@@ -155,6 +163,27 @@ export class GameShell {
     } else {
       await this.fade(false);
     }
+  }
+  showError(err) {
+    const msg = (err && (err.stack || err.message)) ? String(err.stack || err.message) : String(err);
+    let s = document.getElementById('gs-error');
+    if (!s) {
+      s = document.createElement('div');
+      s.id = 'gs-error';
+      s.style.cssText = 'position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:20002;font-family:"Courier New",monospace;background:rgba(2,3,6,.92)';
+      s.innerHTML = '<div style="max-width:min(720px,92vw);background:#16090a;border:1px solid #a1241c;padding:28px 32px;color:#e9d9b0">' +
+        '<div style="letter-spacing:4px;color:#ff7a6a;margin-bottom:10px">LEVEL FAILED TO LOAD</div>' +
+        '<div style="font-size:13px;opacity:.8;margin-bottom:10px">Screenshot this and send it to the developer. Press R or reload to retry.</div>' +
+        '<pre id="gs-error-text" style="font-size:11px;line-height:1.5;max-height:40vh;overflow:auto;background:#000;padding:12px;white-space:pre-wrap"></pre>' +
+        '<button id="gs-error-back" style="font:inherit;margin-top:14px;padding:10px 22px;background:#1a2028;color:#e9d9b0;border:1px solid #3c4656;cursor:pointer">Back to menu</button></div>';
+      document.body.appendChild(s);
+      s.querySelector('#gs-error-back').addEventListener('click', () => {
+        s.style.display = 'none';
+        try { window.__showMenu && window.__showMenu(); } catch (e) {}
+      });
+    }
+    s.querySelector('#gs-error-text').textContent = msg.slice(0, 2000);
+    s.style.display = 'flex';
   }
   showCard(n) {
     const c = LEVEL_CARDS[n];

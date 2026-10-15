@@ -37,6 +37,9 @@
 // ============================================================
 import * as THREE from 'three';
 import { CASE } from './lvl1.js';
+import { getStats } from '../game/stats.js';
+import { play as sfx } from '../audio/sfx.js';
+import { strength } from '../game/investigation.js';
 
 const EYE = 1.7;
 const REACH = 4.4;
@@ -82,6 +85,7 @@ const PEOPLE = {
       handkerchief: R('partial', `"K.P." He studies it far too long. "Initials are not names." But he knows whose hand wiped itself on that cloth, and he does not say it.`),
     },
     fate: 'Sipho Ndlovu was charged with an unregistered firearm and with obstruction for the night he looked away.',
+    breakdown: 'The composure finally slips. "I opened the back gate for money. That is all I did — I never saw a face, I never wanted to." It is the truth, and it is not the truth you came for.',
   },
   anele: {
     id: 'anele', name: 'Anele Mahlangu', role: 'Department administrator', obj: 'her',
@@ -95,6 +99,7 @@ const PEOPLE = {
       stub: R('clear', `"I do not drive. I walked down to the water." She turns her hands over, empty.`),
     },
     fate: 'Anele Mahlangu was released, her alibi on the quay held.',
+    breakdown: 'Her straight back folds at last. "I was at the water moving a stolen ledger — charge me with that if it pleases you. I never climbed his stairs." The river water on her cuffs was business, not blood.',
   },
   naledi: {
     id: 'naledi', name: 'Prof. Naledi Dube', role: 'Head of Department', obj: 'her',
@@ -110,6 +115,7 @@ const PEOPLE = {
       phone: R('none', `"Exam scripts, your office tonight." Her face goes blank. "That is not my number and that is not my phrase."`),
     },
     fate: 'Prof. Naledi Dube resigned and now faces the inquiry into the altered marks.',
+    breakdown: 'Her hands slide off the bars. "I changed the marks, yes — to protect the department, I told myself. He was going to report it and I begged him to wait." Tears, but a clean conscience where it matters: "I never carried a gun to him."',
   },
   kyle: {
     id: 'kyle', name: 'Kyle Pretorius', role: 'PhD student and tutor', obj: 'him',
@@ -127,6 +133,7 @@ const PEOPLE = {
       casing: R('partial', `"Nine millimetre. I have never owned a gun." That may be true. It is not what you asked.`),
     },
     fate: 'Kyle Pretorius was charged with the murder of Dr. Thabo Nkosi.',
+    breakdown: 'The last wall comes down. "He was going to report the marks — my contract, my career, everything, gone in one memo." The bandaged hand opens and closes. "It was one second. One second and a noise like a book slamming." He looks up. "Are you going to tell my mother?"',
   },
   mandla: {
     id: 'mandla', name: 'Mandla Dlamini', role: 'Taxi rank fixer', obj: 'him',
@@ -138,6 +145,7 @@ const PEOPLE = {
       uvtrail: R('partial', `"Depot. He knows." He taps his temple. "I watch gates, detective. I watch more than this."`),
     },
     fate: 'Mandla Dlamini was released, his invoices having alibied the woman at the water.',
+    breakdown: 'The grin thins into something honest. "I watch gates and I sell what I see. That night I sold where the watchman would not be looking. I never crossed that campus." Invoices and alibis — he is a witness, not a shooter.',
   },
 };
 PEOPLE.anale = PEOPLE.anele;   // Level 2 spells this id anale
@@ -222,6 +230,19 @@ export class JailLevel {
 
     this.evidence = this._collectEvidence();
     this.picks = this._readPicks();
+
+    // ---- Level 2 case-board state (the L3 rework reads these) ----
+    const prog = window.__caseProgress || {};
+    this.board = prog.board || {};
+    this.trust = prog.trust ?? 3;
+    this.held = prog.held || [];
+    this.warrants = prog.warrants || [];
+    this.reassigned = !!prog.reassigned;
+    this.stakeout = prog.stakeout || null;   // { spooked, shots, evidence }
+    // who is actually in the cells? (held at the captain, else whoever is on the board)
+    this._inCells = this.held.length ? this.held : Object.keys(this.board);
+    // per-suspect link score, so an interrogation can say what the paper holds
+    this._strengthOf = (id) => strength(id, this.board[id] || []);
 
     this._materials();
     this._buildShell();
@@ -535,7 +556,8 @@ export class JailLevel {
       plate.position.set(-2.12, 3.2, cz);
       this.root.add(plate);
 
-      const s = { def, group: g, hit, cone, cell: i, presented: {}, questioned: false, pos: new THREE.Vector3(-4.4, 0, cz), phase: rng() * 6.28 };
+      const s = { def, group: g, hit, cone, cell: i, presented: {}, questioned: false, pos: new THREE.Vector3(-4.4, 0, cz), phase: rng() * 6.28,
+        composure: 100, strikes: 0, lawyered: false, broken: false };
       hit.userData.suspect = s;
       this.suspects.push(s);
     });
@@ -634,23 +656,41 @@ export class JailLevel {
   _renderPanel() {
     const s = this.current;
     const opts = this._options();
-    const rows = opts.map((o, i) => {
-      const done = s.presented[o.key] ? '<span style="color:#7fd4ff">&#10003;</span> ' : '&nbsp;&nbsp;&nbsp;';
-      return `<div data-act="opt" data-i="${i}" data-sel="${i === this.sel ? 1 : 0}" style="padding:6px 10px;cursor:pointer;border-left:3px solid ${i === this.sel ? '#f2b84b' : 'transparent'};background:${i === this.sel ? 'rgba(242,184,75,.12)' : 'transparent'}">${done}${o.label}${o.tag ? `<span style="opacity:.5"> (${o.tag})</span>` : ''}</div>`;
-    }).join('');
+    const rows = s.lawyered
+      ? `<div style="opacity:.65;padding:10px 12px;font-style:italic">"${s.def.name.split(' ')[0]} is done talking. The duty solicitor stands where you stand and shakes ${s.def.obj} head."</div>`
+      : opts.map((o, i) => {
+        const done = s.presented[o.key] ? '<span style="color:#7fd4ff">&#10003;</span> ' : '&nbsp;&nbsp;&nbsp;';
+        return `<div data-act="opt" data-i="${i}" data-sel="${i === this.sel ? 1 : 0}" style="padding:6px 10px;cursor:pointer;border-left:3px solid ${i === this.sel ? '#f2b84b' : 'transparent'};background:${i === this.sel ? 'rgba(242,184,75,.12)' : 'transparent'}">${done}${o.label}${o.tag ? `<span style="opacity:.5"> (${o.tag})</span>` : ''}</div>`;
+      }).join('');
     const shown = Object.keys(s.presented).length;
+
+    // composure meter — the pressure bar of the interrogation
+    const pct = Math.max(0, Math.min(100, s.composure));
+    const barColor = s.broken ? '#6fe0a8' : pct > 60 ? '#f2b84b' : pct > 30 ? '#e0913f' : '#d34a3f';
+    const status = s.broken
+      ? '<span style="color:#6fe0a8;letter-spacing:2px">BROKEN — TALKING</span>'
+      : s.lawyered
+        ? '<span style="color:#d34a3f;letter-spacing:2px">LAWYERED UP</span>'
+        : '<span style="opacity:.6;font-size:11px;letter-spacing:2px">COMPOSURE</span>';
+    const bar = `
+      <div style="flex:1;min-width:180px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:3px">${status}<span style="opacity:.5;font-size:11px">${s.broken || s.lawyered ? '' : pct + '%'}</span></div>
+        <div style="height:8px;background:#141a24;border:1px solid #2c3440"><div style="height:100%;width:${pct}%;background:${barColor};transition:width .35s"></div></div>
+      </div>`;
+
     this.ui.panel.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:8px;flex-wrap:wrap">
         <div><b style="color:#f2b84b;font-size:18px;letter-spacing:2px">${s.def.name.toUpperCase()}</b>
         <span style="opacity:.7"> ${s.def.role}</span></div>
+        ${bar}
         <div style="opacity:.6;font-size:12px">Up Down choose, Enter show, Esc step back</div>
       </div>
       <div id="jl-text" style="min-height:96px;padding:12px 14px;margin-bottom:10px;background:rgba(255,255,255,.04);border:1px solid #2c3440;line-height:1.55;font-size:15px">${this.lastText}</div>
       <div style="max-height:30vh;overflow:auto;margin-bottom:12px">${rows}</div>
-      <div style="display:flex;gap:12px;align-items:center">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
         <button data-act="accuse" style="font:inherit;letter-spacing:1px;padding:10px 20px;background:#a1241c;color:#fff;border:0;cursor:pointer">ACCUSE ${s.def.name.split(' ')[0].toUpperCase()} OF THE SHOOTING</button>
         <button data-act="close" style="font:inherit;padding:10px 20px;background:#141a24;color:#e9d9b0;border:1px solid #334052;cursor:pointer">Step back</button>
-        <span style="opacity:.6;font-size:12px">${shown} shown to ${s.def.obj}</span>
+        <span style="opacity:.6;font-size:12px">${shown} shown to ${s.def.obj}${s.strikes ? ` · ${3 - s.strikes} patience left` : ''}</span>
       </div>`;
   }
 
@@ -664,11 +704,38 @@ export class JailLevel {
 
   _present() {
     const s = this.current;
+    if (s.lawyered) return;
     const opt = this._options()[this.sel];
     if (!opt) return;
     const r = reactionFor(s.def, opt.key);
     const first = !s.presented[opt.key];
-    s.presented[opt.key] = r.tag;
+    if (first) {
+      s.presented[opt.key] = r.tag;
+      if (!s.broken) {
+        if (r.tag === 'strong') s.composure -= 35;
+        else if (r.tag === 'partial') s.composure -= 15;
+        else { s.composure += 10; s.strikes++; }
+        s.composure = Math.max(0, Math.min(100, s.composure));
+        sfx(r.tag === 'strong' ? 'strong' : r.tag === 'partial' ? 'partial' : 'none');
+        if (s.composure <= 0) {
+          s.broken = true;
+          getStats().broken++;
+          sfx('break');
+          this.lastText = s.def.breakdown || r.text;
+          this.notes.push({ who: s.def.name, label: `${s.def.name} broke`, text: s.def.breakdown || r.text });
+          this._renderPanel();
+          return;
+        }
+        if (s.strikes >= 3) {
+          s.lawyered = true;
+          getStats().lawyered++;
+          sfx('wrong');
+          this.lastText = `"I am done here." ${s.def.name.split(' ')[0]} folds ${s.def.obj} arms and looks past you. "You want more, you get it from my lawyer."`;
+          this._renderPanel();
+          return;
+        }
+      }
+    }
     this.lastText = r.text;
     if (first) {
       const label = opt.key === 'look' ? `Looked closely at ${s.def.name}` : `Showed ${s.def.name} the ${opt.label.split(': ')[1]}`;
@@ -753,10 +820,35 @@ export class JailLevel {
     window.__caseProgress = window.__caseProgress || { l1: {} };
     window.__caseProgress.ending = kind;
 
+    // ---- case rank: score the whole run, then cap it by the ending ----
+    const st = getStats();
+    const elapsed = st.elapsedMs + (st.levelStartAt ? Date.now() - st.levelStartAt : 0);
+    let score = 100;
+    score -= 8 * st.wrongDeductions;
+    score -= 6 * st.falsePresentations;
+    score -= 12 * st.lawyered;
+    score -= 4 * st.broken;
+    score -= Math.min(10, Math.floor(Math.max(0, elapsed - 20 * 60000) / 120000));
+    let rank = score >= 90 ? 'S' : score >= 75 ? 'A' : score >= 60 ? 'B' : score >= 40 ? 'C' : 'D';
+    if (kind === 'unproven' && (rank === 'S' || rank === 'A')) rank = 'B';
+    if ((kind === 'walked' || kind === 'missing') && rank !== 'C' && rank !== 'D') rank = 'C';
+    const rankColor = { S: '#6fe0a8', A: '#7fd4ff', B: '#f2b84b', C: '#e0913f', D: '#d34a3f' }[rank];
+    const mins = Math.max(1, Math.round(elapsed / 60000));
+    sfx('rank');
+
+    if (typeof window.__saveRun === 'function') window.__saveRun();
+
     this.ui.end.innerHTML = `
       <h1 style="letter-spacing:6px;color:${color};max-width:86vw;margin:0 0 18px">${title}</h1>
       <div style="max-width:min(740px,90vw);line-height:1.7;font-size:16px">${body}</div>
-      <div style="margin-top:28px;display:flex;gap:14px;flex-wrap:wrap;justify-content:center">
+      <div style="margin-top:26px;border:1px solid #3c4656;background:rgba(8,10,16,.9);padding:16px 30px 18px">
+        <div style="font-size:11px;letter-spacing:4px;color:#f2b84b">CASE RANK — INVESTIGATOR PERFORMANCE</div>
+        <div style="font-size:60px;font-weight:bold;line-height:1.15;color:${rankColor};text-shadow:0 0 26px ${rankColor}55">${rank}</div>
+        <div style="font-size:12.5px;opacity:.75;line-height:1.8">
+          ${mins} min &nbsp;·&nbsp; wrong deductions ${st.wrongDeductions} &nbsp;·&nbsp; false presentations ${st.falsePresentations} &nbsp;·&nbsp; suspects broken ${st.broken} &nbsp;·&nbsp; lawyered up ${st.lawyered}
+        </div>
+      </div>
+      <div style="margin-top:26px;display:flex;gap:14px;flex-wrap:wrap;justify-content:center">
         <button data-act="replay" style="font:inherit;padding:12px 24px;background:#141a24;color:#e9d9b0;border:1px solid #334052;cursor:pointer">Replay the cells</button>
         <button data-act="again" style="font:inherit;padding:12px 24px;background:#1f6f5c;color:#fff;border:0;cursor:pointer">Play again from the office</button>
         <button data-act="menu" style="font:inherit;padding:12px 24px;background:#141a24;color:#e9d9b0;border:1px solid #334052;cursor:pointer">Main menu</button>

@@ -35,6 +35,10 @@
 //                       (3) rainy window shader with lightning
 // ============================================================
 import * as THREE from 'three';
+import { getStats } from '../game/stats.js';
+import { applyCaseToStory } from '../game/case.js';
+import { PhotoCamera } from '../game/photoCamera.js';
+import { play as sfx } from '../audio/sfx.js';
 
 // ------------------------------------------------------------
 // CASE DATA  — edit the story here
@@ -107,11 +111,46 @@ export const CASE = {
       finding: 'A secret meeting was booked in the city for tomorrow afternoon.',
     },
   },
+  // The deduction board: the case file will not let the room close until the
+  // player links the right PAIR of logged clues under each question. Each of
+  // the 8 clues is used exactly once. Wrong links count against the rank.
+  deductions: [
+    {
+      id: 'how', prompt: 'HOW DID HE DIE?',
+      needs: ['casing', 'glass'],
+      answer: 'A single 9mm round, fired from under a metre into the chest of a man who was drinking whiskey with his killer — a guest who never finished their glass.',
+    },
+    {
+      id: 'guest', prompt: 'WHO SAT OPPOSITE HIM?',
+      needs: ['hair', 'handkerchief'],
+      answer: 'Someone with long brown hair, close enough to the muzzle to be spattered with blood that was not the victim\'s — and vain enough to carry monogrammed linen: "K.P."',
+    },
+    {
+      id: 'when', prompt: 'WHEN WAS HE SHOT?',
+      needs: ['phone', 'trail'],
+      answer: 'After the 23:31 message. His visitor came up the back stairs, and the wiped blood trail says the shooter was out the door within minutes of the shot.',
+    },
+    {
+      id: 'where', prompt: 'WHO IS LYING — AND WHERE NEXT?',
+      needs: ['note', 'calendar'],
+      answer: 'The marks were changed and one of three names is lying. Nkosi booked a secret meeting in the city for tomorrow, 14:00, at the depot — the thread to pull next.',
+    },
+  ],
 };
 
 const REACH = 3.6;       // how far the player can examine things
 const PLAYER_R = 0.38;   // radius used when the player pushes objects
 const EYE = 1.66;        // first-person eye height
+
+// ------------------------------------------------------------
+// FORENSIC TOOL BELT — every clue states its tool. Photograph first,
+// then lift with the right instrument. Wrong tool = contamination.
+// ------------------------------------------------------------
+const TOOLS = { bag: 'EVIDENCE BAGS', tweezers: 'TWEEZERS', swab: 'SWAB KIT', camera: 'CAMERA' };
+const CLUE_TOOL = {
+  casing: 'tweezers', glass: 'bag', hair: 'tweezers', handkerchief: 'swab',
+  phone: 'bag', note: 'tweezers', trail: 'camera', calendar: 'bag',
+};
 
 // ------------------------------------------------------------
 // small helpers
@@ -215,9 +254,11 @@ void main(){
 // ============================================================
 export class StreetLevel {
   constructor(sceneOrRenderer = null, rendererMaybe = null) {
+    applyCaseToStory(CASE);   // clue text follows this run's randomly chosen killer
     let outerScene = null;
     if (sceneOrRenderer && sceneOrRenderer.isScene) outerScene = sceneOrRenderer;
     this.scene = outerScene || new THREE.Scene();
+    this.renderer = rendererMaybe || window.__renderer || null;
 
     // remember what was there so dispose() can restore it
     this._prevBg = this.scene.background;
@@ -244,9 +285,15 @@ export class StreetLevel {
     this.spawnYaw = Math.PI * 0.78;   // face across the room toward the desk
 
     this.clues = [];
+    this.solved = new Set();   // deduction ids the player has concluded
+    try {                     // restore conclusions after an R-restart
+      const l1 = (window.__caseProgress && window.__caseProgress.l1) || {};
+      for (const d of CASE.deductions) if (l1['ded_' + d.id]) this.solved.add(d.id);
+    } catch (e) {}
     this.movables = [];
     this.occluders = [];       // invisible boxes that block the examine ray
     this.uvOn = false;
+    this.tool = 'bag';         // 1 bags · 2 tweezers · 3 swab kit
     this.caseOpen = false;
     this.outroOpen = false;
     this.focus = null;
@@ -278,6 +325,7 @@ export class StreetLevel {
     this._buildChalkOutline();
     this._buildBody();
     this._buildClues();
+    this._buildCamera();       // [Q] scene camera — photograph before you lift
     // NOTE: no first-person hand/torch rig is built — the view stays clean.
     this._buildUI();
 
@@ -294,7 +342,7 @@ export class StreetLevel {
     this._onKey = (e) => this._handleKey(e);
     window.addEventListener('keydown', this._onKey);
 
-    this._toast('INCIDENT — LECTURER FOUND DEAD', `Find all ${this.clues.length} clues.  [E] examine   [F] UV torch   [C] case file`, 8000);
+    this._toast('INCIDENT — LECTURER FOUND DEAD', `Photograph everything before you lift it. [Q] camera · [1] bags · [2] tweezers · [3] swab · [E] collect · [F] UV torch · [C] file`, 11000);
   }
 
   // ---------- gameplay helpers (same names the host expects) ----------
@@ -1055,26 +1103,22 @@ export class StreetLevel {
   // =========================================================
   // CLUES
   // =========================================================
+  // Auras were removed: this is a working scene, not a treasure hunt. Clues
+  // are found by looking. The dummy keeps every old reference safe.
   _addAura(pos, r, color) {
-    const mat = new THREE.ShaderMaterial({
-      vertexShader: GLOW_VERT, fragmentShader: GLOW_FRAG,
-      uniforms: {
-        uTime: this.uv.uTime, uFocus: { value: 0 },
-        uColor: { value: new THREE.Color(color) }, uPhase: { value: rng() * 6.28 },
-      },
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    });
-    const m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), mat);
-    m.position.copy(pos); m.userData.noShadow = true;
-    this.level.add(m);
-    return m;
+    return {
+      visible: false, position: pos.clone ? pos.clone() : new THREE.Vector3(),
+      material: { uniforms: { uFocus: { value: 0 } } },
+    };
   }
 
   _addClue(id, group, hitSize, pos, auraR, opts = {}) {
     const hit = this._ghost(this.level, hitSize[0], hitSize[1], hitSize[2], pos.x, pos.y, pos.z);
     const clue = {
       id, def: CASE.clues[id], group, hit, pos: pos.clone(),
-      uv: !!opts.uv, lit: true, found: false, onCollect: opts.onCollect || null,
+      uv: !!opts.uv, lit: true, found: false, photo: false,
+      tool: CLUE_TOOL[id] || 'bag',
+      onCollect: opts.onCollect || null,
       // `follow` clues sit on a pushable object, so their hit box and aura
       // have to track the object's world position every frame
       follow: opts.follow || null,
@@ -1360,6 +1404,54 @@ export class StreetLevel {
     }
   }
 
+  // ================= SCENE CAMERA =================
+  // [Q] raise, wheel zoom, click shoot. Photograph every clue BEFORE lifting
+  // it — the lift is refused without a sharp photo on film. The UV trail is
+  // collected by its photograph (taken with the torch on).
+  _buildCamera() {
+    this.photoCam = new PhotoCamera({
+      scene: this.scene,
+      renderer: this.renderer,
+      opts: { film: 12, maxDist: 14, lockDist: 5 },
+      getTargets: () => this.clues.filter((c) => !c.found).map((c) => ({
+        id: c.id, name: c.def.name, kind: 'evidence', radius: 0.35,
+        getPos: (v) => v.copy(c.pos).add(new THREE.Vector3(0, 0.15, 0)),
+      })),
+      getColliders: () => this.colliders,
+      isBlocked: () => !!(window.__uiCapture || this.caseOpen || this.outroOpen),
+      clockLabel: () => `23:${String(40 + Math.floor(this.time / 60)).padStart(2, '0')}`,
+      onPhoto: (photo) => this._onPhoto(photo),
+    });
+    if (!this.renderer) console.warn('StreetLevel: no renderer was passed, photos will be blank');
+  }
+  _onPhoto(photo) {
+    const sharp = photo.subjects.filter((s) => s.sharp);
+    if (!sharp.length) {
+      try { getStats().wastedFilm++; } catch (e) {}
+      sfx('wrong');
+      this._toast('NOTHING SHARP ON FILM', 'Get closer, centre the exhibit, zoom if you need it. Blanks cost film.', 4000);
+      this._updateCounter();
+      return;
+    }
+    sfx('collect');
+    for (const s of sharp) {
+      const c = this.clues.find((x) => x.id === s.id);
+      if (!c || c.photo) continue;
+      if (c.id === 'trail' && this.uv.uUvOn.value < 0.35) {
+        this._toast('DARK FRAME', 'The film shows bare floorboards. The trail only exists under the UV torch — [F], then shoot.', 6000);
+        continue;
+      }
+      c.photo = true;
+      if (c.id === 'trail') {
+        this._toast('TRAIL ON FILM', 'The wiped smear and the scrawled letter are fixed on film. That photograph IS the lift.', 7000);
+        this._collect(c);
+      } else {
+        this._toast(`ON FILM — ${c.def.name.toUpperCase()}`, `Now lift it with ${TOOLS[c.tool]} ([E]). Wrong instrument contaminates.`, 6000);
+      }
+    }
+    this._updateCounter();
+  }
+
   // (The first-person hand/torch rig was removed: this game defines no player
   //  body — no hands, torso or legs. The view is driven purely by the camera
   //  in _applyFirstPerson below.)
@@ -1392,11 +1484,13 @@ export class StreetLevel {
     ui.root = mk('div', 'position:fixed;inset:0;pointer-events:none;z-index:50;font-family:"Courier New",monospace;color:#f2d9a0;');
     // vignette — sells the "inside someone else's head" feel
     mk('div', 'position:fixed;inset:0;pointer-events:none;z-index:40;background:radial-gradient(ellipse at 50% 48%, rgba(0,0,0,0) 42%, rgba(0,0,0,.55) 100%);', ui.root);
+    // feedback flash — brief red/green wash on right/wrong deductions
+    ui.flash = mk('div', 'position:fixed;inset:0;pointer-events:none;z-index:41;opacity:0;', ui.root);
     ui.cross = mk('div', 'position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px;border-radius:50%;background:rgba(255,235,190,.6);box-shadow:0 0 6px rgba(0,0,0,.8);transition:all .12s;', ui.root);
     ui.counter = mk('div', 'position:absolute;left:18px;top:16px;font-size:15px;letter-spacing:2px;text-shadow:0 0 8px #000;', ui.root);
     ui.objective = mk('div', 'position:absolute;left:18px;top:38px;font-size:11px;letter-spacing:1px;opacity:.65;text-shadow:0 0 8px #000;', ui.root, 'DR. T. NKOSI — DEAD, SINGLE GUNSHOT WOUND');
     ui.hint = mk('div', 'position:absolute;left:18px;bottom:14px;font-size:12px;opacity:.7;text-shadow:0 0 6px #000;', ui.root,
-      '[E] examine &nbsp; [F] UV torch &nbsp; [C] case file');
+      '[1] bags &nbsp; [2] tweezers &nbsp; [3] swab &nbsp; [Q] camera &nbsp; [E] collect &nbsp; [F] UV &nbsp; [C] file');
     ui.prompt = mk('div', 'position:absolute;left:50%;top:56%;transform:translateX(-50%);font-size:16px;padding:6px 14px;background:rgba(0,0,0,.55);border:1px solid rgba(242,217,160,.45);display:none;text-shadow:0 0 6px #000;', ui.root);
     ui.toast = mk('div', 'position:absolute;left:50%;bottom:11%;transform:translateX(-50%);width:min(640px,88vw);padding:12px 16px;background:rgba(8,8,12,.82);border-left:3px solid #f2b84b;font-size:14px;line-height:1.45;display:none;', ui.root);
     ui.uvTag = mk('div', 'position:absolute;right:18px;top:224px;font-size:13px;letter-spacing:2px;color:#b58cff;display:none;text-shadow:0 0 10px #7a3cff;', ui.root, 'UV LAMP ON');
@@ -1408,7 +1502,8 @@ export class StreetLevel {
 
   _updateCounter() {
     const n = this.clues.filter((c) => c.found).length;
-    this.ui.counter.textContent = `EVIDENCE  ${n} / ${this.clues.length}`;
+    const film = this.photoCam ? `  ·  FILM ${this.photoCam.film}` : '';
+    this.ui.counter.textContent = `EVIDENCE  ${n} / ${this.clues.length}  ·  ${TOOLS[this.tool]}${film}`;
   }
 
   _toast(title, text, ms = 9000) {
@@ -1420,56 +1515,65 @@ export class StreetLevel {
   }
 
   _openCaseFile() {
-    this.caseOpen = true;
-    this._lockEl = document.pointerLockElement || null;
+    if (!this.caseOpen) {
+      this._lockEl = document.pointerLockElement || null;
+      this.caseOpen = true;
+    }
     if (document.exitPointerLock) document.exitPointerLock();
     this.ui.prompt.style.display = 'none';
 
     const has = (id) => this.clues.find((c) => c.id === id).found;
-    const done = this.clues.every((c) => c.found);
-    const unk = '<i style="opacity:.55">??? — keep investigating</i>';
+    const done = this.solved.size === CASE.deductions.length;
+    const unk = '<i style="opacity:.55">??? — reach a conclusion below</i>';
+    const ded = (id) => CASE.deductions.find((d) => d.id === id);
+    const ans = (id) => this.solved.has(id) ? ded(id).answer : unk;
 
-    const how = has('casing')
-      ? 'A single 9mm round, entry to the left chest at close range. He was shot in the chair he sat in, then slid to the floor and died reaching for something.'
-      : unk;
-    const when = has('phone') && has('trail')
-      ? 'Between 23:38 and 23:52. The visitor came up the back stairs at 23:38; the coffee-ring drying on the side cabinet and the still-warm chair put the shot inside fifteen minutes of that.'
-      : (has('phone') ? 'After 23:31 — one more piece is needed to narrow it down.' : unk);
-    const guest = has('glass') && has('hair')
-      ? 'A guest drank whiskey with him, sat in the guest chair, and left without finishing the glass. Long brown hair in the cushion — the victim was bald.'
-      : unk;
-    const traces = has('handkerchief') && has('trail')
-      ? 'The shooter bled a little from the right hand, wiped himself with his own linen ("K.P."), then mopped the spatter off the floor and walked out towards the back stairs.'
-      : unk;
     const last = has('phone') ? `${CASE.lastSeenPlace}. He locked it up at about 23:19 and walked up to his office to meet someone.` : unk;
-    const where = has('calendar')
-      ? `A private meeting was ringed in his desk diary for tomorrow, 14:00, down at the depot in ${CASE.nextPlace}. It is on no official calendar — the clearest thread we have to pull.`
-      : unk;
+    const found = this.clues.filter((c) => c.found);
+
+    const dedBlocks = CASE.deductions.map((d) => {
+      if (this.solved.has(d.id)) {
+        return `<div data-ded="${d.id}" style="margin:10px 0;padding:10px 12px;border:1px solid #1f6f5c;background:rgba(31,111,92,.08)">
+          <b>${d.prompt}</b> <span style="color:#1f6f5c;font-weight:bold">&#10003; ESTABLISHED</span>
+          <div style="margin-top:4px">${d.answer}</div>
+        </div>`;
+      }
+      const parts = d.needs.map((id) => {
+        const cc = this.clues.find((x) => x.id === id);
+        return cc && cc.found ? `${cc.def.name} &#10003;` : `${(cc || {}).def ? cc.def.name : id} &hellip;`;
+      }).join(' &nbsp;·&nbsp; ');
+      return `<div data-ded="${d.id}" style="margin:10px 0;padding:10px 12px;border:1px dashed #6b5a34">
+        <b>${d.prompt}</b>
+        <div style="font-size:12px;opacity:.65;margin-top:4px">Establishes itself once bagged: ${parts}</div>
+      </div>`;
+    }).join('');
 
     const rows = this.clues.map((c) => c.found
       ? `<div style="margin:6px 0"><b>&#10003; ${c.def.name}</b><br><span style="opacity:.85">${c.def.finding}</span></div>`
       : `<div style="margin:6px 0;opacity:.45">&#9633; Unexamined item</div>`).join('');
 
     this.ui.case.innerHTML = `
+      <style>@keyframes dedShake{0%,100%{transform:none}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}</style>
       <div style="position:relative;width:min(820px,92vw);max-height:88vh;overflow:auto;background:#d9cba4;color:#1b1610;padding:28px 34px;box-shadow:0 0 60px #000;border-top:10px solid #b89b5e;">
         <div style="position:absolute;right:26px;top:22px;border:3px solid #a1241c;color:#a1241c;padding:2px 10px;transform:rotate(8deg);font-weight:bold;letter-spacing:3px;">CONFIDENTIAL</div>
-        <div style="font-size:12px;letter-spacing:3px;opacity:.7">CASE FILE #001 ${done ? '— COMPLETE' : '— IN PROGRESS'}</div>
+        <div style="font-size:12px;letter-spacing:3px;opacity:.7">CASE FILE #001 ${done ? '— COMPLETE' : `— ${this.solved.size}/${CASE.deductions.length} CONCLUSIONS`}</div>
         <h2 style="margin:6px 0 2px;font-size:26px">${CASE.victim}</h2>
         <div style="opacity:.8">${CASE.role} &nbsp;|&nbsp; ${CASE.found}</div>
         <hr style="border:0;border-top:1px dashed #6b5a34;margin:16px 0">
         <div style="display:grid;grid-template-columns:110px 1fr;gap:8px 12px;font-size:15px">
-          <b>CAUSE</b><div>${how}</div>
-          <b>WHEN</b><div>${when}</div>
-          <b>THE GUEST</b><div>${guest}</div>
-          <b>TRACES</b><div>${traces}</div>
+          <b>CAUSE</b><div>${ans('how')}</div>
+          <b>THE GUEST</b><div>${ans('guest')}</div>
+          <b>WHEN</b><div>${ans('when')}</div>
           <b>LAST SEEN</b><div>${last}</div>
-          <b>WHERE NEXT</b><div>${where}</div>
+          <b>WHERE NEXT</b><div>${ans('where')}</div>
         </div>
+        <hr style="border:0;border-top:1px dashed #6b5a34;margin:16px 0">
+        <b>DEDUCTIONS — LINK THE EVIDENCE</b>${dedBlocks}
         <hr style="border:0;border-top:1px dashed #6b5a34;margin:16px 0">
         <b>EVIDENCE LOGGED</b>${rows}
         <div style="margin-top:22px;display:flex;gap:12px;justify-content:flex-end">
           ${done ? '' : '<button id="cf-close" style="font:inherit;padding:9px 18px;background:#1b1610;color:#d9cba4;border:0;cursor:pointer">Back to the room [C]</button>'}
-          ${done ? `<button id="cf-go" style="font:inherit;padding:10px 20px;background:#a1241c;color:#fff;border:0;cursor:pointer;letter-spacing:1px">All evidence logged — close the room &rarr;</button>` : ''}
+          ${done ? `<button id="cf-go" style="font:inherit;padding:10px 20px;background:#a1241c;color:#fff;border:0;cursor:pointer;letter-spacing:1px">Conclusions drawn — close the room &rarr;</button>` : ''}
         </div>
       </div>`;
     this.ui.case.style.display = 'flex';
@@ -1478,6 +1582,33 @@ export class StreetLevel {
     if (close) close.addEventListener('click', () => this._closeCaseFile());
     const go = this.ui.case.querySelector('#cf-go');
     if (go) go.addEventListener('click', () => { this._closeCaseFile(); this._openOutro(); });
+
+    this._bindDeductions();
+  }
+
+  // Conclusions establish themselves from bagged evidence — no link puzzles.
+  // Kept as a method because the case file calls it after every resolution.
+  _bindDeductions() {}
+
+  _solveDeduction(d) {
+    if (this.solved.has(d.id)) return;
+    this.solved.add(d.id);
+    window.__caseProgress = window.__caseProgress || { l1: {} };
+    window.__caseProgress.l1['ded_' + d.id] = true;
+    sfx('correct');
+    this._flash('rgba(31,111,92,.4)');
+    this._updateCounter();
+    this._toast(`CONCLUSION — ${d.prompt}`, d.answer, 9000);
+    if (this.caseOpen) this._openCaseFile();   // re-render if the file is open
+  }
+
+  _flash(color) {
+    const f = this.ui.flash;
+    if (!f) return;
+    f.style.transition = 'none';
+    f.style.background = color;
+    f.style.opacity = '0.32';
+    requestAnimationFrame(() => { f.style.transition = 'opacity .5s'; f.style.opacity = '0'; });
   }
 
   _closeCaseFile() {
@@ -1545,6 +1676,13 @@ export class StreetLevel {
     if (this.outroOpen) return;
     if (e.code === 'KeyC') { this.caseOpen ? this._closeCaseFile() : this._openCaseFile(); return; }
     if (this.caseOpen) return;
+    if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
+      this.tool = { Digit1: 'bag', Digit2: 'tweezers', Digit3: 'swab' }[e.code];
+      sfx('collect');
+      this._updateCounter();
+      this._toast('TOOL BELT', `Holding ${TOOLS[this.tool]}. Casing, hair and note want tweezers; blood wants the swab; the rest bags.`, 3500);
+      return;
+    }
     if (e.code === 'KeyF') {
       this.uvOn = !this.uvOn;
       this.ui.uvTag.style.display = this.uvOn ? 'block' : 'none';
@@ -1556,6 +1694,18 @@ export class StreetLevel {
 
   _collect(c) {
     if (c.found) return;
+    // Forensic order: photograph first, then the right instrument.
+    if (!c.photo) {
+      sfx('wrong');
+      this._toast('PHOTOGRAPH FIRST', `Shoot the ${c.def.name} before you touch it — [Q] camera, close and centred. Unphotographed lifts don't hold up.`, 6000);
+      return;
+    }
+    if (c.id !== 'trail' && this.tool !== c.tool) {
+      try { getStats().contamination++; } catch (e) {}
+      sfx('wrong');
+      this._toast('WRONG TOOL — CONTAMINATION LOGGED', `The ${c.def.name} wants ${TOOLS[c.tool]}. You brought ${TOOLS[this.tool]}. Switch with [1] bags · [2] tweezers · [3] swab.`, 6000);
+      return;
+    }
     c.found = true;
     // remember across levels: the city case file shows what was really logged
     window.__caseProgress = window.__caseProgress || { l1: {} };
@@ -1565,10 +1715,19 @@ export class StreetLevel {
     this.focus = null;
     this.ui.prompt.style.display = 'none';
     this._updateCounter();
-    this._toast(`EVIDENCE ${this.clues.filter((x) => x.found).length}/${this.clues.length} — ${c.def.name.toUpperCase()}`, c.def.note, 11000);
+    sfx('collect');
+    this._toast(
+      `EVIDENCE ${this.clues.filter((x) => x.found).length}/${this.clues.length} — ${c.def.name.toUpperCase()}`,
+      `${c.def.note}<div style="margin-top:6px;color:#f2b84b">&#9656; ${c.def.finding}</div>`,
+      11000);
+    // Conclusions draw themselves once their evidence is bagged — no puzzles.
+    for (const d of CASE.deductions) {
+      if (!this.solved.has(d.id) && d.needs.every((id) => (this.clues.find((x) => x.id === id) || {}).found)) {
+        this._solveDeduction(d);
+      }
+    }
     if (this.clues.every((x) => x.found)) {
-      clearTimeout(this._caseTimer);
-      this._caseTimer = setTimeout(() => this._openOutro(), 3500);
+      this.ui.objective.textContent = 'ALL EVIDENCE LOGGED — CLOSE THE ROOM [C]';
     }
   }
 
@@ -1687,8 +1846,15 @@ export class StreetLevel {
     this.focus = clue;
     this.focusBody = !clue && !!(hitObj && hitObj.userData.body);
     if (clue) {
-      clue.aura.material.uniforms.uFocus.value = 1;
-      this.ui.prompt.textContent = `[E]  ${clue.def.name}`;
+      if (!clue.photo) {
+        this.ui.prompt.textContent = `[Q]  photograph the ${clue.def.name}`;
+      } else if (clue.id === 'trail') {
+        this.ui.prompt.textContent = `trail logged on film ✓`;
+      } else if (this.tool !== clue.tool) {
+        this.ui.prompt.textContent = `[E]  ${clue.def.name} — needs ${TOOLS[clue.tool]} (holding ${TOOLS[this.tool]})`;
+      } else {
+        this.ui.prompt.textContent = `[E]  lift the ${clue.def.name} (${TOOLS[clue.tool]})`;
+      }
       this.ui.prompt.style.display = 'block';
       this.ui.cross.style.transform = 'scale(2)'; this.ui.cross.style.background = 'rgba(255,200,90,.95)';
     } else if (this.focusBody) {
@@ -1743,6 +1909,7 @@ export class StreetLevel {
     // physics + interaction
     if (player && player.pos && !this.caseOpen && !this.outroOpen) this._stepMovables(dt, player);
     if (hasView && !this.caseOpen && !this.outroOpen) this._updateFocus();
+    if (this.photoCam) this.photoCam.update(dt, this.time);
   }
 
   // =========================================================
@@ -1752,6 +1919,7 @@ export class StreetLevel {
     clearTimeout(this._toastTimer);
     clearTimeout(this._caseTimer);
     window.removeEventListener('keydown', this._onKey);
+    if (this.photoCam) { this.photoCam.dispose(); this.photoCam = null; }
     if (window.__firstPerson) window.__firstPerson = false;
     if (this.ui) {
       if (this.ui.root) this.ui.root.remove();
