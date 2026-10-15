@@ -1871,30 +1871,55 @@ export class ArchitectLevel {
       axiom.setIntensity(0.9 + Math.sin(pulseT * 3) * 0.5);
     }, 50);
 
-    // Cinematic shots: wide past the ship, then a slow push-in on her
-    // as the offer lands, then a low hero angle for the consent.
-    // Live targets keep her framed while the dialogue runs.
+    // Cinematic tour: Sorini at the ship, then INSIDE the hall —
+    // Blade, Fist, then the Architect on his throne — so she sees
+    // what awaits her before the offer lands. Back to her for the
+    // consent. Threat shots use short transitions so the ~110-unit
+    // jumps read as cuts, not camera flies.
     const cam = window.__cinematicCamera;
     if (cam && typeof cam.play === 'function') {
       const p = window.__player ? window.__player.pos : { x: 20.1, y: 0, z: 30 };
       const head = () => ({ x: p.x, y: p.y + 1.25, z: p.z });
+      const fy = (this._F && this._F.floor) || 0;
+      const fist = this.guardians.find((g) => g.kind === 'fist') || this.guardians[1];
+      const blade = this.guardians.find((g) => g && g !== fist) || this.guardians[0];
+      const bp = blade ? blade.group.position : { x: -10, y: fy, z: -95 };
+      const fp = fist ? fist.group.position : { x: 10, y: fy, z: -95 };
+      const ap = this.architect ? this.architect.getPosition() : { x: 0, y: fy, z: -113 };
       cam.play([
-        {   // Wide — the ship looming, the monument far ahead
-          // (covers lines 1–2 ≈ 16.1s)
+        {   // Wide — the ship looming, the monument far ahead (line 1)
           pos: () => ({ x: p.x + 6.5, y: p.y + 3.4, z: p.z + 7 }),
           look: () => ({ x: p.x, y: p.y + 1.2, z: p.z - 6 }),
           drift: [1.2, -0.2, -1.6],
-          duration: 16000, transition: 1400, ease: 'in-out',
+          duration: 4200, transition: 1400, ease: 'in-out',
         },
-        {   // Slow push-in — the reactor carries the scene
-          // (covers lines 3–6 ≈ 34.4s, incl. the 27.5s offer)
+        {   // THE BLADE — idle in the hall ("my maker's blade", line 2)
+          pos: () => ({ x: bp.x + 3.5, y: fy + 1.2, z: bp.z + 5.5 }),
+          look: () => ({ x: bp.x, y: fy + 1.6, z: bp.z }),
+          drift: [-0.45, 0.05, -0.6],
+          duration: 6100, transition: 600, ease: 'in-out',
+        },
+        {   // THE FIST — idle in the hall ("my maker's fist", line 2)
+          pos: () => ({ x: fp.x - 3.5, y: fy + 1.2, z: fp.z + 5.5 }),
+          look: () => ({ x: fp.x, y: fy + 1.6, z: fp.z }),
+          drift: [0.45, 0.05, -0.6],
+          duration: 6100, transition: 600, ease: 'in-out',
+        },
+        {   // THE ARCHITECT — seated, waiting ("I was forged beside
+          // them... flesh alone cannot beat what waits", lines 3–5)
+          pos: () => ({ x: ap.x, y: fy + 0.9, z: ap.z + 5.5 }),
+          look: () => ({ x: ap.x, y: fy + 1.9, z: ap.z }),
+          drift: [0, 0.1, -0.7],
+          duration: 15000, transition: 700, ease: 'in-out',
+        },
+        {   // Back to Sorini — slow push-in as the offer lands
+          // ("...finally ready to become one with me", lines 5–6)
           pos: () => ({ x: p.x - 2.7, y: p.y + 1.15, z: p.z + 2.4 }),
           look: () => ({ x: p.x, y: p.y + 1.05, z: p.z }),
           drift: [-0.8, 0.12, -0.7],
-          duration: 34000, transition: 2000, ease: 'in-out',
+          duration: 14000, transition: 1800, ease: 'in-out',
         },
-        {   // Low hero angle for the consent and the promise
-          // (covers lines 7–9 ≈ 19.8s)
+        {   // Low hero angle for the consent and the promise (lines 7–9)
           pos: () => ({ x: p.x + 1.9, y: p.y + 0.5, z: p.z - 2.8 }),
           look: head,
           drift: [-0.5, 0.6, -0.4],
