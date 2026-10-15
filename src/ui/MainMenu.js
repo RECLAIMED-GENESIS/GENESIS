@@ -1,5 +1,5 @@
 // src/ui/MainMenu.js
-export function createMainMenu(onPlayClick, onControlsClick, onCreditsClick) {
+export function createMainMenu(onPlayClick, onControlsClick, onCreditsClick, onTrailerClick) {
     const container = document.createElement('div');
     container.id = 'main-menu';
     container.className = 'ui-screen';
@@ -54,6 +54,20 @@ export function createMainMenu(onPlayClick, onControlsClick, onCreditsClick) {
                 letter-spacing: 2px;
             ">▶ PLAY</button>
             <br>
+            <button id="trailerBtn" style="
+                background: transparent;
+                border: 2px solid #555;
+                color: #aaa;
+                padding: 10px 30px;
+                font-size: 0.9rem;
+                cursor: pointer;
+                border-radius: 8px;
+                transition: all 0.2s ease;
+                width: 220px;
+                font-family: 'Courier New', monospace;
+                letter-spacing: 1px;
+            ">● TRAILER</button>
+            <br>
             <button id="controlsBtn" style="
                 background: transparent;
                 border: 2px solid #555;
@@ -105,6 +119,19 @@ export function createMainMenu(onPlayClick, onControlsClick, onCreditsClick) {
         playBtn.style.boxShadow = 'none';
     });
 
+    // Hover effects for Trailer button
+    const trailerBtn = container.querySelector('#trailerBtn');
+    trailerBtn.addEventListener('mouseenter', () => {
+        trailerBtn.style.borderColor = '#00ffff';
+        trailerBtn.style.color = '#00ffff';
+        trailerBtn.style.background = 'rgba(0,255,255,0.1)';
+    });
+    trailerBtn.addEventListener('mouseleave', () => {
+        trailerBtn.style.borderColor = '#555';
+        trailerBtn.style.color = '#aaa';
+        trailerBtn.style.background = 'transparent';
+    });
+
     // Hover effects for Controls button
     const controlsBtn = container.querySelector('#controlsBtn');
     controlsBtn.addEventListener('mouseenter', () => {
@@ -133,6 +160,7 @@ export function createMainMenu(onPlayClick, onControlsClick, onCreditsClick) {
 
     // Attach Event Listeners
     playBtn.addEventListener('click', onPlayClick);
+    trailerBtn.addEventListener('click', () => { if (onTrailerClick) onTrailerClick(); });
     controlsBtn.addEventListener('click', onControlsClick);
     creditsBtn.addEventListener('click', onCreditsClick);
 

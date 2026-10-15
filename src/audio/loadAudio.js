@@ -67,6 +67,16 @@ export function loadAllAudio(audioManager) {
     // ── LEVEL 3 ARCHITECT VOICE ──
   audioManager.loadSound('l3_architect_1', { src: './assets/audio/voices/l3_architect_1.mp3', volume: 1.0 });
 
+    // ── LEVEL 3 MERGE-OFFER VOICES (Axiom ↔ Sorini, at the ship) ──
+  audioManager.loadSound('l3_axiom_1', { src: './assets/audio/voices/l3_axiom_1.mp3', volume: 1.0 });
+  audioManager.loadSound('l3_axiom_2', { src: './assets/audio/voices/l3_axiom_2.mp3', volume: 1.0 });
+  audioManager.loadSound('l3_axiom_3', { src: './assets/audio/voices/l3_axiom_3.mp3', volume: 1.0 });
+  audioManager.loadSound('l3_axiom_4_5', { src: './assets/audio/voices/l3_axiom_4_5.mp3', volume: 1.0 });
+  audioManager.loadSound('l3_axiom_6', { src: './assets/audio/voices/l3_axiom_6.mp3', volume: 1.0 });
+  audioManager.loadSound('l3_axiom_7', { src: './assets/audio/voices/l3_axiom_7.mp3', volume: 1.0 });
+  audioManager.loadSound('l3_axiom_8', { src: './assets/audio/voices/l3_axiom_8.mp3', volume: 1.0 });
+  audioManager.loadSound('l3_axiom_9', { src: './assets/audio/voices/l3_axiom_9.mp3', volume: 1.0 });
+
     // ── LEVEL 3 ENDING VOICES ──
   audioManager.loadSound('l3_ending_attack',           { src: './assets/audio/voices/l3_ending_attack.mp3',           volume: 1.0 });
   audioManager.loadSound('l3_ending_learn_become_1',   { src: './assets/audio/voices/l3_ending_learn_become_1.mp3',   volume: 1.0 });

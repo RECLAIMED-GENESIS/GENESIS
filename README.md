@@ -24,7 +24,7 @@ Her journey home crosses three grounds, and every one of them belongs to him.
 |-----|-------|------------|
 | I   | **The Grove Village** | Sorini wakes in the village the Axiom led her to. Waves of grunts follow, ending with the district boss **THE WARDEN**. |
 | II  | **Neon Street** | The city streets turn hostile — mutant packs, alarms, and **THE ENFORCER**, a brawler who fights harder as his health breaks. |
-| III | **The Architect's Monument** | The throne hall. Two **Guardians** bar the way — the red blade duels with the Architect's own greatsword forms, the blue fist brawls with the Enforcer's strikes. When the guardians wake, Sorini can merge with the Axiom (**Q**) — and when they fall, the Architect rises from his throne *without touching it*, draws his greatsword from thin air, and meets you in a three-phase duel. |
+| III | **The Architect's Monument** | The throne hall. Two **Guardians** bar the way — the red blade duels with the Architect's own greatsword forms, the blue fist brawls with the Enforcer's strikes. At the Genesis ship, Axiom tells Sorini she is finally ready to **become one** with him — from that moment she can merge (**Q**) — and when the Guardians fall, the Architect rises from his throne *without touching it*, draws his greatsword from thin air, and meets you in a three-phase duel. |
 
 Win the final duel and the game does not end — it **asks**. What do you do
 with the god who made your parasite?
@@ -44,7 +44,7 @@ with the god who made your parasite?
 | `Shift` | Sprint |
 | `Space` | Jump |
 | `Shift` + `Space` | **Axiom Dash** — burst of the Axiom's power, on a cooldown (unlocks on Level 2) |
-| `Q` | **Axiom's True Form** — merge with the Axiom: 8 seconds of doubled speed, tripled damage, invincibility and faster strikes, on a 25s cooldown (unlocks when the Level 3 guardians wake, stays until the end) |
+| `Q` | **Axiom's True Form** — merge with the Axiom: 8 seconds of doubled speed, tripled damage, invincibility and faster strikes, on a 25s cooldown (unlocks when Axiom offers the merge at the Level 3 ship, stays until the end) |
 | `F` | Punch |
 | `G` | Kick (heavier) |
 | `H` | Hook (heavier) |

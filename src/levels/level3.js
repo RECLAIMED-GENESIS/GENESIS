@@ -85,6 +85,13 @@ export class ArchitectLevel {
     this.architect = null;
     this.guardiansDefeated = false;
 
+    // The merge offer — one-shot dialogue at the Genesis ship (see
+    // _runMergeDialogue). When Sorini consents, axiomFormGranted
+    // unlocks the True Form (Q); main.js's isFightActive honours it
+    // from that moment for the rest of the level.
+    this._mergeDialogueFired = false;
+    this.axiomFormGranted = false;
+
     // Architect boss fight —
     // 'awaiting' → 'rising' → 'dialogue' → 'fighting' → 'victory'
     this.fightState = 'awaiting';
@@ -1753,6 +1760,21 @@ export class ArchitectLevel {
       }
     }
 
+    // ── One-shot: THE MERGE OFFER — Axiom speaks as Sorini reaches
+    // the Genesis ship (spawn is its arrival point), before the
+    // Guardians. Fallback: she first heads into the plaza, so no
+    // player can miss the story beat. ──
+    if (
+      !this._mergeDialogueFired &&
+      this.fightState === 'awaiting' &&
+      this._time > 2.5 &&
+      (Math.hypot(player.pos.x - 20, player.pos.z - 15) < 14 ||
+       player.pos.z < -20)
+    ) {
+      this._mergeDialogueFired = true;
+      this._runMergeDialogue();
+    }
+
     // Update guardians
     for (const g of this.guardians) {
       if (g._disposed) continue;
@@ -1825,6 +1847,141 @@ export class ArchitectLevel {
       { pos: [0.4, y + 0.7, -108.2],  look: [0, y + 1.6, -113],   duration: 1400, transition: 500, ease: 'in-out' },
       { pos: [-3.8, y + 1.9, -106.5], look: [0, y + 1.1, -112.6], duration: 1600, transition: 600, ease: 'in-out' },
     ]);
+  }
+
+  // ─────────────────────────────────────────────────────────
+  // THE MERGE OFFER — Axiom asks Sorini to become one, at the
+  // Genesis ship, just before the Guardians. VO: l3_axiom_1..9.
+  // Her "yes" grants the True Form (Q) for the rest of the level
+  // (main.js isFightActive honours axiomFormGranted).
+  // ─────────────────────────────────────────────────────────
+  async _runMergeDialogue() {
+    const d = this.dialogue;
+    if (!d) return;
+
+    if (window.__audioManager) window.__audioManager.pauseMusic();
+
+    // Chest-reactor pulse while Axiom speaks — the same idiom as the
+    // Level 1 reveal, so the two scenes read as one thread.
+    const axiom = window.__axiom;
+    let pulseT = 0;
+    const pulseInterval = setInterval(() => {
+      if (!axiom) return;
+      pulseT += 0.15;
+      axiom.setIntensity(0.9 + Math.sin(pulseT * 3) * 0.5);
+    }, 50);
+
+    // Cinematic shots: wide past the ship, then a slow push-in on her
+    // as the offer lands, then a low hero angle for the consent.
+    // Live targets keep her framed while the dialogue runs.
+    const cam = window.__cinematicCamera;
+    if (cam && typeof cam.play === 'function') {
+      const p = window.__player ? window.__player.pos : { x: 20.1, y: 0, z: 30 };
+      const head = () => ({ x: p.x, y: p.y + 1.25, z: p.z });
+      cam.play([
+        {   // Wide — the ship looming, the monument far ahead
+          // (covers lines 1–2 ≈ 16.1s)
+          pos: () => ({ x: p.x + 6.5, y: p.y + 3.4, z: p.z + 7 }),
+          look: () => ({ x: p.x, y: p.y + 1.2, z: p.z - 6 }),
+          drift: [1.2, -0.2, -1.6],
+          duration: 16000, transition: 1400, ease: 'in-out',
+        },
+        {   // Slow push-in — the reactor carries the scene
+          // (covers lines 3–6 ≈ 34.4s, incl. the 27.5s offer)
+          pos: () => ({ x: p.x - 2.7, y: p.y + 1.15, z: p.z + 2.4 }),
+          look: () => ({ x: p.x, y: p.y + 1.05, z: p.z }),
+          drift: [-0.8, 0.12, -0.7],
+          duration: 34000, transition: 2000, ease: 'in-out',
+        },
+        {   // Low hero angle for the consent and the promise
+          // (covers lines 7–9 ≈ 19.8s)
+          pos: () => ({ x: p.x + 1.9, y: p.y + 0.5, z: p.z - 2.8 }),
+          look: head,
+          drift: [-0.5, 0.6, -0.4],
+          duration: 20000, transition: 1800, ease: 'in-out',
+        },
+      ]);
+    }
+
+    // Voice helper — stops any playing merge-scene line, then plays.
+    const voice = (key) => {
+      if (!window.__audioManager) return;
+      for (const k of Object.keys(window.__audioManager.sounds)) {
+        if (k.startsWith('l3_axiom_')) {
+          window.__audioManager.sounds[k].stop();
+        }
+      }
+      window.__audioManager.playSfx(key);
+    };
+
+    // say() durations come from the MEASURED MP3 lengths (ffprobe,
+    // 2026-10-15). At runtime Howler's duration() re-syncs each line
+    // to the real file anyway, so these are belt-and-braces fallbacks
+    // for the case where a file fails to load.
+    const sayVoiced = async (key, text, fallbackMs, speaker) => {
+      voice(key);
+      let ms = fallbackMs;
+      try {
+        const s = window.__audioManager && window.__audioManager.sounds[key];
+        const dur = s && typeof s.duration === 'function' ? s.duration() : 0;
+        if (dur && isFinite(dur) && dur > 0.5) ms = Math.round(dur * 1000) + 450;
+      } catch (e) { /* keep the measured fallback */ }
+      await d.say(text, ms, speaker);
+    };
+
+    try {
+      await sayVoiced('l3_axiom_1',
+        "That ship could carry an army. And it's just… parked here?",
+        3810, 'SORINI');
+
+      await sayVoiced('l3_axiom_2',
+        "It carries worse. Beyond it, my maker's blade and my maker's fist are waiting. His Guardians.\nThey were not built to talk, Sorini. They were built to end you.",
+        12160, 'AXIOM');
+
+      await sayVoiced('l3_axiom_3',
+        "You've seen them fight?",
+        2320, 'SORINI');
+
+      // Lines 4 + 5 were recorded as ONE take (l3_axiom_4_5.mp3,
+      // 27.48s) — one caption carries both paragraphs.
+      await sayVoiced('l3_axiom_4_5',
+        "I was forged beside them. I know exactly what they will do to you — because he will order them to do everything.\n\nListen to me. Since the light, we have not been two.\nEvery dash across that city, every strike — that was me, bleeding through.\nFlesh alone cannot beat what waits in that hall. But combined… combined we can.\nSorini — you are finally ready to become one with me.",
+        27930, 'AXIOM');
+
+      await sayVoiced('l3_axiom_6',
+        "One being. And me? What happens to me in there?",
+        4100, 'SORINI');
+
+      await sayVoiced('l3_axiom_7',
+        "You remain. I stand where you stand. I strike where you strike.\nI will not erase the girl who carried me — if it ever becomes too much, you need only stop.",
+        11270, 'AXIOM');
+
+      await sayVoiced('l3_axiom_8',
+        "…We've come too far to stop. Together, then.",
+        3590, 'SORINI');
+
+      await sayVoiced('l3_axiom_9',
+        "Together. When you need all of what I am — call, and I will answer.",
+        4940, 'AXIOM');
+    } catch (e) {
+      console.warn('Merge dialogue error:', e);
+      // Never soft-lock the level — the form is still granted below
+    } finally {
+      // Her "yes" — the True Form is hers to call from here on.
+      this.axiomFormGranted = true;
+
+      if (window.__audioManager) window.__audioManager.resumeMusic();
+      if (axiom) axiom.setIntensity(1.0);
+      clearInterval(pulseInterval);
+      if (cam && typeof cam.stop === 'function' && cam.active) cam.stop();
+      d.hide();
+
+      // Modal tip — what she has gained. The world stays frozen until
+      // the player presses SPACE (showTrueFormTip in main.js).
+      if (typeof window.__showTrueFormTip === 'function') {
+        window.__showTrueFormTip();
+      }
+    }
   }
 
   _onArchitectLanded() {
