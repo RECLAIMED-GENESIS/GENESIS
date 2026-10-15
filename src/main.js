@@ -1313,7 +1313,7 @@ function showControlsOverlay(fromMenu = false) {
       <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">MOVES</h2>
       <p>● SPACE — Jump</p>
       <p>● SHIFT + SPACE — Axiom dash (unlocks on Level 2)</p>
-      <p>● Q — Axiom's True Form — merge with the Axiom for 8s of boosted power (unlocks in Level 3, when the guardians wake)</p>
+      <p>● Q — Axiom's True Form — merge with the Axiom for 8s of boosted power (unlocks in Level 3, when Axiom offers the merge at the ship)</p>
 
       <h2 style="color: #ffffff; font-size: 20px; margin-top: 20px; margin-bottom: 10px;">GENERAL</h2>
       <p>● SPACE / ENTER — Skip a dialogue line</p>
