@@ -118,6 +118,17 @@ const crossEl = document.getElementById('cross');
 const audio = new AudioManager();
 try { loadAllAudio(audio); } catch (e) { console.warn('audio init failed', e); }
 
+// Browsers block audio before the first user gesture, so the menu theme
+// started on page load dies silently. Retry it on the first click/keypress.
+function unlockAudio() {
+  try {
+    if (audio && typeof audio._unlock === 'function') audio._unlock();
+    if (appState === 'menu' && audio && !audio.isPlayingMusic) audio.playMusic('menu_theme');
+  } catch (e) {}
+}
+window.addEventListener('pointerdown', unlockAudio);
+window.addEventListener('keydown', unlockAudio);
+
 const shell = new GameShell({
   audio,
   onNewGame,
@@ -260,7 +271,7 @@ async function switchLevel(n, opts = {}) {
   try { audio.playLevelMusic(n); } catch (e) {}
   try {
     audio.stopAmbience();
-    if (n === 3) audio.playAmbience('city_ambience');
+    if (n === 3 || n === 'depot') audio.playAmbience('city_ambience');
   } catch (e) {}
   try { shell.saveGame({ level: n, caseProgress: window.__caseProgress || null }); } catch (e) {}
   _lastHudString = '';

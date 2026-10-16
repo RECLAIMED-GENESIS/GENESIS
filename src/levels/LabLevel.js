@@ -16,11 +16,12 @@
 // (DNA + documents keep their paper panels until phase 2.)
 //
 // HARD RULES:
-//   - no fake hacker terminal, no green scrolling text, no hashcat /
-//     hydra / john, no "DECRYPTING" bars, no "MATCH FOUND!" popups
-//   - the phone yields its PIN two ways: SLOW + SAFE (45s unlock-unit
-//     run, PIN shows on the unit display) or FAST + RISKY (guess 1610
-//     from the October calendar — 3 wrong guesses wipe it)
+//   - the phone is cracked BY YOU: dump the lock record and run hashcat in a
+//     real terminal on the examiner laptop (levels/LabExtras.js), then walk
+//     to the handset and type the PIN. No "DECRYPTING" bars, no auto-solve.
+//     FAST + RISKY alternative: guess 1610 from the October calendar —
+//     3 wrong guesses wipe it
+//   - every bench action is a physical prop ([E] on it), not a panel
 //   - results are hedged ("consistent with", "insufficient"), and on the
 //     comparison scope YOU write the verdict — overstating it or wrongly
 //     excluding the true donor costs captain trust (see investigation.js)
@@ -39,6 +40,7 @@ import { getStats } from '../game/stats.js';
 import { PhotoCamera, PHOTO } from '../game/photoCamera.js';
 import { play as sfx } from '../audio/sfx.js';
 import { showBriefing } from '../game/briefing.js';
+import { installLabExtras } from './LabExtras.js';
 
 const EYE = 1.7;
 const REACH = 3.4;
@@ -236,6 +238,9 @@ export class LabLevel {
     this._buildLights();
     this._buildUI();
     this._buildCamera();
+    this._buildLabProps();       // chemicals, hood, fridge, sink, whiteboard ... (LabExtras)
+    this._buildPhysicalBenches(); // laptop, strand, linen, buttons, clipboards ... (LabExtras)
+    this._syncProps();
 
     this.level.traverse((o) => {
       if (o.isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; }
@@ -430,7 +435,6 @@ export class LabLevel {
     this._box(b, 0.4, 0.02, 0.3, this._std(0xd8cfa8, 0.95, 0), -1.3, 0.95, 0.45);  // analyst notebook
     this._hit(-5.9, 1.05, 1.8, 0.8, 0.6, 0.7, { kind: 'faraday' });
     this._hit(-7.4, 1.0, 1.45, 0.9, 0.7, 0.9, { kind: 'unit' });
-    this._hit(-6.8, 0.8, 1.6, 3.6, 1.2, 1.9, { kind: 'bench', bench: 'digital' });
   }
   _drawUnit(line, sub) {
     const g = this._unitCtx; if (!g) return;
@@ -474,20 +478,20 @@ export class LabLevel {
     this._hit(6.1, 1.42, 1.58, 0.4, 0.3, 0.3, { kind: 'knob', knob: 'turret' });
     this._hit(6.35, 1.0, 1.85, 0.3, 0.3, 0.3, { kind: 'knob', knob: 'stageX' });
     this._hit(6.35, 1.0, 2.02, 0.3, 0.3, 0.3, { kind: 'knob', knob: 'stageY' });
-    this._hit(6.8, 0.8, 1.6, 3.6, 1.2, 1.9, { kind: 'bench', bench: 'micro' });
   }
 
   _buildBioBench() {
     const b = new THREE.Group(); this._benchBase(b, -6.8, -2.6);
     this._box(b, 1.25, 0.85, 1.0, this._std(0x30343c, 0.5, 0.5), -0.5, 1.36, 0);
-    this._bioDisplay = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.28), new THREE.MeshBasicMaterial({ color: 0x0a141c }));
-    this._bioDisplay.position.set(-0.5, 1.6, -0.51); this._bioDisplay.rotation.y = Math.PI;
+    { const bc = document.createElement('canvas'); bc.width = 512; bc.height = 205;
+      this._bioCtx = bc.getContext('2d'); this._bioTex = new THREE.CanvasTexture(bc); this._bioTex.colorSpace = THREE.SRGBColorSpace; }
+    this._bioDisplay = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.4), new THREE.MeshBasicMaterial({ map: this._bioTex }));
+    this._bioDisplay.position.set(-0.5, 1.5, 0.51);
     this._bioDisplay.userData.noShadow = true; b.add(this._bioDisplay);
-    this._box(b, 0.26, 0.05, 0.03, this._std(0x0a0c10, 0.6, 0.3), -0.5, 1.12, -0.5);
+    this._box(b, 0.26, 0.05, 0.03, this._std(0x0a0c10, 0.6, 0.3), -0.5, 1.12, 0.5);
     for (let i = 0; i < 3; i++)
       this._box(b, 0.09, 0.15, 0.09, new THREE.MeshStandardMaterial({ color: 0x4a8fb8, transparent: true, opacity: 0.85, roughness: 0.4 }), 0.7 + i * 0.16, 1.02, 0.5);
-    this._box(b, 0.3, 0.1, 0.2, this._std(0xd8e2ec, 0.3, 0.1), 1.3, 0.99, -0.3);
-    this._hit(-6.8, 1.0, -2.6, 3.6, 2.0, 1.9, { kind: 'bench', bench: 'dna' });
+    this._cartridgeMesh = this._box(b, 0.3, 0.1, 0.2, this._std(0xd8e2ec, 0.3, 0.1), 1.3, 0.99, -0.3);
   }
 
   _buildDocsBench() {
@@ -522,7 +526,6 @@ export class LabLevel {
     b.add(this._wandProp);
     this._hit(7.2, 0.98, -3.15, 0.5, 0.3, 0.4, { kind: 'wand' });
     this._hit(6.1, 0.97, -2.6, 0.7, 0.3, 0.6, { kind: 'note' });
-    this._hit(6.8, 0.8, -2.6, 3.6, 1.2, 1.9, { kind: 'bench', bench: 'docs' });
     // Wall light switch by the west wall — the room goes dark by hand
     this._box(this.level, 0.04, 0.16, 0.1, this._std(0xd8d2c2, 0.6, 0), -9.93, 1.5, 1.0);
     this._hit(-9.85, 1.5, 1.0, 0.35, 0.4, 0.4, { kind: 'lightswitch' });
@@ -591,9 +594,9 @@ export class LabLevel {
     const V = (x, y, z) => new THREE.Vector3(x, y, z);
     this._ptargets = [
       { id: 'phone', name: 'victim\'s phone', kind: 'evidence', radius: 0.3, getPos: (v) => v.copy(V(0.38, 1.0, 4.6)), live: () => this.cyber.staged === 'bag' },
-      { id: 'unit-display', name: 'unlock-unit display', kind: 'evidence', radius: 0.35, getPos: (v) => v.copy(V(-7.4, 1.25, 1.5)) },
+      { id: 'unit-display', name: 'examiner laptop screen', kind: 'evidence', radius: 0.35, getPos: (v) => v.copy(V(-6.5, 1.1, 1.8)) },
       { id: 'microscope', name: 'comparison scope', kind: 'evidence', radius: 0.5, getPos: (v) => v.copy(V(6.1, 1.35, 1.7)) },
-      { id: 'sequencer', name: 'sequencer readout', kind: 'evidence', radius: 0.6, getPos: (v) => v.copy(V(-7.3, 1.4, -2.6)) },
+      { id: 'sequencer', name: 'sequencer readout', kind: 'evidence', radius: 0.6, getPos: (v) => v.copy(V(-7.3, 1.5, -2.1)) },
       { id: 'note', name: 'torn note', kind: 'evidence', radius: 0.35, getPos: (v) => v.copy(V(6.1, 0.97, -2.6)) },
       { id: 'calendar', name: 'desk calendar', kind: 'evidence', radius: 0.3, getPos: (v) => v.copy(V(7.3, 0.97, -2.5)) },
       { id: 'casing', name: 'casing tray', kind: 'evidence', radius: 0.25, getPos: (v) => v.copy(V(8.15, 0.97, -2.2)) },
@@ -667,6 +670,7 @@ export class LabLevel {
     const shots = this.photoCam ? this.photoCam.photos.length : 0;
     this.ui.counter.textContent = this._labClock() + '  ·  REPORTS ' + done + '/4  ·  NAMES ' + this.dossier.names.size + (this.gloves ? '  ·  🧤' : '') + '  ·  FILM ' + film + ' (' + shots + ' taken)';
     if (this.ui.quest) this._refreshQuest();
+    if (this._syncProps) this._syncProps();
     this.ui.carry.style.display = this.carried ? 'block' : 'none';
     if (this.carried) {
       let next = 'lay it in the FARADAY box (silver box, cyber bench)';
@@ -692,21 +696,21 @@ export class LabLevel {
       else if (c.staged === 'faraday') t = 'CYBER: seat the phone in the unlock-unit CRADLE.';
       else if (c.unlocked && !c.airplane) t = 'CYBER: AIRPLANE MODE on the handset \u2014 it is signalling and will wipe!';
       else if (c.unlocked) t = 'CYBER: read his apps, then file the digital report.';
-      else if (c.unitDone) t = 'CYBER: type the PIN from the unit display into the handset.';
+      else if (c.unitDone) t = 'CYBER: you cracked it \u2014 pick up the handset in the cradle and type the PIN.';
       else if (c.unitRunning) { t = 'CYBER: acquisition running \u2014 work another bench meanwhile.'; wait = true; }
-      else t = 'CYBER: start the acquisition on the unlock unit.';
+      else t = 'CYBER: open the examiner laptop \u2014 dump the lock record, then crack it with hashcat.';
       opts.push({ text: t, wait });
     }
     if (!r.dna) {
       if (b.running) opts.push({ text: 'BIOLOGY: sequencer running \u2014 work another bench meanwhile.', wait: true });
-      else if (b.ready) opts.push({ text: 'BIOLOGY: read the 16-marker profile at the DNA bench.' });
-      else opts.push({ text: 'BIOLOGY: prepare the handkerchief sample at the DNA bench.' });
+      else if (b.ready) opts.push({ text: 'BIOLOGY: press MATCH on the sequencer, photograph the readout, file the clipboard.' });
+      else opts.push({ text: 'BIOLOGY: cut a swatch from the handkerchief, lyse it, seat the cartridge, press RUN.' });
     }
-    if (!r.micro) opts.push({ text: 'TRACE: prep a slide and compare the guest-chair hair under the scope.' });
+    if (!r.micro) opts.push({ text: 'TRACE: lay the strand, lower the cover slip, compare under the eyepiece, file the clipboard.' });
     if (!r.docs) {
       if (!d.lightsOff) opts.push({ text: 'DOCUMENTS: kill the lights, take the UV wand, sweep the torn note.' });
       else if (!d.noteRead) opts.push({ text: 'DOCUMENTS: sweep the wand across the whole note.' });
-      else opts.push({ text: 'DOCUMENTS: finish the documents panel and file it.' });
+      else opts.push({ text: 'DOCUMENTS: read the calendar and trail prints, photograph the note, file the clipboard.' });
     }
     const act = opts.find((o) => !o.wait) || opts[0];
     if (act) return act;
@@ -821,10 +825,12 @@ export class LabLevel {
 
   _interact(it) {
     this._idleT = 0;
+    if (this._interactFlavor(it)) return;   // decor you can poke at any time
     if (!this.signedIn && it.kind !== 'intake' && it.kind !== 'gloves') {
       if (it.kind === 'captain') { this._toast('NOT YET', 'Sign in first.', 2500); return; }
       this._toast('CHAIN OF CUSTODY', 'Sign the intake sheet before touching anything.', 3500); return;
     }
+    if (this._interactExtra(it)) return;     // physical bench props (LabExtras)
     if (it.kind === 'gloves') {
       this.gloves = true; sfx('collect');
       this._toast('GLOVES ON', 'Nitrile, fresh pair. Change them if they tear — contamination ends careers.', 3500);
@@ -864,15 +870,8 @@ export class LabLevel {
         if (c.staged !== 'faraday') { this._toast('PROCEDURE', 'Faraday box first — a live phone crosses the room shielded or not at all.', 4000); return; }
         this.carried = null; c.staged = 'cradle'; c.connected = true;
         sfx('collect'); this._refreshCounter();
-        this._drawUnit('SEATED · LINKED', 'start acquisition [E]');
-        this._toast('SEATED', 'Cradled and cabled. Start the acquisition on the unit — or lift the handset and guess the PIN if you are in a hurry.', 5000);
-        return;
-      }
-      if (c.staged === 'cradle' && !c.unitRunning && !c.unitDone) {
-        c.unitRunning = true; c.unitT = 0;
-        this._drawUnit('ACQUIRING…', 'keep working — 45s');
-        sfx('collect');
-        this._toast('ACQUISITION RUNNING', 'The unit images the chip — about 45 seconds on the lab clock. Work another bench.', 5000);
+        this._drawUnit('SEATED · LINKED', 'use the laptop');
+        this._toast('SEATED', 'Cradled and cabled. Open the examiner laptop beside it and read README.txt for the procedure — or pick up the handset and guess the PIN if you are in a hurry (three wrong tries wipes it).', 5000);
         return;
       }
       if (c.staged === 'cradle' && !c.unlocked && !c.wiped) return this._openDevice('phone');  // lift handset, type PIN
@@ -894,7 +893,8 @@ export class LabLevel {
         this.carried = { id: 'uvwand' };
         if (this._wandProp) this._wandProp.visible = false;
         sfx('collect'); this._refreshCounter(); this._applyDocsMood();
-        this._toast('UV WAND', 'In hand. Kill the room lights at the wall switch, then sweep the beam slowly across the torn note.', 6000);
+        if (this.docs.lightsOff) this._toast('UV WAND', 'In hand, and the room is dark. Aim at the torn note and sweep slowly \u2014 the words only show inside the beam.', 6000);
+        else this._toast('SWITCH THE LIGHTS OFF FIRST', 'Room light washes the UV out. Flip a wall switch (one on the east wall by this bench, one on the west wall), then sweep the torn note with the wand.', 9000);
       } else this._toast('HANDS FULL', 'Put down what you are carrying first.', 3000);
       return;
     }
@@ -902,7 +902,9 @@ export class LabLevel {
       this.docs.lightsOff = !this.docs.lightsOff; sfx('collect');
       this._applyDocsMood(); this._markDocsReads();
       this._toast(this.docs.lightsOff ? 'LIGHTS OFF' : 'LIGHTS ON',
-        this.docs.lightsOff ? 'The room drops to the bench lamps. The wand beam will show on paper now.' : 'Fluorescents hum back up.', 3500);
+        this.docs.lightsOff
+          ? (this.carried && this.carried.id === 'uvwand' ? 'Dark. Aim the wand at the torn note and sweep slowly.' : 'Dark. Now pick up the UV wand from the documents bench.')
+          : 'Fluorescents hum back up.', 5000);
       return;
     }
     if (it.kind === 'note') {
@@ -927,8 +929,9 @@ export class LabLevel {
     if (c.staged === 'bag') return 'The phone is still bagged on the intake table. Carry it here — via the faraday box.';
     if (c.staged === 'carried') return 'Phone in hand. Into the faraday box first.';
     if (c.staged === 'faraday') return 'Phone is shielded. Seat it in the unit cradle to begin.';
+    if (c.staged === 'cradle' && !c.unitDone && !c.unlocked) return 'Phone cabled. Open the laptop beside the cradle: dump the lock record, then crack it with hashcat.';
     if (c.unitRunning) return 'Acquisition running — ' + Math.floor(c.unitT) + 's / ' + UNIT_SECS + 's. It continues while you work.';
-    if (c.unitDone && !c.unlocked) return 'Unit finished — the PIN is on its display. Lift the handset and type it.';
+    if (c.unitDone && !c.unlocked) return 'Lock cracked — pick up the handset and type the PIN you recovered.';
     if (c.unlocked) return 'Unlocked. Lift the handset and read his apps.';
     return 'Seat the phone in the cradle first.';
   }
@@ -953,6 +956,7 @@ export class LabLevel {
     this._renderDevice();
   }
   _closeDevice() {
+    if (this._deviceMode === 'terminal' && this._termStop) this._termStop();
     this.ui.device.style.display = 'none';
     this.ui.deviceInner.innerHTML = '';
     window.__uiCapture = false;
@@ -961,6 +965,8 @@ export class LabLevel {
   _renderDevice() {
     if (this._deviceMode === 'phone') this._renderPhone();
     else if (this._deviceMode === 'eyepiece') this._renderEyepiece();
+    else if (this._deviceMode === 'terminal') this._renderTerminal();
+    else if (this._deviceMode === 'glassscan') this._renderGlassScan();
   }
 
   // ================= INTAKE + FOLDER =================
@@ -1032,7 +1038,7 @@ export class LabLevel {
       const left = 3 - c.attempts;
       el.innerHTML =
         '<div style="max-width:300px;font-size:12px;line-height:1.7;opacity:.85">The handset is warm from the cradle. Type the PIN on <b>its</b> keypad — the unit never touches the lock screen.' +
-        (c.unitDone ? '<br><br>The unit display reads <b>PIN ' + PIN + '</b>. Type what it says.' : '<br><br>No acquisition yet. Either run the unit (slow, safe) or guess from his habits (fast, risky).') +
+        (c.unitDone ? '<br><br>Your hashcat run recovered a PIN. Type it on this keypad.' : '<br><br>Not cracked yet. Either crack it on the laptop (safe) or guess from his habits (risky).') +
         '<br><br>Notebook: “dates — DDMM. October, ringed twice.”' +
         '<br><span style="opacity:.6">[Esc] set the handset down</span></div>' +
         '<div style="width:300px;background:#0c0e12;border:10px solid #1c1f25;border-radius:28px;padding:22px 16px;text-align:center">' +
@@ -1093,7 +1099,7 @@ export class LabLevel {
       '<div id="ph-app" style="background:#11161c;border:1px solid #3a4450;margin-top:10px;max-height:220px;overflow:auto;padding:10px;font-size:12px;line-height:1.6">' + this._phoneAppDetail(c.openApp) + '</div>' +
       '<button id="ph-log" style="width:100%;margin-top:10px;font:inherit;padding:10px;background:' + (this._phoneLogReady() && this._hasPhoto('unit-display') && !c.reported ? '#1f6f5c' : '#2a3038') + ';color:#fff;border:0" ' + (this._phoneLogReady() && this._hasPhoto('unit-display') && !c.reported ? '' : 'disabled') + '>' + (c.reported ? 'Logged to folder ✓' : 'Log digital report') + '</button>' +
       (!this._phoneLogReady() ? '<div style="font-size:11px;opacity:.6;margin-top:6px">Flag the 23:31 thread, the depot pin and the recent contacts first.</div>' : '') +
-      (this._phoneLogReady() && !this._hasPhoto('unit-display') ? '<div style="font-size:11px;opacity:.6;margin-top:6px">Exhibit first: photograph the unit display showing the PIN ([Q] camera, close and centred).</div>' : '') +
+      (this._phoneLogReady() && !this._hasPhoto('unit-display') ? '<div style="font-size:11px;opacity:.6;margin-top:6px">Exhibit first: photograph the laptop screen showing the recovered PIN ([Q] camera, close and centred).</div>' : '') +
       '</div>';
     el.querySelector('#ph-prev').addEventListener('click', () => { c.page = (c.page + pages.length - 1) % pages.length; c.openApp = null; this._renderPhone(); });
     el.querySelector('#ph-next').addEventListener('click', () => { c.page = (c.page + 1) % pages.length; c.openApp = null; this._renderPhone(); });
@@ -1114,7 +1120,7 @@ export class LabLevel {
       this.dossier.window = '23:19 → 23:31 → 23:38';
       this.dossier.depot = this.dossier.depot || 'City depot, 14:00';
       this.reports.digital = {
-        body: 'Device: Samsung Galaxy A12, IMEI ends 8821. Shielded in faraday, imaged via unlock unit, PIN entered by hand (deduced: 16 October, DDMM — also printed by the unit).<br>' +
+        body: 'Device: Samsung Galaxy A12, IMEI ends 8821. Shielded in faraday, lock record dumped and cracked with hashcat (4-digit mask), PIN entered by hand (consistent with 16 October, DDMM).<br>' +
           'Last message 23:31, “Unknown” (burner, no registry). Recent contacts: ' + IDS.map((id) => NAME(id)).join(', ') + '.<br>' +
           'Maps: city depot pinned twice, 14:00 tomorrow. Notes: “the memo is in the blue folder.”',
         signed: false,
@@ -1278,7 +1284,7 @@ export class LabLevel {
     const fileReady = this._traceClaimComplete() && photoOk;
     const progRow = (ok, label) => '<div style="font-size:11px;margin:2px 0">' + (ok ? '✓ ' : '○ ') + label + '</div>';
     el.innerHTML =
-      '<div style="font-size:12px;opacity:.85;max-width:250px;line-height:1.7">Comparison scope. <b>Left: unknown.</b> Rack references on the right. Turn the 3D knobs or drag the dials here — same scope.<br><br><span style="opacity:.6">[Esc] lean back</span></div>' +
+      '<div style="font-size:12px;opacity:.85;max-width:250px;line-height:1.7"><b>HOW TO COMPARE</b><br>Left = the unknown hair from the guest chair. Right = a suspect\'s known hair.<br><br>1. Click a reference (initials) in the rack.<br>2. Drag FOCUS until it says SHARP.<br>3. Turret to 40x (click turret).<br>4. Compare medulla, pigment and cuticle left vs right. All three match = consistent. Any real difference = excluded.<br>5. Do 2+ references, then set your final claim.<br><br>Colour alone proves nothing \u2014 two people can share it.<br><br><span style="opacity:.6">[Esc] lean back</span></div>' +
       '<div style="width:420px;height:420px;border-radius:50%;border:14px solid #111318;background:#05080c;position:relative;overflow:hidden;flex-shrink:0"><div id="ep-field" style="position:absolute;inset:0">' + this._eyepieceFieldHTML() + '</div></div>' +
       '<div style="width:280px;font-size:12px;display:flex;flex-direction:column;gap:10px">' +
       '<div><div style="opacity:.7;margin-bottom:4px">REFERENCE RACK</div><div style="display:flex;gap:6px;flex-wrap:wrap">' + refs + '</div></div>' +
@@ -1554,8 +1560,7 @@ export class LabLevel {
   }
   _markDocsReads() {
     // The note is read only by hand-sweep (coverage), never by toggles.
-    if (this.collected.calendar) this.docs.calRead = true;
-    if (this.collected.trail) this.docs.trailRead = true;
+    // calendar + trail prints are read by hand now (see LabExtras)
   }
   _applyDocsMood() {
     if (this._uvMat) this._uvMat.uniforms.uUV.value = this.docs.uvOn ? 1 : 0;
@@ -1661,7 +1666,7 @@ export class LabLevel {
     this._rc.set(this._o, this._d);
     const targets = [];
     this.level.traverse((o) => { if (o.userData.interact) targets.push(o); });
-    const hits = this._rc.intersectObjects(targets, false);
+    const hits = this._rc.intersectObjects(targets, false).filter((h) => { const w = h.object.userData.interact.when; return !w || w(); });
     if (!hits.length) { this.ui.prompt.style.display = 'none'; return; }
     // Small precise targets (phone, knobs, eyepiece, cradle) sit INSIDE big
     // bench hitboxes — nearest-surface would always pick the big box. The
@@ -1681,6 +1686,7 @@ export class LabLevel {
   }
   _promptFor(it) {
     const c = this.cyber;
+    { const x = this._promptExtra(it); if (x !== undefined) return x; }
     if (it.kind === 'gloves') return this.gloves ? 'Gloves on ✓' : '[E] Pull on gloves';
     if (it.kind === 'intake') return '[E] Read intake sheet';
     if (it.kind === 'folder') return '[E] Open case folder';
@@ -1693,14 +1699,14 @@ export class LabLevel {
     }
     if (it.kind === 'unit') {
       if (this.carried && this.carried.id === 'phone') return c.staged === 'faraday' ? '[E] Seat phone in cradle + cable' : 'Shield it in the faraday box first';
-      if (c.staged === 'cradle' && !c.unitRunning && !c.unitDone && !c.unlocked) return '[E] Start acquisition on the unit';
+      if (c.staged === 'cradle' && !c.unlocked && !c.unitDone) return 'Cradle — crack the lock on the laptop (or [E] guess on the handset)';
       if (c.staged === 'cradle' && !c.unlocked) return '[E] Lift the handset — type the PIN';
       if (c.unlocked) return '[E] Lift the handset — read his apps';
       return 'Unlock unit';
     }
     if (it.kind === 'eyepiece') {
       if (!this.trace.strand || !this.trace.cover) return 'Eyepiece (prep a slide first)';
-      return '[E] Lean into the eyepiece';
+      return '[E] Look through the microscope';
     }
     if (it.kind === 'knob') {
       if (it.knob === 'turret') return '[E] Click turret → ' + this.trace.turret + ' (next: ' + ({ '4x': '10x', '10x': '40x', '40x': '4x' })[this.trace.turret] + ')';
@@ -1708,13 +1714,15 @@ export class LabLevel {
     }
     if (it.kind === 'wand') {
       if (this.carried && this.carried.id === 'uvwand') return '[E] Set the UV wand down';
-      return this.carried ? 'UV wand (hands full)' : '[E] Pick up the UV wand';
+      return this.carried ? 'UV wand (hands full)' : (this.docs.lightsOff ? '[E] Pick up the UV wand' : '[E] Pick up the UV wand (switch the lights OFF first)');
     }
     if (it.kind === 'lightswitch') return this.docs.lightsOff ? '[E] Room lights on' : '[E] Kill the room lights';
     if (it.kind === 'note') {
       if (!this.collected.note) return 'Note slot (empty)';
       if (this.docs.noteRead) return '[E] Read the transcription';
-      return 'Torn note — sweep it with the wand (' + this.docs.cover.size + '/3)';
+      if (!this.docs.lightsOff) return 'Torn note \u2014 switch the room lights OFF first (wall switch)';
+      if (!(this.carried && this.carried.id === 'uvwand')) return 'Torn note \u2014 pick up the UV wand from the bench';
+      return 'Torn note \u2014 sweep it with the wand (' + this.docs.cover.size + '/3)';
     }
     if (it.kind === 'bench') {
       if (it.bench === 'digital') return 'Examiner workstation — work the phone by hand';
@@ -1823,6 +1831,8 @@ export class LabLevel {
       s.pl.intensity = (drop > 0.93) ? 3 : 22;
     }
     if (this.captain) this.captain.position.y = Math.sin(this.elapsed * 1.2) * 0.006;
+    if (this._helix && this._helix.visible) this._helix.rotation.y += dt * 0.9;
+    if (this._centriSpin > 0 && this._rotor) { this._rotor.rotation.y += dt * 25; this._centriSpin -= dt; if (this._centriSpin <= 0) this._rotor.visible = false; }
     if (this.photoCam) this.photoCam.update(dt, this.elapsed);
 
     const cam = window.__camera;
@@ -1833,6 +1843,7 @@ export class LabLevel {
   dispose() {
     clearTimeout(this._toastTimer);
     if (this._briefing) { this._briefing.cancel(); this._briefing = null; }
+    if (this._termStop) this._termStop();
     window.removeEventListener('keydown', this._onKey);
     window.removeEventListener('mousemove', this._onMouseMove);
     window.removeEventListener('wheel', this._onWheel);
@@ -1851,3 +1862,5 @@ export class LabLevel {
     this.scene.fog = this._prevFog || null;
   }
 }
+
+installLabExtras(LabLevel);

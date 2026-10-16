@@ -1,0 +1,906 @@
+// ============================================================
+// LabExtras.js — adds to LabLevel (installed by LabLevel.js):
+//   1. A properly dressed lab: chemical cabinet, fume hood, fridge, sink +
+//      eyewash, prep counter (centrifuge, pipettes, balance), whiteboard,
+//      gas cylinders, biohazard bin, posters, lab coats.
+//   2. The phone crack: an examiner LAPTOP with a real terminal. You dump
+//      the lock hash from the cabled handset and crack it with hashcat
+//      yourself, then walk to the phone and type the PIN.
+//   3. Every bench action is a physical prop you use with [E] — no more
+//      bench panels with buttons: strand + cover slip, guest glass under
+//      the wand, linen + lysis tube + cartridge + sequencer buttons,
+//      calendar, trail prints, casing tray, and a clipboard at each bench
+//      for filing the report.
+// ============================================================
+import * as THREE from 'three';
+import { SUSPECTS, IDS } from '../game/case.js';
+import { getStats } from '../game/stats.js';
+import { play as sfx } from '../audio/sfx.js';
+
+const PIN_HASH = 'a14ac55a4f27472c5d894ec1c3c743d2';   // md5("1610")
+const PS = 'analyst@examiner-01:~$ ';
+
+const CHEMS = [
+  ['ETHANOL 95%', 0xdfe9ee, 'Flammable. Precipitates DNA. Tonight\u2019s cartridge kit does not need it.'],
+  ['ACETONE', 0xe8eef0, 'Degreaser and solvent. It also eats gloves \u2014 never near the evidence.'],
+  ['ISOPROPANOL 70%', 0xe4ecee, 'Bench wipe-down between exhibits. Cross-contamination is how cases die.'],
+  ['METHANOL', 0xd8e4ea, 'Toxic and flammable. Stays in the cabinet.'],
+  ['LUMINOL', 0x8fb4ff, 'Presumptive blood test \u2014 glows blue. The stains here are already visible.'],
+  ['PHENOLPHTHALEIN', 0xf0b6d8, 'Kastle\u2013Meyer reagent: turns pink when blood is present.'],
+  ['NINHYDRIN', 0xe8a060, 'Develops prints on paper. The torn note wants UV, not this.'],
+  ['CYANOACRYLATE', 0xe6e6c8, 'Superglue fuming for latent prints on non-porous surfaces.'],
+  ['SODIUM HYPOCHLORITE 10%', 0xe8e6a8, 'Bleach. Decontaminates the benches after biological work.'],
+  ['LYSIS BUFFER', 0xb8d8a8, 'Breaks open cells to release DNA. Tonight\u2019s tube already has its dose.'],
+  ['TBE BUFFER 1X', 0xbcd0e8, 'Running buffer for electrophoresis. Cartridge systems hide it from you.'],
+  ['PROTEINASE K', 0xd8d0b8, 'Enzyme that digests proteins. Kept cold \u2014 this bottle is empty.'],
+  ['DISTILLED H\u2082O', 0xe0f0ff, 'Just water. The most-used bottle in the building.'],
+  ['HCl 1 M', 0xe8e8a0, 'Hydrochloric acid. Corrosive. Eyewash is by the sink.'],
+  ['FORMALIN 10%', 0xd8d8d0, 'Tissue fixative. Not on tonight\u2019s list. Hopefully not on anybody\u2019s.'],
+  ['GENTIAN VIOLET', 0x8a5ac8, 'Stains fibres and prints purple. A classic.'],
+  ['HYDROGEN PEROXIDE 3%', 0xe6f0f4, 'Lifts old blood from fabric. Also bleaches evidence \u2014 careful.'],
+  ['EVIDENCE TAPE (SEALED)', 0xe8c84a, 'Not a chemical. You are standing in the right place to need it.'],
+];
+
+function canvasTex(w, h, draw) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'); draw(g, w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return { tex: t, ctx: g, canvas: c };
+}
+
+const extras = {
+  // ======================================================================
+  // DRESSING
+  // ======================================================================
+  _bottle(parent, x, y, z, idx, faceRot) {
+    const [name, col] = CHEMS[idx % CHEMS.length];
+    const g = new THREE.Group(); g.position.set(x, y, z);
+    const h = 0.22 + (idx % 3) * 0.07, r = 0.055 + (idx % 2) * 0.012;
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 14),
+      new THREE.MeshStandardMaterial({ color: col, roughness: 0.2, metalness: 0.05, transparent: true, opacity: 0.82 }));
+    body.position.y = h / 2; g.add(body);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.55, r * 0.55, 0.04, 10), this._std(idx % 4 === 0 ? 0xa1241c : 0x1c1f25, 0.6, 0.1));
+    cap.position.y = h + 0.02; g.add(cap);
+    const lab = canvasTex(96, 64, (c, w, hh) => {
+      c.fillStyle = '#f2efe4'; c.fillRect(0, 0, w, hh);
+      c.fillStyle = idx % 5 === 0 ? '#a1241c' : '#1c222b'; c.fillRect(0, 0, w, 10);
+      c.fillStyle = '#1c222b'; c.font = 'bold 11px sans-serif'; c.textAlign = 'center';
+      const words = name.split(' '); const mid = Math.ceil(words.length / 2);
+      c.fillText(words.slice(0, mid).join(' '), w / 2, 30); c.fillText(words.slice(mid).join(' '), w / 2, 46);
+    });
+    const label = new THREE.Mesh(new THREE.PlaneGeometry(r * 1.75, h * 0.5), new THREE.MeshBasicMaterial({ map: lab.tex }));
+    label.position.set(Math.sin(faceRot) * (r + 0.002), h * 0.5, Math.cos(faceRot) * (r + 0.002));
+    label.rotation.y = faceRot; label.userData.noShadow = true; g.add(label);
+    parent.add(g); return g;
+  },
+
+  _buildLabProps() {
+    const L = this.level;
+    const wood = this._std(0x7a6a52, 0.75, 0.05), steel = this._std(0x9aa3ad, 0.35, 0.7), white = this._std(0xe6e9ec, 0.5, 0.1);
+    const dark = this._std(0x23272e, 0.6, 0.3);
+    const block = (x0, x1, z0, z1, h = 2.4) => this.colliders.push(new THREE.Box3(new THREE.Vector3(x0, 0, z0), new THREE.Vector3(x1, h, z1)));
+
+    // ---- chemical cabinet (east wall), bottles face the room (-x) ----
+    const cab = new THREE.Group(); cab.position.set(9.6, 0, -0.4); L.add(cab);
+    this._box(cab, 0.04, 2.1, 2.2, wood, 0.23, 1.05, 0);                       // back
+    this._box(cab, 0.5, 2.1, 0.04, wood, 0, 1.05, -1.1); this._box(cab, 0.5, 2.1, 0.04, wood, 0, 1.05, 1.1);
+    const shelfY = [0.25, 0.85, 1.45, 2.05];
+    shelfY.forEach((y) => this._box(cab, 0.5, 0.04, 2.2, wood, 0, y, 0));
+    this._cabHits = [];
+    let bi = 0;
+    [0.25, 0.85, 1.45].forEach((y, row) => {
+      for (let i = 0; i < 6; i++) {
+        this._bottle(cab, 0.02, y + 0.02, -0.9 + i * 0.36, bi++, -Math.PI / 2);
+      }
+      this._hit(9.6, y + 0.22, -0.4, 0.5, 0.5, 2.2, { kind: 'chemshelf', row, i: 0 });
+    });
+    block(9.35, 9.9, -1.5, 0.7, 2.1);
+
+    // ---- fume hood (east wall) ----
+    const hood = new THREE.Group(); hood.position.set(9.35, 0, -5.0); L.add(hood);
+    this._box(hood, 0.9, 0.9, 1.5, white, 0.1, 0.45, 0);
+    this._box(hood, 0.9, 0.05, 1.5, dark, 0.1, 0.925, 0);
+    this._box(hood, 0.05, 1.5, 1.5, steel, 0.5, 1.7, 0);
+    this._box(hood, 0.9, 0.05, 1.5, steel, 0.1, 2.45, 0);
+    this._box(hood, 0.9, 1.5, 0.05, steel, 0.1, 1.7, -0.75); this._box(hood, 0.9, 1.5, 0.05, steel, 0.1, 1.7, 0.75);
+    this._box(hood, 0.3, 0.9, 0.3, steel, 0.25, 2.9, 0);                         // duct
+    const beaker = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.2, 14), new THREE.MeshStandardMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.45, roughness: 0.1 }));
+    beaker.position.set(0.12, 1.05, -0.2); hood.add(beaker);
+    const flask = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.26, 14), new THREE.MeshStandardMaterial({ color: 0xf0d8a0, transparent: true, opacity: 0.55, roughness: 0.1 }));
+    flask.position.set(0.1, 1.08, 0.25); hood.add(flask);
+    this._hoodSash = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.05, 1.42),
+      new THREE.MeshStandardMaterial({ color: 0xcfe8f4, transparent: true, opacity: 0.28, roughness: 0.05, metalness: 0.1 }));
+    this._hoodSash.position.set(-0.32, 1.5, 0); hood.add(this._hoodSash);
+    this._hoodOpen = false;
+    this._hit(9.0, 1.5, -5.0, 0.5, 1.2, 1.5, { kind: 'hood' });
+    block(8.9, 9.95, -5.8, -4.2, 2.5);
+
+    // ---- fridge (west wall) with a swinging door ----
+    const fr = new THREE.Group(); fr.position.set(-9.4, 0, -0.9); L.add(fr);
+    this._box(fr, 0.04, 1.9, 0.7, white, -0.33, 0.95, 0);
+    this._box(fr, 0.7, 1.9, 0.04, white, 0, 0.95, -0.33); this._box(fr, 0.7, 1.9, 0.04, white, 0, 0.95, 0.33);
+    this._box(fr, 0.7, 0.04, 0.7, white, 0, 1.9, 0); this._box(fr, 0.7, 0.04, 0.7, white, 0, 0.02, 0);
+    [0.5, 0.95, 1.4].forEach((y) => this._box(fr, 0.62, 0.025, 0.62, steel, 0, y, 0));
+    const capCols = [0xa1241c, 0xe8c84a, 0x2a5f80, 0x3fa87a];
+    for (let s = 0; s < 3; s++) for (let i = 0; i < 6; i++) {
+      const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.1, 8), new THREE.MeshStandardMaterial({ color: capCols[(s + i) % 4], roughness: 0.5 }));
+      tube.position.set(-0.2 + (i % 3) * 0.17, 0.57 + s * 0.45, -0.15 + Math.floor(i / 3) * 0.3); fr.add(tube);
+    }
+    this._fridgeDoor = new THREE.Group(); this._fridgeDoor.position.set(0.34, 0, -0.35); fr.add(this._fridgeDoor);
+    this._box(this._fridgeDoor, 0.05, 1.86, 0.7, white, 0, 0.95, 0.35);
+    this._box(this._fridgeDoor, 0.04, 0.5, 0.04, steel, 0.05, 1.1, 0.6);
+    const tag = canvasTex(128, 64, (c, w, h) => {
+      c.fillStyle = '#f6efd0'; c.fillRect(0, 0, w, h); c.fillStyle = '#a1241c'; c.font = 'bold 14px sans-serif'; c.textAlign = 'center';
+      c.fillText('BIOHAZARD', w / 2, 24); c.fillStyle = '#222'; c.font = '11px sans-serif'; c.fillText('CASE #001 SAMPLES', w / 2, 42); c.fillText('4\u00b0C \u2014 SIGN OUT', w / 2, 56);
+    });
+    const tagM = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.13), new THREE.MeshBasicMaterial({ map: tag.tex }));
+    tagM.rotation.y = Math.PI / 2; tagM.position.set(0.08, 1.4, 0.35); tagM.userData.noShadow = true; this._fridgeDoor.add(tagM);
+    this._fridgeOpen = false;
+    this._hit(-9.05, 1.0, -0.9, 0.5, 1.8, 0.8, { kind: 'fridge' });
+    block(-9.8, -9.05, -1.25, -0.55, 1.95);
+
+    // ---- sink counter + eyewash (west wall) ----
+    const sink = new THREE.Group(); sink.position.set(-9.6, 0, -5.4); L.add(sink);
+    this._box(sink, 0.6, 0.9, 1.4, white, 0, 0.45, 0);
+    this._box(sink, 0.62, 0.04, 1.42, dark, 0, 0.92, 0);
+    this._box(sink, 0.4, 0.03, 0.55, steel, 0.02, 0.945, -0.25);
+    const fct = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.3, 8), steel); fct.position.set(-0.2, 1.1, -0.25); sink.add(fct);
+    this._box(sink, 0.18, 0.03, 0.03, steel, -0.12, 1.25, -0.25);
+    const ew = new THREE.Group(); ew.position.set(-9.88, 1.15, -4.1); L.add(ew);
+    this._box(ew, 0.12, 0.3, 0.5, this._std(0x2a9d6a, 0.5, 0.1), 0, 0, 0);
+    for (const dz of [-0.12, 0.12]) { const hd = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.04, 12), white); hd.rotation.z = Math.PI / 2; hd.position.set(0.09, 0.05, dz); ew.add(hd); }
+    this._hit(-9.5, 1.0, -4.8, 0.7, 0.9, 2.3, { kind: 'sink' });
+    block(-9.95, -9.25, -6.15, -4.65, 1.0);
+
+    // ---- prep counter (north wall): centrifuge, pipettes, balance, flasks ----
+    const pc = new THREE.Group(); pc.position.set(-7.95, 0, -6.65); L.add(pc);
+    this._box(pc, 2.7, 0.9, 0.6, wood, 0, 0.45, 0);
+    this._box(pc, 2.74, 0.04, 0.64, dark, 0, 0.92, 0);
+    for (let i = -3; i <= 3; i++) this._box(pc, 0.02, 0.8, 0.02, dark, i * 0.38, 0.45, 0.31);
+    // centrifuge
+    this._centri = new THREE.Group(); this._centri.position.set(-1.0, 0.94, 0); pc.add(this._centri);
+    this._box(this._centri, 0.5, 0.22, 0.46, this._std(0xc5ccd4, 0.4, 0.4), 0, 0.11, 0);
+    this._centriLid = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.06, 20), this._std(0x3a3f47, 0.4, 0.6));
+    this._centriLid.position.set(0, 0.25, 0); this._centri.add(this._centriLid);
+    this._rotor = new THREE.Group(); this._rotor.position.set(0, 0.25, 0); this._centri.add(this._rotor);
+    this._rotor.visible = false;
+    this._box(this._rotor, 0.34, 0.02, 0.04, steel, 0, 0, 0); this._box(this._rotor, 0.04, 0.02, 0.34, steel, 0, 0, 0);
+    this._centriSpin = 0;
+    // pipette rack
+    this._box(pc, 0.4, 0.04, 0.2, dark, -0.1, 0.96, 0.05);
+    for (let i = 0; i < 4; i++) {
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.01, 0.3, 8), this._std([0xe8c84a, 0x2a5f80, 0xa1241c, 0x3fa87a][i], 0.5, 0.1));
+      p.position.set(-0.24 + i * 0.09, 1.12, 0.05); pc.add(p);
+    }
+    // balance
+    this._box(pc, 0.32, 0.06, 0.26, this._std(0xd8dce0, 0.4, 0.4), 0.55, 0.97, 0);
+    this._box(pc, 0.18, 0.012, 0.18, steel, 0.55, 1.015, 0);
+    this._balDisp = this._box(pc, 0.12, 0.04, 0.02, this._std(0x0a141c, 0.3, 0.2), 0.55, 0.98, 0.14);
+    // flasks
+    for (let i = 0; i < 3; i++) {
+      const fl = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.24, 14), new THREE.MeshStandardMaterial({ color: [0xbfe6ff, 0xf0d8a0, 0xd8f0c8][i], transparent: true, opacity: 0.5, roughness: 0.1 }));
+      fl.position.set(0.95 + i * 0.22, 1.06, -0.05); pc.add(fl);
+    }
+    this._hit(-8.95, 1.1, -6.65, 0.6, 0.45, 0.55, { kind: 'centrifuge' });
+    this._hit(-8.1, 1.1, -6.6, 0.5, 0.5, 0.4, { kind: 'pipettes' });
+    this._hit(-7.4, 1.0, -6.65, 0.4, 0.2, 0.4, { kind: 'balance' });
+    block(-9.3, -6.6, -6.95, -6.35, 1.0);
+    // wall shelf over the counter with more reagents
+    const ws = new THREE.Group(); ws.position.set(-8.0, 1.75, -6.85); L.add(ws);
+    this._box(ws, 2.6, 0.04, 0.26, wood, 0, 0, 0);
+    for (let i = 0; i < 7; i++) this._bottle(ws, -1.1 + i * 0.36, 0.02, 0, 6 + i * 2, 0);
+    this._hit(-8.0, 2.0, -6.8, 2.6, 0.5, 0.35, { kind: 'chemshelf', row: 3, i: 0 });
+
+    // ---- whiteboard (south wall) ----
+    const wb = canvasTex(768, 320, (c, w, h) => {
+      c.fillStyle = '#f4f6f6'; c.fillRect(0, 0, w, h);
+      c.strokeStyle = '#b8bec4'; c.lineWidth = 6; c.strokeRect(3, 3, w - 6, h - 6);
+      c.fillStyle = '#1c3a8a'; c.font = 'bold 30px "Courier New",monospace'; c.fillText('CASE #001 \u2014 NKOSI, T.', 24, 48);
+      c.fillStyle = '#222'; c.font = '22px "Courier New",monospace';
+      ['23:19  locked Staff Common Room', '23:31  last msg: \u201ccoming up the back stairs\u201d', '00:50  found by the night cleaner',
+        'ONE SHOT \u00b7 < 1 m \u00b7 9 mm'].forEach((t, i) => c.fillText(t, 24, 92 + i * 32));
+      c.fillStyle = '#a1241c'; c.font = 'bold 22px "Courier New",monospace';
+      c.fillText('PHONE  \u00b7  HAIR  \u00b7  BLOOD  \u00b7  NOTE', 24, 248);
+      c.fillStyle = '#2a7a4a'; c.font = '18px "Courier New",monospace'; c.fillText('shift ends 17:00 \u2014 sign every page', 24, 288);
+      c.strokeStyle = '#a1241c'; c.lineWidth = 3; c.beginPath(); c.arc(640, 120, 70, 0, 7); c.stroke();
+      c.fillStyle = '#a1241c'; c.font = 'bold 54px sans-serif'; c.textAlign = 'center'; c.fillText('?', 640, 140);
+    });
+    const wbM = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 1.33), new THREE.MeshBasicMaterial({ map: wb.tex }));
+    wbM.position.set(-5.5, 1.85, 6.97); wbM.rotation.y = Math.PI; wbM.userData.noShadow = true; L.add(wbM);
+    this._box(L, 3.3, 0.06, 0.06, steel, -5.5, 1.16, 6.94);
+    this._hit(-5.5, 1.85, 6.85, 3.3, 1.4, 0.3, { kind: 'whiteboard' });
+
+    // ---- lab coats, biohazard bin, gas cylinders, posters ----
+    for (let i = 0; i < 3; i++) {
+      this._box(L, 0.5, 1.0, 0.12, white, 6.4 + i * 0.7, 1.4, 6.9);
+      this._box(L, 0.04, 0.04, 0.12, steel, 6.4 + i * 0.7, 1.95, 6.9);
+    }
+    const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.24, 0.7, 16), this._std(0xa1241c, 0.5, 0.1));
+    bin.position.set(9.2, 0.35, 6.3); L.add(bin);
+    this._box(L, 0.4, 0.04, 0.4, this._std(0x1c1f25, 0.5, 0.2), 9.2, 0.72, 6.3);
+    this._hit(9.2, 0.5, 6.3, 0.7, 1.0, 0.7, { kind: 'bin' });
+    block(8.9, 9.5, 6.0, 6.6, 0.8);
+    [[-9.4, 6.4, 0x2a6a9a], [-9.0, 6.5, 0x5a6a5a]].forEach(([x, z, col]) => {
+      const cy = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 1.5, 14), this._std(col, 0.4, 0.5)); cy.position.set(x, 0.75, z); L.add(cy);
+      const cap2 = new THREE.Mesh(new THREE.SphereGeometry(0.11, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), this._std(col, 0.4, 0.5)); cap2.position.set(x, 1.5, z); L.add(cap2);
+    });
+    block(-9.6, -8.8, 6.2, 6.7, 1.7);
+    const poster = (z, title, sub, col) => {
+      const p = canvasTex(256, 360, (c, w, h) => {
+        c.fillStyle = col; c.fillRect(0, 0, w, h); c.fillStyle = '#fff'; c.font = 'bold 30px sans-serif'; c.textAlign = 'center';
+        title.split('|').forEach((t, i) => c.fillText(t, w / 2, 60 + i * 36));
+        c.font = '17px sans-serif'; sub.split('|').forEach((t, i) => c.fillText(t, w / 2, 200 + i * 28));
+      });
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.87), new THREE.MeshBasicMaterial({ map: p.tex }));
+      m.position.set(-9.98, 1.85, z); m.rotation.y = Math.PI / 2; m.userData.noShadow = true; L.add(m);
+    };
+    poster(3.5, 'CHAIN|OF|CUSTODY', 'bag \u00b7 tag \u00b7 sign|every transfer|every time', '#3a4a6a');
+    poster(4.4, 'GLOVES|ON', 'bare hands =|contamination|logged', '#a1241c');
+    poster(-3.8, 'NO FOOD|OR DRINK', 'not even the|captain\u2019s coffee', '#2a6a4a');
+  },
+
+  // ======================================================================
+  // PHYSICAL BENCHES
+  // ======================================================================
+  _buildPhysicalBenches() {
+    const L = this.level;
+    const std = (c, r = 0.6, m = 0.1) => this._std(c, r, m);
+
+    // ---------- CYBER: laptop with a real screen, phone in the cradle ----------
+    const lap = new THREE.Group(); lap.position.set(-6.5, 0.94, 1.95); L.add(lap);
+    this._box(lap, 0.4, 0.02, 0.28, std(0x2c3038, 0.4, 0.6), 0, 0.01, 0);
+    this._box(lap, 0.3, 0.004, 0.1, std(0x14171c, 0.8, 0.1), 0, 0.022, 0.05);
+    const scr = new THREE.Group(); scr.position.set(0, 0.02, -0.14); scr.rotation.x = -0.28; lap.add(scr);
+    this._box(scr, 0.4, 0.26, 0.012, std(0x1c1f25, 0.4, 0.5), 0, 0.13, 0);
+    const lt = canvasTex(320, 200, (c, w, h) => { c.fillStyle = '#0a0e12'; c.fillRect(0, 0, w, h); });
+    this._lapCtx = lt.ctx; this._lapTex = lt.tex;
+    const lscreen = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.225), new THREE.MeshBasicMaterial({ map: lt.tex }));
+    lscreen.position.set(0, 0.13, 0.008); lscreen.userData.noShadow = true; scr.add(lscreen);
+    this._drawLaptop();
+    this._hit(-6.5, 1.12, 1.95, 0.55, 0.42, 0.4, { kind: 'laptop' });
+
+    // the handset in the cradle (only visible once you seat it)
+    this._phoneCradleProp = new THREE.Group();
+    this._box(this._phoneCradleProp, 0.12, 0.014, 0.24, std(0x0c0e12, 0.3, 0.2), 0, 0, 0);
+    this._box(this._phoneCradleProp, 0.1, 0.004, 0.2, new THREE.MeshBasicMaterial({ color: 0x16324a }), 0, 0.009, 0);
+    this._phoneCradleProp.position.set(-7.4, 0.99, 1.75); this._phoneCradleProp.visible = false; L.add(this._phoneCradleProp);
+    this._hit(-7.4, 1.1, 1.75, 0.35, 0.3, 0.45, { kind: 'handset', when: () => this.cyber.staged === 'cradle' });
+
+    // analyst's printed cheat card by the laptop
+    this._box(L, 0.2, 0.004, 0.28, std(0xf2efe4, 0.9, 0), -6.1, 0.945, 2.25);
+    this._hit(-6.1, 1.0, 2.25, 0.3, 0.2, 0.35, { kind: 'cheatcard' });
+
+    // ---------- TRACE: strand, cover slip, guest glass, clipboard ----------
+    this._strandSrc = new THREE.Group(); this._strandSrc.position.set(7.72, 0.962, 2.22); L.add(this._strandSrc);
+    this._box(this._strandSrc, 0.2, 0.004, 0.14, std(0xe4e8ec, 0.4, 0.1), 0, 0, 0);
+    this._box(this._strandSrc, 0.14, 0.003, 0.012, std(0x4a2c17, 0.9, 0), 0, 0.004, 0);
+    this._hit(7.72, 1.0, 2.22, 0.3, 0.2, 0.25, { kind: 'strand' });
+    this._coverSrc = new THREE.Group(); this._coverSrc.position.set(7.98, 0.962, 2.22); L.add(this._coverSrc);
+    this._box(this._coverSrc, 0.1, 0.008, 0.1, new THREE.MeshStandardMaterial({ color: 0xcfe8f4, transparent: true, opacity: 0.5, roughness: 0.05 }), 0, 0, 0);
+    this._hit(7.98, 1.0, 2.22, 0.2, 0.2, 0.2, { kind: 'cover' });
+    this._strandOn = this._box(L, 0.14, 0.003, 0.012, std(0x4a2c17, 0.9, 0), 6.1, 0.975, 1.6); this._strandOn.visible = false;
+    this._coverOn = this._box(L, 0.1, 0.008, 0.1, new THREE.MeshStandardMaterial({ color: 0xcfe8f4, transparent: true, opacity: 0.5, roughness: 0.05 }), 6.1, 0.98, 1.6); this._coverOn.visible = false;
+    const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.11, 14), new THREE.MeshStandardMaterial({ color: 0xdfe9ee, transparent: true, opacity: 0.45, roughness: 0.05 }));
+    glass.position.set(8.1, 1.02, 1.2); L.add(glass);
+    this._glassProp = glass;
+    this._hit(8.1, 1.02, 1.2, 0.2, 0.22, 0.2, { kind: 'tglass' });
+    this._box(L, 0.3, 0.015, 0.22, std(0x8a6a3a, 0.8, 0.1), 7.2, 0.97, 1.0);
+    this._box(L, 0.24, 0.004, 0.17, std(0xf2efe4, 0.9, 0), 7.2, 0.98, 1.0);
+    this._hit(7.2, 1.0, 1.0, 0.35, 0.2, 0.28, { kind: 'tracepad' });
+    // the whole microscope body counts as "look through it" (knobs + turret are smaller, so they still win)
+    this._hit(6.1, 1.25, 1.62, 0.55, 0.95, 0.55, { kind: 'eyepiece' });
+
+    // ---------- BIO: linen, lysis tube, cartridge, RUN/MATCH buttons, clipboard ----------
+    this._linen = new THREE.Group(); this._linen.position.set(-6.65, 0.96, -2.0); L.add(this._linen);
+    this._box(this._linen, 0.24, 0.01, 0.2, std(0xf4f0e6, 0.95, 0), 0, 0, 0);
+    this._box(this._linen, 0.07, 0.012, 0.06, std(0x7a1a1a, 0.9, 0), 0.04, 0.003, -0.02);
+    this._hit(-6.65, 1.0, -2.0, 0.34, 0.2, 0.3, { kind: 'cut' });
+    this._swatch = this._box(L, 0.05, 0.01, 0.04, std(0x7a1a1a, 0.9, 0), -6.1, 1.0, -2.1); this._swatch.visible = false;
+    this._hit(-6.1, 1.0, -2.1, 0.5, 0.35, 0.3, { kind: 'lysis' });
+    this._cartridgeHit = this._hit(-5.5, 1.0, -2.9, 0.4, 0.25, 0.3, { kind: 'cartridge' });
+    const btn = (x, col, kind) => {
+      this._box(L, 0.1, 0.05, 0.05, std(col, 0.4, 0.2), x, 1.18, -2.08);
+      this._hit(x, 1.18, -2.06, 0.14, 0.12, 0.1, { kind });
+    };
+    btn(-7.7, 0x2a9d6a, 'seqrun'); btn(-7.54, 0x2a5f80, 'seqmatch');
+    this._box(L, 0.3, 0.015, 0.22, std(0x8a6a3a, 0.8, 0.1), -8.2, 0.97, -2.4);
+    this._box(L, 0.24, 0.004, 0.17, std(0xf2efe4, 0.9, 0), -8.2, 0.98, -2.4);
+    this._hit(-8.2, 1.0, -2.4, 0.35, 0.2, 0.28, { kind: 'biopad' });
+
+    // ---------- DOCS: calendar, trail prints, casing tray, clipboard ----------
+    this._hit(7.3, 0.98, -2.5, 0.55, 0.15, 0.45, { kind: 'calendar' });
+    const trail = new THREE.Group(); trail.position.set(7.8, 0.962, -2.95); L.add(trail);
+    this._box(trail, 0.36, 0.004, 0.28, std(0xf2efe4, 0.9, 0), 0, 0, 0);
+    this._box(trail, 0.3, 0.004, 0.22, std(0x1a2230, 0.6, 0), 0, 0.004, 0);
+    for (let i = 0; i < 5; i++) this._box(trail, 0.03, 0.003, 0.012, new THREE.MeshBasicMaterial({ color: 0xb58cff }), -0.1 + i * 0.05, 0.008, i % 2 ? 0.02 : -0.02);
+    this._hit(7.8, 0.98, -2.95, 0.42, 0.15, 0.34, { kind: 'trailprints' });
+    this._hit(8.15, 0.99, -2.2, 0.25, 0.15, 0.2, { kind: 'casingtray' });
+    this._box(L, 0.3, 0.015, 0.22, std(0x8a6a3a, 0.8, 0.1), 5.35, 0.97, -2.05);
+    this._box(L, 0.24, 0.004, 0.17, std(0xf2efe4, 0.9, 0), 5.35, 0.98, -2.05);
+    this._hit(5.35, 1.0, -2.05, 0.35, 0.2, 0.28, { kind: 'docspad' });
+
+    // second wall switch right by the documents bench (east wall) so you don't have to cross the room
+    this._box(L, 0.04, 0.16, 0.1, std(0xd8d2c2, 0.6, 0), 9.96, 1.5, -3.0);
+    this._box(L, 0.02, 0.05, 0.03, new THREE.MeshBasicMaterial({ color: 0xffd36a }), 9.93, 1.5, -3.0);
+    this._hit(9.85, 1.5, -3.0, 0.35, 0.4, 0.4, { kind: 'lightswitch' });
+    this._buildHelix();
+  },
+
+  // keeps every prop in step with the lab state (called from _refreshCounter)
+  _syncProps() {
+    const c = this.cyber, t = this.trace, b = this.bio;
+    if (this._phoneCradleProp) this._phoneCradleProp.visible = c.staged === 'cradle';
+    if (this._strandSrc) this._strandSrc.visible = !t.strand;
+    if (this._strandOn) this._strandOn.visible = !!t.strand;
+    if (this._coverSrc) this._coverSrc.visible = !t.cover;
+    if (this._coverOn) this._coverOn.visible = !!t.cover;
+    if (this._linen) this._linen.visible = true;
+    if (this._swatch) this._swatch.visible = !!b.cut && !b.loaded;
+    if (this._cartridgeMesh) {
+      if (b.loaded) this._cartridgeMesh.position.set(-0.5, 1.12, 0.52);
+      else this._cartridgeMesh.position.set(1.3, 0.99, -0.3);
+    }
+    this._drawLaptop();
+    this._drawBio();
+    if (this._helixPairs) {
+      const prog = b.ready ? 1 : b.running ? Math.min(1, b.t / 180) : b.loaded ? 0.1 : 0;
+      const n = Math.floor(this._helixPairs.length * prog);
+      this._helixPairs.forEach((p, i) => { p.visible = i < n; });
+      this._helix.visible = n > 0;
+      if (this._helixRung) this._helixRung.color.setHex(b.matched ? 0xffd36a : 0xcfe8ff);
+    }
+    if (this._glassProp) { this._glassProp.material.emissive.setHex(0x6a4acf); this._glassProp.material.emissiveIntensity = t.glassUV ? 0.55 : 0; }
+  },
+
+  // ---------- blood → DNA: a double helix that builds above the sequencer as it reads ----------
+  _buildHelix() {
+    const L = this.level, N = 28, R = 0.07, STEP = 0.022;
+    const baseMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.025, 24), new THREE.MeshStandardMaterial({ color: 0x1c2630, emissive: 0x2a5f80, emissiveIntensity: 0.8, roughness: 0.4, metalness: 0.5 }));
+    baseMesh.position.set(-6.3, 0.975, -2.95); L.add(baseMesh);
+    this._helix = new THREE.Group(); this._helix.position.set(-6.3, 1.03, -2.95); this._helix.visible = false; L.add(this._helix);
+    const sphereG = new THREE.SphereGeometry(0.016, 10, 8);
+    const matA = new THREE.MeshBasicMaterial({ color: 0x4aa8ff }), matB = new THREE.MeshBasicMaterial({ color: 0xffa24a });
+    this._helixRung = new THREE.MeshBasicMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0.75 });
+    const rungG = new THREE.CylinderGeometry(0.004, 0.004, R * 2, 6);
+    this._helixPairs = [];
+    for (let i = 0; i < N; i++) {
+      const pair = new THREE.Group(); pair.position.y = i * STEP; pair.rotation.y = -i * 0.45; pair.visible = false;
+      const a = new THREE.Mesh(sphereG, matA); a.position.x = R; pair.add(a);
+      const b2 = new THREE.Mesh(sphereG, matB); b2.position.x = -R; pair.add(b2);
+      const rung = new THREE.Mesh(rungG, this._helixRung); rung.rotation.z = Math.PI / 2; pair.add(rung);
+      this._helix.add(pair); this._helixPairs.push(pair);
+    }
+    this._hit(-6.3, 1.3, -2.95, 0.3, 0.7, 0.3, { kind: 'helix' });
+  },
+
+  // ---------- guest glass: sweep the UV beam; lip print + fingerprint fluoresce under it ----------
+  _renderGlassScan() {
+    const t = this.trace, el = this.ui.deviceInner;
+    el.innerHTML =
+      '<div style="max-width:250px;font-size:12px;line-height:1.7;opacity:.9"><b>UV EXAMINATION \u2014 GUEST GLASS</b><br>Move the mouse: that is your wand beam. Prints only fluoresce where it passes.<br><br>\u2022 sweep the <b>rim</b> \u2014 lip print<br>\u2022 sweep the <b>side</b> \u2014 fingerprint<br><br><span id="lx-prog"></span><br><br><span style="opacity:.6">[Esc] set the wand down</span></div>' +
+      '<canvas id="lx-cv" width="420" height="520" style="background:#05060c;border:2px solid #2a2f4a;cursor:crosshair;max-height:84vh"></canvas>' +
+      '<div id="lx-res" style="max-width:290px;font-size:12px;line-height:1.7"></div>';
+    const cv = el.querySelector('#lx-cv'), ctx = cv.getContext('2d');
+    const mk = () => { const c = document.createElement('canvas'); c.width = 420; c.height = 520; return c; };
+    const printsCv = mk(), maskCv = mk(), tmpCv = mk();
+    const pg = printsCv.getContext('2d'), mg = maskCv.getContext('2d'), tg = tmpCv.getContext('2d');
+    const glassPath = (g) => {
+      g.beginPath(); g.moveTo(110, 80); g.lineTo(145, 440); g.quadraticCurveTo(210, 470, 275, 440); g.lineTo(310, 80); g.stroke();
+      g.beginPath(); g.ellipse(210, 80, 100, 16, 0, 0, Math.PI * 2); g.stroke();
+    };
+    // the prints themselves (drawn once, glowing violet)
+    pg.shadowColor = '#8a6aff'; pg.shadowBlur = 8; pg.strokeStyle = '#c4b0ff'; pg.lineWidth = 1.8;
+    for (let x = 118; x <= 302; x += 5) {                         // lip print: ridges running down from the rim
+      const u = (x - 210) / 100, y0 = 80 + 16 * Math.sqrt(Math.max(0, 1 - u * u));
+      pg.beginPath(); pg.moveTo(x, y0 + 2); pg.quadraticCurveTo(x + Math.sin(x * 1.7) * 3, y0 + 9, x + Math.sin(x * 0.9) * 2, y0 + 17 + (x % 3)); pg.stroke();
+    }
+    for (let r = 5; r <= 48; r += 4.5) {                          // fingerprint: partial loop
+      pg.beginPath(); pg.ellipse(240, 270, r * 0.78, r, -0.25, Math.PI * (-0.15 + r / 160), Math.PI * (1.25 - r / 220)); pg.stroke();
+    }
+    pg.fillStyle = '#e8dcff'; [[225, 250], [255, 262], [232, 290], [262, 285], [246, 305], [218, 272], [270, 250], [240, 240]].forEach(([x, y]) => { pg.beginPath(); pg.arc(x, y, 2.4, 0, 7); pg.fill(); });
+    for (let r = 4; r <= 30; r += 4.5) { pg.beginPath(); pg.ellipse(165, 345, r * 0.8, r, 0.4, Math.PI * 0.1, Math.PI * 0.95); pg.stroke(); } // smudged second print
+    // coverage bookkeeping
+    const lipCells = [], fingCells = [];
+    for (const cx of [160, 180, 200, 220, 240, 260]) for (const cy of [96, 108]) lipCells.push({ cx, cy, on: false });
+    for (const cx of [210, 230, 250, 270]) for (const cy of [245, 265, 285, 305]) fingCells.push({ cx, cy, on: false });
+    const prog = el.querySelector('#lx-prog'), res = el.querySelector('#lx-res');
+    const showRes = () => {
+      res.innerHTML = '<b>FINDINGS</b><br><br><b>Lip print (rim)</b><br>Partial, smeared \u2014 class characteristics only. Too degraded to compare against any known lip print.<br><br>' +
+        '<b>Fingerprint (side)</b><br>Partial loop, right index finger. <b>8 ridge characteristics</b> \u2014 an examiner needs about 12 to identify.<br>Dry, cracked skin: fissured, broken ridges.<br><br>' +
+        '<b style="color:#e8c84a">Insufficient for identification.</b><br>Consistent with whoever sat opposite him \u2014 but it names no one.';
+    };
+    const showProg = () => {
+      const a = lipCells.filter((c) => c.on).length, b = fingCells.filter((c) => c.on).length;
+      prog.innerHTML = 'rim ' + Math.round(a / lipCells.length * 100) + '% \u00b7 side ' + Math.round(b / fingCells.length * 100) + '%' + (t.glassUV ? '<br><b style="color:#7fd4a0">scan complete</b>' : '');
+    };
+    const render = (mx, my) => {
+      ctx.fillStyle = '#05060c'; ctx.fillRect(0, 0, 420, 520);
+      ctx.strokeStyle = 'rgba(130,140,180,.4)'; ctx.lineWidth = 3; glassPath(ctx);
+      tg.globalCompositeOperation = 'source-over'; tg.clearRect(0, 0, 420, 520); tg.drawImage(printsCv, 0, 0);
+      tg.globalCompositeOperation = 'destination-in'; tg.drawImage(maskCv, 0, 0); tg.globalCompositeOperation = 'source-over';
+      ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(tmpCv, 0, 0); ctx.globalCompositeOperation = 'source-over';
+      if (mx >= 0) {
+        const gr = ctx.createRadialGradient(mx, my, 4, mx, my, 70);
+        gr.addColorStop(0, 'rgba(150,110,255,.35)'); gr.addColorStop(1, 'rgba(150,110,255,0)');
+        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(mx, my, 70, 0, 7); ctx.fill();
+        ctx.strokeStyle = 'rgba(190,160,255,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(mx, my, 46, 0, 7); ctx.stroke();
+      }
+    };
+    if (t.glassUV) { mg.fillStyle = '#fff'; mg.fillRect(0, 0, 420, 520); showRes(); lipCells.concat(fingCells).forEach((c) => { c.on = true; }); }
+    showProg(); render(-1, -1);
+    cv.addEventListener('mousemove', (e) => {
+      const r = cv.getBoundingClientRect();
+      const x = (e.clientX - r.left) * (420 / r.width), y = (e.clientY - r.top) * (520 / r.height);
+      const gr = mg.createRadialGradient(x, y, 6, x, y, 52);
+      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      mg.fillStyle = gr; mg.beginPath(); mg.arc(x, y, 52, 0, 7); mg.fill();
+      for (const c of lipCells.concat(fingCells)) if (Math.hypot(c.cx - x, c.cy - y) < 34) c.on = true;
+      if (!t.glassUV && lipCells.filter((c) => c.on).length >= 9 && fingCells.filter((c) => c.on).length >= 12) {
+        t.glassUV = true; sfx('correct'); showRes(); this._refreshCounter();
+      }
+      showProg(); render(x, y);
+    });
+  },
+
+  // ---------- laptop screen (3D) ----------
+  _drawLaptop() {
+    const g = this._lapCtx; if (!g) return;
+    const T = this.cyber.term;
+    g.fillStyle = '#0a0e12'; g.fillRect(0, 0, 320, 200);
+    g.font = '11px monospace'; g.textBaseline = 'top';
+    const lines = T && T.lines.length ? T.lines.slice(-14) : [];
+    if (!lines.length) { g.fillStyle = '#3a4a58'; g.fillText('examiner-01 — idle', 8, 8); g.fillText('[E] to open the terminal', 8, 24); }
+    lines.forEach((ln, i) => {
+      g.fillStyle = /1610|Cracked/.test(ln) ? '#7fd4a0' : '#9fb4c0';
+      g.fillText(ln.slice(0, 52), 8, 6 + i * 13);
+    });
+    if (this._lapTex) this._lapTex.needsUpdate = true;
+  },
+
+  // ---------- sequencer display (3D) ----------
+  _drawBio() {
+    const g = this._bioCtx; if (!g) return;
+    const b = this.bio, W = 512, H = 205;
+    g.fillStyle = '#0a141c'; g.fillRect(0, 0, W, H);
+    g.textBaseline = 'top'; g.font = 'bold 22px monospace';
+    const txt = (s, y, col = '#7fd4a0', f = 20) => { g.fillStyle = col; g.font = f + 'px monospace'; g.fillText(s, 16, y); };
+    if (!this.collected.handkerchief) { txt('NO SAMPLE', 20, '#a05a4a'); this._bioTex.needsUpdate = true; return; }
+    if (!b.loaded) txt('SEQUENCER 3500  \u00b7  IDLE', 16, '#4a7f60'), txt(b.cut ? (b.lysis ? 'seat the cartridge' : 'lyse the swatch') : 'prepare a sample', 52, '#7fd4a0', 22);
+    else if (b.running && !b.ready) {
+      const pct = Math.min(100, Math.round((b.t / 180) * 100));
+      txt('RUN  ' + pct + '%', 16, '#7fd4a0', 26); txt(this._dnaStage(), 56, '#9fb4c0', 20);
+      g.strokeStyle = '#2a5f80'; g.strokeRect(16, 100, W - 32, 22); g.fillStyle = '#2a5f80'; g.fillRect(16, 100, (W - 32) * pct / 100, 22);
+    } else if (!b.ready) txt('CARTRIDGE SEATED', 16), txt('press RUN (green)', 56, '#9fb4c0', 20);
+    else {
+      txt('PROFILE 16/16 \u00b7 HIGH CONF.', 8, '#7fd4a0', 18);
+      for (let i = 0; i < 16; i++) {
+        const h = 14 + ((this.case.seed >> (i % 24)) + i * 37) % 52;
+        g.fillStyle = '#2a5f80'; g.fillRect(16 + i * 30, 96 - h, 22, h);
+      }
+      if (!b.matched) txt('press MATCH (blue)', 112, '#9fb4c0', 20);
+      else {
+        txt('CONSISTENT WITH', 104, '#e8c84a', 18);
+        txt(this.witness.name.toUpperCase(), 126, '#e8c84a', 22);
+        txt('NOT THE VICTIM \u00b7 2 DONORS', 160, '#9fb4c0', 16);
+      }
+    }
+    this._bioTex.needsUpdate = true;
+  },
+
+  // ======================================================================
+  // INTERACTIONS
+  // ======================================================================
+  _interactFlavor(it) {
+    const say = (a, b, ms = 5500) => { sfx('collect'); this._toast(a, b, ms); return true; };
+    switch (it.kind) {
+      case 'chemshelf': {
+        this._chemI = this._chemI || {};
+        const base = it.row * 6;
+        const n = (this._chemI[it.row] = ((this._chemI[it.row] ?? -1) + 1) % 6);
+        const [name, , note] = CHEMS[(base + n) % CHEMS.length];
+        return say(name, note + '  <span style="opacity:.55">(press again for the next bottle)</span>');
+      }
+      case 'hood':
+        this._hoodOpen = !this._hoodOpen;
+        if (this._hoodSash) this._hoodSash.position.y = this._hoodOpen ? 2.2 : 1.5;
+        return say(this._hoodOpen ? 'FUME HOOD \u2014 SASH UP' : 'FUME HOOD \u2014 SASH DOWN', this._hoodOpen ? 'Airflow alarm chirps. Work is meant to happen with the sash low.' : 'Sash down. Airflow steady. Nothing is cooking tonight.', 3500);
+      case 'fridge':
+        this._fridgeOpen = !this._fridgeOpen;
+        if (this._fridgeDoor) this._fridgeDoor.rotation.y = this._fridgeOpen ? 1.7 : 0;
+        return say(this._fridgeOpen ? 'SAMPLE FRIDGE \u2014 OPEN' : 'SAMPLE FRIDGE \u2014 CLOSED', this._fridgeOpen ? 'Racks of capped tubes, every one dated and initialled. Case #001 has a shelf of its own \u2014 empty, until you file.' : 'Four degrees, door shut, log signed.', 3500);
+      case 'sink':
+        return say('SINK + EYEWASH', 'Gloves off here, never at the bench. The eyewash gets flushed every Friday \u2014 yellow tag, signed.', 4500);
+      case 'centrifuge':
+        this._centriSpin = this._centriSpin > 0 ? 0 : 3;
+        if (this._rotor) this._rotor.visible = this._centriSpin > 0;
+        return say('CENTRIFUGE', this._centriSpin > 0 ? 'Lid down. Spinning an empty rotor \u2014 balanced, at least.' : 'Stopped.', 3000);
+      case 'pipettes':
+        return say('PIPETTES', 'P10, P200, P1000. Tonight\u2019s sequencer cartridge is sealed and pre-loaded \u2014 nothing here to pipette.', 4500);
+      case 'balance':
+        return say('ANALYTICAL BALANCE', 'Tared to 0.0000 g. Tonight everything is weighed by a judge, not a scale.', 3500);
+      case 'whiteboard':
+        return say('THE BOARD', 'Mabaso\u2019s handwriting: 23:19 locked the common room, 23:31 last message, 00:50 found. Four things circled: PHONE \u00b7 HAIR \u00b7 BLOOD \u00b7 NOTE.', 7000);
+      case 'bin':
+        return say('BIOHAZARD BIN', 'Used gloves and swabs only. If you are tempted to throw something else in here, file it instead.', 4000);
+      case 'cheatcard':
+        return say('ANALYST\u2019S CARD',
+          'hashcat \u2014 <b>-m</b> hash mode (0 = MD5) \u00b7 <b>-a 3</b> mask attack \u00b7 mask: <b>?d</b> = one digit, <b>?l</b> letter.<br>Usage: <code>hashcat -m &lt;mode&gt; -a 3 &lt;hashfile&gt; &lt;mask&gt;</code><br>The dump tool header tells you the hash type. Four-digit PIN = four masks.', 11000);
+      default: return false;
+    }
+  },
+
+  _interactExtra(it) {
+    const c = this.cyber, t = this.trace, b = this.bio, d = this.docs;
+    const say = (a, m, ms = 5000) => { this._toast(a, m, ms); return true; };
+    switch (it.kind) {
+      // ---------------- CYBER ----------------
+      case 'laptop':
+        if (!this.collected.phone) return say('EXAMINER LAPTOP', 'No phone was collected at the scene \u2014 nothing to analyse.', 4000);
+        this._openDevice('terminal'); return true;
+      case 'handset':
+        if (c.staged !== 'cradle') return true;
+        this._openDevice('phone'); return true;
+      // ---------------- TRACE ----------------
+      case 'strand':
+        if (!this.collected.hair) return say('HAIR STRAND', 'No hair was collected at the scene.', 3500);
+        if (t.strand) return true;
+        this._checkGloves('the hair fibres');
+        t.strand = true; sfx('collect'); this._refreshCounter();
+        return say('STRAND ON THE STAGE', 'Teased flat with tweezers. Now lower a cover slip.', 4000);
+      case 'cover':
+        if (!t.strand) return say('COVER SLIP', 'Strand first \u2014 a cover slip on an empty stage is just glass.', 3500);
+        if (t.cover) return true;
+        t.cover = true; sfx('collect'); this._refreshCounter();
+        return say('SLIDE PREPPED', 'Cover slip down, no bubbles. Lean into the eyepiece \u2014 [E] on the tubes.', 4500);
+      case 'tglass':
+        if (!this.collected.glass) return say('GUEST GLASS', 'The glass was never collected.', 3500);
+        if (!t.glassUV && !(this.carried && this.carried.id === 'uvwand')) return say('GUEST GLASS', 'Smudges, nothing you can read by eye. Fetch the UV wand from the documents bench and examine it under UV.', 5000);
+        this._openDevice('glassscan'); return true;
+      case 'tracepad':
+        return this._fileTrace();
+      // ---------------- BIO ----------------
+      case 'cut':
+        if (!this.collected.handkerchief) return say('HANDKERCHIEF', 'It was never collected \u2014 no blood, no profile.', 3500);
+        if (b.cut) return say('LINEN', 'Swatch already cut.', 2500);
+        this._checkGloves('the stained linen');
+        b.cut = true; sfx('collect'); this._refreshCounter();
+        return say('SWATCH CUT', 'A clean square from the stained corner. Into the lysis tube on the rack.', 4500);
+      case 'lysis':
+        if (!b.cut) return say('LYSIS TUBE', 'Nothing to lyse yet. Cut a swatch from the linen first.', 3500);
+        if (b.lysis) return say('LYSIS TUBE', 'Already in buffer.', 2500);
+        b.lysis = true; sfx('collect'); this._refreshCounter();
+        return say('IN LYSIS BUFFER', 'The swatch sinks into the buffer. Seat the single-use cartridge next.', 4500);
+      case 'cartridge':
+        if (!b.lysis) return say('CARTRIDGE', 'Needs a lysed sample first.', 3500);
+        if (b.loaded) return say('CARTRIDGE', 'Already in the sequencer.', 2500);
+        b.loaded = true; sfx('collect'); this._refreshCounter();
+        return say('CARTRIDGE SEATED', 'It clicks home. Green RUN button on the sequencer front.', 4500);
+      case 'seqrun':
+        if (!b.loaded) return say('SEQUENCER', 'No cartridge loaded.', 3000);
+        if (b.running || b.ready) return say('SEQUENCER', b.ready ? 'Run finished.' : 'Already running \u2014 about three minutes. Work another bench.', 3500);
+        b.running = true; b.t = 0; sfx('collect'); this._refreshCounter();
+        return say('STR RUN STARTED', 'Full 16-locus run takes about three minutes. Go work another bench.', 5000);
+      case 'seqmatch':
+        if (!b.ready) return say('SEQUENCER', b.running ? 'Not finished \u2014 ' + this._dnaStage().toLowerCase() + '.' : 'No profile yet.', 3500);
+        if (b.matched) return true;
+        b.matched = true; sfx('correct'); this._refreshCounter();
+        return say('REFERENCE MATCH', 'Done. Photograph the readout [Q], then file the DNA page on the clipboard.', 5500);
+      case 'biopad':
+        return this._fileDna();
+      case 'helix':
+        if (!this.collected.handkerchief) return say('DNA DISPLAY', 'No sample \u2014 nothing to show.', 3000);
+        if (!b.loaded) return say('DNA DISPLAY', 'Idle. Prepare a sample and load the cartridge.', 3500);
+        if (!b.ready) return say('DNA DISPLAY', 'The strand builds as the sequencer reads it \u2014 ' + this._dnaStage().toLowerCase() + '.', 4500);
+        return say('DNA PROFILE', 'Full double helix resolved: 16 STR loci read. ' + (b.matched ? 'Gold rungs = loci matched to a known reference.' : 'Press MATCH on the sequencer to compare it against the references.'), 6500);
+      // ---------------- DOCS ----------------
+      case 'calendar':
+        if (!this.collected.calendar) return say('DESK CALENDAR', 'Not collected at the scene.', 3500);
+        d.calRead = true; sfx('collect');
+        return say('DESK CALENDAR', 'October, the <b>16th ringed twice</b>. One appointment stands out: <b>city depot, 14:00, tomorrow</b>' + (this.cyber.reported ? ' (GPS-confirmed)' : ' (pending phone read)') + '.', 8000);
+      case 'trailprints':
+        if (!this.collected.trail) return say('TRAIL PHOTOS', 'Not collected at the scene.', 3500);
+        d.trailRead = true; sfx('collect');
+        return say('TRAIL PHOTOS (UV)', 'Stride 61 cm, steady, no drag marks, no stumble. Whoever bled here <b>walked out calmly</b> \u2014 they did not run.', 8000);
+      case 'casingtray':
+        if (!this.collected.casing) return say('CASING TRAY', 'Empty \u2014 the casing was not collected.', 3500);
+        sfx('collect');
+        return say('CASING', '9\u00d719 mm Parabellum, unregistered lot. Primer strike fits a service pistol with the serial filed off. Under-a-metre shot.', 7000);
+      case 'docspad':
+        return this._fileDocs();
+      default: return false;
+    }
+  },
+
+  _promptExtra(it) {
+    const c = this.cyber, t = this.trace, b = this.bio, d = this.docs;
+    switch (it.kind) {
+      case 'chemshelf': return '[E] Read the next bottle';
+      case 'hood': return '[E] ' + (this._hoodOpen ? 'Lower the sash' : 'Raise the sash');
+      case 'fridge': return '[E] ' + (this._fridgeOpen ? 'Close the fridge' : 'Open the sample fridge');
+      case 'sink': return '[E] Sink + eyewash';
+      case 'centrifuge': return '[E] Centrifuge';
+      case 'pipettes': return '[E] Pipette rack';
+      case 'balance': return '[E] Analytical balance';
+      case 'whiteboard': return '[E] Read the whiteboard';
+      case 'bin': return '[E] Biohazard bin';
+      case 'cheatcard': return '[E] Read the analyst\u2019s card';
+      case 'laptop': return c.staged === 'cradle' ? '[E] Open the laptop \u2014 crack the lock' : '[E] Open the laptop';
+      case 'handset': return c.unlocked ? '[E] Pick up the handset \u2014 read his apps' : '[E] Pick up the handset \u2014 type the PIN';
+      case 'strand': return t.strand ? '' : '[E] Lay the strand on the stage';
+      case 'cover': return t.cover ? '' : '[E] Lower a cover slip';
+      case 'tglass': return this.trace.glassUV ? '[E] Review the UV scan' : (this.carried && this.carried.id === 'uvwand' ? '[E] Scan the glass under UV' : '[E] Guest glass (needs the UV wand)');
+      case 'helix': return '[E] Read the DNA display';
+      case 'tracepad': return this.reports.micro ? 'Clipboard (trace report filed)' : '[E] Clipboard \u2014 file the trace report';
+      case 'cut': return b.cut ? 'Linen (swatch cut)' : '[E] Cut a swatch from the stained linen';
+      case 'lysis': return b.lysis ? 'Lysis tube (loaded)' : '[E] Drop the swatch in lysis buffer';
+      case 'cartridge': return b.loaded ? 'Cartridge (seated)' : '[E] Seat the cartridge in the sequencer';
+      case 'seqrun': return '[E] RUN';
+      case 'seqmatch': return '[E] MATCH against the references';
+      case 'biopad': return this.reports.dna ? 'Clipboard (DNA report filed)' : '[E] Clipboard \u2014 file the DNA report';
+      case 'calendar': return '[E] Read the desk calendar';
+      case 'trailprints': return '[E] Study the UV trail prints';
+      case 'casingtray': return '[E] Inspect the casing';
+      case 'docspad': return this.reports.docs ? 'Clipboard (documents report filed)' : '[E] Clipboard \u2014 file the documents report';
+      default: return undefined;
+    }
+  },
+
+  // ---------- report filing (moved off the old panels) ----------
+  _fileTrace() {
+    const t = this.trace;
+    if (t.reported) { this._toast('TRACE REPORT', 'Already filed.', 2500); return true; }
+    if (!t.strand || !t.cover) { this._toast('TRACE REPORT', 'Nothing to file yet \u2014 prep the slide and compare under the eyepiece.', 4000); return true; }
+    if (!this._traceClaimComplete()) { this._toast('TRACE REPORT', 'The comparison is not finished \u2014 follow the recipe in the eyepiece, then record your claim.', 5000); return true; }
+    if (!this._hasPhoto('microscope')) { this._toast('EXHIBIT FIRST', 'Photograph the comparison scope ([Q], close and centred) before you file.', 5000); return true; }
+    t.reported = true;
+    const pick = SUSPECTS[t.claimPick];
+    const kl = this.killer.hairLong ? 'long' : 'short';
+    const claimLine = t.claim === 'absolute'
+      ? 'Analyst claims <b>positive identification of ' + pick.name + '</b> \u2014 this overstates hair comparison science.'
+      : t.claim === 'consistent'
+        ? 'Analyst concludes the unknown hair is <b>consistent with ' + pick.name + '</b> (' + pick.role + ') \u2014 hedged, as comparison work requires.'
+        : 'Analyst records the comparison as <b>inconclusive</b>.';
+    const verdLines = Object.keys(t.verdicts).map((id) => (SUSPECTS[id] ? SUSPECTS[id].name : id) + ': ' + t.verdicts[id]).join('; ');
+    this.reports.micro = {
+      body: 'Hair (item #3): ' + kl + ', ' + this.killer.hairName + ', single donor. Examined at 40x against racked knowns \u2014 verdicts: ' + verdLines + '.<br>' + claimLine + '<br>' +
+        'Guest glass (item #2): partial print, <b>insufficient for identification</b>. Dry, cracked skin, right index finger.',
+      signed: false,
+    };
+    if (t.claim === 'consistent' && t.claimPick) this.dossier.names.add(pick.name);
+    if (t.claim === 'inconclusive') this._toast('FILED WEAK', 'Inconclusive is honest \u2014 but the captain still needs a name from somewhere.', 5000);
+    else this._toast('PAGE FILED', 'Trace page is in the case folder.', 3500);
+    sfx('correct'); this._refreshCounter(); this._checkCaptainReady();
+    return true;
+  },
+  _fileDna() {
+    const b = this.bio;
+    if (b.reported) { this._toast('DNA REPORT', 'Already filed.', 2500); return true; }
+    if (!b.matched) { this._toast('DNA REPORT', b.ready ? 'Run the reference match on the sequencer first.' : 'No profile yet \u2014 the sequencer has not finished.', 4000); return true; }
+    if (!this._hasPhoto('sequencer')) { this._toast('EXHIBIT FIRST', 'Photograph the sequencer readout ([Q], close and centred) before you file.', 5000); return true; }
+    b.reported = true;
+    this.reports.dna = { body: 'Sample: dried blood, item #4 (handkerchief). Full 16-locus STR profile, high confidence.<br>' + this._bioMatchText() + '<br>Trail photo (item #7): the bleeder walked \u2014 steady stride, no drag. Whoever left was calm.', signed: false };
+    this.dossier.names.add(this.killer.name);
+    this.dossier.names.add(this.witness.name);
+    this.dossier.temperament = 'walked out, steady, calm';
+    sfx('correct'); this._refreshCounter(); this._checkCaptainReady();
+    this._toast('PAGE FILED', 'DNA page names a second person. Two people were in that room.', 4500);
+    return true;
+  },
+  _fileDocs() {
+    const d = this.docs;
+    if (d.reported) { this._toast('DOCUMENTS REPORT', 'Already filed.', 2500); return true; }
+    if (!this._docsReady()) {
+      const miss = [];
+      if (this.collected.note && !d.noteRead) miss.push('sweep the note under the wand');
+      if (this.collected.calendar && !d.calRead) miss.push('read the calendar');
+      if (this.collected.trail && !d.trailRead) miss.push('study the trail prints');
+      this._toast('DOCUMENTS REPORT', 'Not ready \u2014 still to do: ' + miss.join(', ') + '.', 5000); return true;
+    }
+    if (!this._hasPhoto('note')) { this._toast('EXHIBIT FIRST', 'Photograph the note ([Q], close and centred \u2014 lights on reads best) before you file.', 5000); return true; }
+    d.reported = true;
+    this.reports.docs = {
+      body: 'Torn note (item #6): two hands on one page. ESDA under UV reveals the missing half \u2014 <b>\u201cMARKS \u2014 BOARD. Three names on the list. Only one of them is lying to you.\u201d</b><br>' +
+        'Desk calendar (item #8): October, 16th ringed twice \u2014 <b>city depot, 14:00</b>' + (this.cyber.reported ? ' (GPS-confirmed)' : '') + '; the other ring is the board meeting.<br>' +
+        'UV trail (item #7): steady 61cm stride, no drag \u2014 the bleeder walked. Calm on the way out.<br>' +
+        'Casing (item #1): 9\u00d719mm, unregistered. Whoever brought the gun brought it on purpose.',
+      signed: false,
+    };
+    this.dossier.weapon = '9mm, unregistered';
+    this.dossier.depot = 'City depot, 14:00';
+    this.dossier.memo = 'three names on the altered-marks memo';
+    sfx('correct'); this._refreshCounter(); this._checkCaptainReady();
+    this._toast('PAGE FILED', 'Documents page filed \u2014 motive, meeting and temperament.', 4500);
+    return true;
+  },
+
+  // ======================================================================
+  // THE LAPTOP TERMINAL — you type, hashcat (simulated) answers
+  // ======================================================================
+  _termState() {
+    const c = this.cyber;
+    if (!c.term) c.term = { lines: [], hist: [], hi: 0, busy: false, files: { 'README.txt': true, 'notes.txt': true }, timers: [] };
+    return c.term;
+  },
+  _termSay(...ls) {
+    const T = this._termState();
+    T.lines.push(...ls);
+    if (T.lines.length > 400) T.lines.splice(0, T.lines.length - 400);
+    this._termPaint();
+  },
+  _termPaint() {
+    this._drawLaptop();
+    if (this._deviceMode !== 'terminal' || !this.ui || !this.ui.deviceInner) return;
+    const out = this.ui.deviceInner.querySelector('#tm-out');
+    if (!out) return;
+    out.textContent = this._termState().lines.join('\n');
+    out.scrollTop = out.scrollHeight;
+  },
+  _termPlay(steps, done) {
+    const T = this._termState();
+    T.busy = true;
+    let at = 0;
+    for (const [dt, line] of steps) {
+      at += dt;
+      T.timers.push(setTimeout(() => this._termSay(line), at));
+    }
+    T.timers.push(setTimeout(() => {
+      T.busy = false; T.timers = [];
+      if (done) done();
+      this._termSetPrompt();
+    }, at + 120));
+    this._termSetPrompt();
+  },
+  _termStop() {
+    const T = this.cyber && this.cyber.term;
+    if (!T) return;
+    if (T.busy) { T.timers.forEach(clearTimeout); T.timers = []; T.busy = false; T.lines.push('^C', '[session aborted]'); }
+    this._drawLaptop();
+  },
+  _termSetPrompt() {
+    if (this._deviceMode !== 'terminal') return;
+    const inp = this.ui.deviceInner.querySelector('#tm-in'); if (!inp) return;
+    const T = this._termState();
+    inp.disabled = T.busy;
+    if (!T.busy) inp.focus();
+    const ps = this.ui.deviceInner.querySelector('#tm-ps'); if (ps) ps.style.opacity = T.busy ? 0.3 : 1;
+  },
+
+  _renderTerminal() {
+    const el = this.ui.deviceInner;
+    const T = this._termState();
+    if (!T.lines.length) {
+      T.lines.push('examiner-01  \u00b7  forensic workstation  \u00b7  new here? type:  cat README.txt',
+        this.cyber.staged === 'cradle' ? '[link] handset on /dev/cradle0 (shielded, cabled)' : '[link] /dev/cradle0: no device',
+        '');
+    }
+    el.innerHTML =
+      '<div style="width:min(880px,94vw);background:#0b0f14;border:12px solid #1c1f25;border-bottom-width:28px;border-radius:10px 10px 4px 4px;box-shadow:0 24px 70px #000">' +
+      '<div style="background:#141a22;color:#7a8794;font-size:11px;padding:4px 10px;display:flex;justify-content:space-between"><span>examiner-01 \u2014 terminal</span><span>[Esc] close the lid</span></div>' +
+      '<pre id="tm-out" style="margin:0;height:min(54vh,440px);overflow:auto;padding:10px 12px;color:#c8d3dc;font:13px/1.45 \'Courier New\',monospace;white-space:pre-wrap;word-break:break-all"></pre>' +
+      '<div style="display:flex;border-top:1px solid #1f2a35;padding:7px 12px;font:13px \'Courier New\',monospace;color:#e8eef3"><span id="tm-ps" style="color:#7fd4a0;white-space:pre">' + PS + '</span>' +
+      '<input id="tm-in" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;background:transparent;border:0;outline:0;color:#e8eef3;font:inherit;margin-left:6px"></div></div>';
+    const inp = el.querySelector('#tm-in');
+    el.addEventListener('click', () => { if (!T.busy) inp.focus(); });
+    inp.addEventListener('keydown', (e) => {
+      if (e.code === 'Escape') return;           // bubbles to the lab handler, which closes the lid
+      e.stopPropagation();
+      if (e.code === 'Enter') {
+        const v = inp.value; inp.value = '';
+        if (v.trim()) { T.hist.push(v); T.hi = T.hist.length; }
+        this._termRun(v);
+      } else if (e.code === 'ArrowUp') { e.preventDefault(); if (T.hi > 0) inp.value = T.hist[--T.hi] || ''; }
+      else if (e.code === 'ArrowDown') { e.preventDefault(); T.hi = Math.min(T.hist.length, T.hi + 1); inp.value = T.hist[T.hi] || ''; }
+      else if (e.code === 'Tab') e.preventDefault();
+    });
+    this._termPaint(); this._termSetPrompt();
+  },
+
+  _termRun(line) {
+    const T = this._termState(), c = this.cyber;
+    this._termSay(PS + line);
+    const parts = line.trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return;
+    const cmd = parts[0], args = parts.slice(1);
+    const say = (...l) => this._termSay(...l);
+    switch (cmd) {
+      case 'help': case '?':
+        say('commands:', '  ls                       list files', '  cat <file>               print a file',
+          '  lockdump <dev> -o <file> read the lock credential record off the handset',
+          '  hashcat ...              password recovery (see: hashcat --help)', '  clear / exit', '');
+        return;
+      case 'clear': T.lines.length = 0; this._termPaint(); return;
+      case 'exit': case 'quit': this._closeDevice(); return;
+      case 'ls': say(Object.keys(T.files).join('   '), ''); return;
+      case 'cat': {
+        const f = args[0];
+        if (!f) { say('cat: missing file', ''); return; }
+        if (!T.files[f]) { say('cat: ' + f + ': No such file or directory', ''); return; }
+        if (f === 'README.txt') say('EXAMINER-01 \u2014 handset procedure', '',
+          '1. Phone shielded in the faraday box, seated in the cradle, cabled.', '',
+          '2. DUMP the lock record off the handset:', '     lockdump /dev/cradle0 -o lock.hash', '',
+          '3. READ the dump header: it names the hash type and the passcode policy.', '',
+          '4. CRACK it offline:', '     hashcat -m <mode> -a 3 lock.hash <mask>',
+          '       -m  hash mode   (0 = MD5, 100 = SHA1, 1400 = SHA-256)', '       -a 3  mask attack (tries every combination the mask allows)',
+          '       mask: one token per character   ?d digit  ?l lower  ?u upper  ?a any', '       e.g. a 3-digit code = ?d?d?d', '',
+          '5. Show a cracked result any time:', '     hashcat --show lock.hash', '',
+          '6. Type the PIN on the HANDSET yourself. Airplane mode FIRST once unlocked.', '   Three wrong tries on the handset wipes it.', '');
+        else if (f === 'notes.txt') say('Passcode policy on this handset family: numeric only, exactly 4 digits.', 'Three wrong tries on the handset wipes it \u2014 never guess on the phone if you can crack offline.', 'hashcat mask: ?d = one digit.', '');
+        else if (f === 'lock.hash') say(PIN_HASH, '');
+        else say('(binary)', '');
+        return;
+      }
+      case 'lockdump': {
+        if (c.staged !== 'cradle') { say('lockdump: /dev/cradle0: no device (is the phone shielded, seated and cabled?)', ''); return; }
+        if (T.files['lock.hash']) { say('lock.hash already exists \u2014 lock record already dumped.', ''); return; }
+        this._termPlay([
+          [200, '[+] opening /dev/cradle0 (shielded, no radio)'], [500, '[+] reading keybag ...'], [600, '[+] 1 credential record found'],
+          [400, '    policy ....: numeric, length 4'], [200, '    hash type .: MD5 (hashcat mode 0)'], [300, '[+] wrote lock.hash'], [100, ''],
+        ], () => { T.files['lock.hash'] = true; sfx('collect'); this._drawUnit('LINKED', 'record dumped'); });
+        return;
+      }
+      case 'hashcat': { this._termHashcat(args); return; }
+      case 'md5sum': case 'echo': say('(not installed on the examiner image)', ''); return;
+      default: say('bash: ' + cmd + ': command not found  (try: help)', '');
+    }
+  },
+
+  _termHashcat(args) {
+    const T = this._termState(), c = this.cyber;
+    const say = (...l) => this._termSay(...l);
+    if (!args.length || args.includes('--help') || args.includes('-h')) {
+      say('hashcat (v6.2.6) \u2014 usage: hashcat [options] <hashfile> [mask]', '  -m <n>   hash mode   (0 = MD5, 100 = SHA1, 1400 = SHA-256)', '  -a <n>   attack mode (0 = wordlist, 3 = mask / brute-force)',
+        '  --show   show cracked results', 'mask:  ?d digit \u00b7 ?l lower \u00b7 ?u upper \u00b7 ?a any', 'e.g.   hashcat -m 0 -a 3 file.hash ?l?l?l', '');
+      return;
+    }
+    if (args.includes('--show')) {
+      if (c.cracked) say(PIN_HASH + ':1610', ''); else say('(nothing cracked yet)', '');
+      return;
+    }
+    // parse -m / -a (accepts "-m 0" and "-m0")
+    let mode = null, atk = null, file = null, mask = null;
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a === '-m') mode = args[++i]; else if (/^-m\d+$/.test(a)) mode = a.slice(2);
+      else if (a === '-a') atk = args[++i]; else if (/^-a\d+$/.test(a)) atk = a.slice(2);
+      else if (a.startsWith('-')) continue;
+      else if (a.includes('?')) mask = a;
+      else file = a;
+    }
+    if (!file) { say('hashcat: no hash or hashfile specified', ''); return; }
+    if (!T.files[file] || file !== 'lock.hash') { say('hashcat: ' + file + ': No such file or directory', ''); return; }
+    if (mode === null) { say('hashcat: no hash mode (-m) given \u2014 auto-detect is off. The dump header names the type.', ''); return; }
+    if (mode !== '0') { say('Hash \'' + file + '\': Token length exception', 'No hashes loaded.', '(wrong -m for this hash \u2014 check the lockdump header)', ''); return; }
+    if (atk !== '3') {
+      if (atk === '0' || atk === null) say('hashcat: no wordlist given for attack mode 0 \u2014 a PIN is not a word. Think mask (-a 3).', '');
+      else say('hashcat: attack mode ' + atk + ' is not useful here.', '');
+      return;
+    }
+    if (!mask) { say('hashcat: mask attack (-a 3) needs a mask, e.g. ?d?d?d', ''); return; }
+    const toks = mask.match(/\?[dlusa]|[^?]/g) || [];
+    const space = toks.reduce((n, tk) => n * ({ '?d': 10, '?l': 26, '?u': 26, '?s': 33, '?a': 95 }[tk] || 1), 1);
+    const head = [[150, 'hashcat (v6.2.6) starting'], [300, '* Device #1: examiner-01 GPU, 8192/16384 MB, 28MCU'], [250, 'Hashes: 1 digests; 1 unique digests, 1 unique salts'],
+      [250, 'Hash.Mode........: 0 (MD5)'], [100, 'Guess.Mask.......: ' + mask + ' [' + toks.length + ']'], [100, 'Keyspace.........: ' + space]];
+    const prog = (p) => [550, 'Progress.........: ' + Math.floor(space * p) + '/' + space + ' (' + (p * 100).toFixed(2) + '%)'];
+    const works = toks.length === 4 && toks.every((tk) => tk === '?d' || tk === '?a');
+    if (works) {
+      const slow = toks.some((tk) => tk === '?a');
+      const ps = slow ? [0.07, 0.19, 0.33, 0.48, 0.61, 0.78] : [0.21, 0.58, 0.97];
+      const steps = head.concat(ps.map(prog));
+      steps.push([600, 'Status...........: Cracked'], [150, 'Recovered........: 1/1 (100.00%) Digests'], [200, PIN_HASH + ':1610'], [100, ''], [100, 'Started/Stopped: done']);
+      this._termPlay(steps, () => {
+        c.cracked = true; c.unitDone = true; sfx('correct');
+        this._drawUnit('LOCK CRACKED', 'see the laptop');
+        this._toast('CRACKED', 'hashcat recovered the passcode. Now walk to the handset in the cradle and type it \u2014 yourself.', 7000);
+      });
+    } else {
+      const steps = head.concat([prog(0.5), prog(1.0)], [[500, 'Status...........: Exhausted'], [100, 'Recovered........: 0/1 (0.00%) Digests'],
+        [100, toks.length === 4 ? '(that mask cannot produce this PIN \u2014 check notes.txt for the passcode policy)' : '(mask length does not match the passcode policy \u2014 check notes.txt)'], [100, '']]);
+      this._termPlay(steps);
+    }
+  },
+};
+
+export function installLabExtras(LabLevel) {
+  Object.assign(LabLevel.prototype, extras);
+}
+export default { installLabExtras };
