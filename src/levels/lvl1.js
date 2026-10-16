@@ -36,9 +36,10 @@
 // ============================================================
 import * as THREE from 'three';
 import { getStats } from '../game/stats.js';
-import { applyCaseToStory } from '../game/case.js';
+import { applyCaseToStory, getCase, killerOf } from '../game/case.js';
 import { PhotoCamera } from '../game/photoCamera.js';
 import { play as sfx } from '../audio/sfx.js';
+import { showBriefing } from '../game/briefing.js';
 
 // ------------------------------------------------------------
 // CASE DATA  — edit the story here
@@ -155,6 +156,18 @@ const CLUE_TOOL = {
 // ------------------------------------------------------------
 // small helpers
 // ------------------------------------------------------------
+// Nudges used by the idle-hint system (a stuck player is a bored player).
+const CLUE_HINT = {
+  casing: 'Something brass caught the lightning near the bookshelf. Check the floor under it.',
+  glass: 'He had company. Look for a second drink — not on the desk.',
+  hair: 'The guest sat somewhere. Check the guest chair: cushion and armrest.',
+  handkerchief: 'Something was dropped where the guest stood up. Check the floor by the guest chair.',
+  phone: 'His phone should be near the desk. The screen was still lit when he died.',
+  note: 'Something was hidden, not lost. Try under the moving boxes.',
+  trail: 'The floor has more to say. UV torch [F] — sweep from the guest chair toward the door.',
+  calendar: 'A dead man\'s plans live on his desk. Check the desk calendar.',
+};
+
 let _seed = 1337;
 const rng = () => (_seed = (_seed * 16807) % 2147483647) / 2147483647;
 
@@ -296,6 +309,10 @@ export class StreetLevel {
     this.tool = 'bag';         // 1 bags · 2 tweezers · 3 swab kit
     this.caseOpen = false;
     this.outroOpen = false;
+    this.reconOpen = false;   // the 'put the night in order' beat before the outro
+    this._idle = 0;           // seconds since the last find (drives hints)
+    this._dark = 0;           // blackout timer for the mid-level scare
+    this._scared = false;
     this.focus = null;
     this.focusBody = false;
     this._nextFlash = 5;
@@ -342,7 +359,21 @@ export class StreetLevel {
     this._onKey = (e) => this._handleKey(e);
     window.addEventListener('keydown', this._onKey);
 
-    this._toast('INCIDENT — LECTURER FOUND DEAD', `Photograph everything before you lift it. [Q] camera · [1] bags · [2] tweezers · [3] swab · [E] collect · [F] UV torch · [C] file`, 11000);
+    // Opening: a typed dispatch over the radio, then the controls reminder.
+    this._briefing = showBriefing({
+      kicker: 'POLICE RADIO',
+      stamp: '00:58  \u2014  FACULTY OF COMPUTING, 3RD FLOOR',
+      speaker: 'DISPATCH \u2192 INVESTIGATOR',
+      lines: [
+        'All units, one-nine. A body in Office 3.14. Dr. Thabo Nkosi, lecturer. The night cleaner found him at 00:50 and has not stopped shaking since.',
+        'Single gunshot to the chest. The door was shut, nothing forced, and the building has been locked since midnight. Whoever did this knew the stairs.',
+        'Photograph first, lift second, and wrong tool means contamination. The defence will read your notes before the jury does. Everything you do in that room is evidence.',
+        'Head of Department wants this quiet. Captain Mabaso wants it closed. You are the only one standing in that office. Go.',
+      ],
+      onDone: () => {
+        if (this.ui) this._toast('INCIDENT \u2014 LECTURER FOUND DEAD', `Photograph everything before you lift it. [Q] camera · [1] bags · [2] tweezers · [3] swab · [E] collect · [F] UV torch · [C] file · [Esc] free the mouse`, 9000);
+      },
+    });
   }
 
   // ---------- gameplay helpers (same names the host expects) ----------
@@ -1238,9 +1269,14 @@ export class StreetLevel {
         for (let i = 0; i < 6; i++) { g.beginPath(); g.moveTo(0, i * 44 + 10); g.lineTo(w, i * 44 + 14); g.stroke(); }
         g.fillStyle = '#7d1414'; g.beginPath(); g.ellipse(w * 0.72, h * 0.78, 52, 40, 0.4, 0, Math.PI * 2); g.fill();
         g.fillStyle = '#4c0c0c'; g.beginPath(); g.ellipse(w * 0.74, h * 0.8, 26, 20, 0.2, 0, Math.PI * 2); g.fill();
+        // Stitched with THIS run's killer's initials (it used to say K.P. every time),
+        // with the first letter soaked out by blood: the player must find it elsewhere.
+        const mono = killerOf(getCase()).initials;
+        g.font = 'italic bold 34px serif';
         g.strokeStyle = '#6a6458'; g.lineWidth = 4;
-        g.strokeText('K.P.', 18, 46); g.font = 'italic bold 34px serif'; g.fillStyle = '#3a352c';
-        g.fillText('K.P.', 18, 46);
+        g.strokeText(mono, 18, 46); g.fillStyle = '#3a352c';
+        g.fillText(mono, 18, 46);
+        g.fillStyle = '#6e1212'; g.beginPath(); g.ellipse(30, 34, 22, 20, 0.3, 0, Math.PI * 2); g.fill();
       });
       const cloth = new THREE.Group();
       const plane = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.3),
@@ -1418,7 +1454,7 @@ export class StreetLevel {
         getPos: (v) => v.copy(c.pos).add(new THREE.Vector3(0, 0.15, 0)),
       })),
       getColliders: () => this.colliders,
-      isBlocked: () => !!(window.__uiCapture || this.caseOpen || this.outroOpen),
+      isBlocked: () => !!(window.__uiCapture || this.caseOpen || this.outroOpen || this.reconOpen),
       clockLabel: () => `23:${String(40 + Math.floor(this.time / 60)).padStart(2, '0')}`,
       onPhoto: (photo) => this._onPhoto(photo),
     });
@@ -1446,7 +1482,9 @@ export class StreetLevel {
         this._toast('TRAIL ON FILM', 'The wiped smear and the scrawled letter are fixed on film. That photograph IS the lift.', 7000);
         this._collect(c);
       } else {
-        this._toast(`ON FILM — ${c.def.name.toUpperCase()}`, `Now lift it with ${TOOLS[c.tool]} ([E]). Wrong instrument contaminates.`, 6000);
+        this.tool = c.tool;   // the belt auto-selects the right instrument; switch by hand and you own the mistake
+        this._toast(`ON FILM — ${c.def.name.toUpperCase()}`, `Belt switched to ${TOOLS[c.tool]}. Lift it with [E]. (Change tools by hand and a wrong one contaminates.)`, 6000);
+        this._idle = 0;
       }
     }
     this._updateCounter();
@@ -1489,6 +1527,7 @@ export class StreetLevel {
     ui.cross = mk('div', 'position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px;border-radius:50%;background:rgba(255,235,190,.6);box-shadow:0 0 6px rgba(0,0,0,.8);transition:all .12s;', ui.root);
     ui.counter = mk('div', 'position:absolute;left:18px;top:16px;font-size:15px;letter-spacing:2px;text-shadow:0 0 8px #000;', ui.root);
     ui.objective = mk('div', 'position:absolute;left:18px;top:38px;font-size:11px;letter-spacing:1px;opacity:.65;text-shadow:0 0 8px #000;', ui.root, 'DR. T. NKOSI — DEAD, SINGLE GUNSHOT WOUND');
+    ui.quest = mk('div', 'position:absolute;left:18px;top:64px;font-size:12px;line-height:1.7;letter-spacing:1px;text-shadow:0 0 8px #000;max-width:360px;', ui.root);
     ui.hint = mk('div', 'position:absolute;left:18px;bottom:14px;font-size:12px;opacity:.7;text-shadow:0 0 6px #000;', ui.root,
       '[1] bags &nbsp; [2] tweezers &nbsp; [3] swab &nbsp; [Q] camera &nbsp; [E] collect &nbsp; [F] UV &nbsp; [C] file');
     ui.prompt = mk('div', 'position:absolute;left:50%;top:56%;transform:translateX(-50%);font-size:16px;padding:6px 14px;background:rgba(0,0,0,.55);border:1px solid rgba(242,217,160,.45);display:none;text-shadow:0 0 6px #000;', ui.root);
@@ -1497,6 +1536,7 @@ export class StreetLevel {
 
     ui.case = mk('div', 'position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(3,4,7,.9);z-index:9999;font-family:"Courier New",monospace;');
     ui.outro = mk('div', 'position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:radial-gradient(ellipse at 50% 45%, rgba(8,10,16,.96), rgba(2,3,5,.99));z-index:10000;font-family:"Courier New",monospace;color:#e9d9b0;pointer-events:auto;');
+    ui.recon = mk('div', 'position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(3,4,7,.95);z-index:10000;font-family:"Courier New",monospace;color:#e9d9b0;padding:24px;overflow:auto;');
     this._updateCounter();
   }
 
@@ -1504,6 +1544,7 @@ export class StreetLevel {
     const n = this.clues.filter((c) => c.found).length;
     const film = this.photoCam ? `  ·  FILM ${this.photoCam.film}` : '';
     this.ui.counter.textContent = `EVIDENCE  ${n} / ${this.clues.length}  ·  ${TOOLS[this.tool]}${film}`;
+    this._updateQuest();
   }
 
   _toast(title, text, ms = 9000) {
@@ -1581,7 +1622,7 @@ export class StreetLevel {
     const close = this.ui.case.querySelector('#cf-close');
     if (close) close.addEventListener('click', () => this._closeCaseFile());
     const go = this.ui.case.querySelector('#cf-go');
-    if (go) go.addEventListener('click', () => { this._closeCaseFile(); this._openOutro(); });
+    if (go) go.addEventListener('click', () => { this._closeCaseFile(); this._openReconstruction(); });
 
     this._bindDeductions();
   }
@@ -1669,11 +1710,82 @@ export class StreetLevel {
   }
 
   // =========================================================
+  // GUIDANCE — open questions HUD + idle nudges
+  // =========================================================
+  _updateQuest() {
+    if (!this.ui || !this.ui.quest) return;
+    const rows = CASE.deductions.map((d) => {
+      const got = d.needs.filter((id) => (this.clues.find((x) => x.id === id) || {}).found).length;
+      const ok = this.solved.has(d.id);
+      return `<div style="color:${ok ? '#7fd4a8' : '#f2d9a0'};opacity:${ok ? 1 : 0.8}">${ok ? '&#10003;' : '&#9744;'} ${d.prompt} <span style="opacity:.6">${ok ? '' : got + '/' + d.needs.length}</span></div>`;
+    }).join('');
+    this.ui.quest.innerHTML = `<div style="opacity:.55;letter-spacing:2px;margin-bottom:2px">OPEN QUESTIONS</div>${rows}`;
+  }
+
+  _hint() {
+    const c = this.clues.find((x) => !x.found && !x.photo) || this.clues.find((x) => !x.found);
+    if (!c) return;
+    const msg = c.photo
+      ? `You already have the ${c.def.name} on film — lift it with ${TOOLS[c.tool]} ([E]).`
+      : (CLUE_HINT[c.id] || 'Something in this room still has not been looked at.');
+    this._toast('DETECTIVE\'S INSTINCT', msg, 7000);
+  }
+
+  // =========================================================
+  // RECONSTRUCTION — put the night in order before the file closes
+  // =========================================================
+  _openReconstruction() {
+    if (this.reconOpen) return;
+    this.reconOpen = true;
+    if (document.exitPointerLock) document.exitPointerLock();
+    if (this.ui.prompt) this.ui.prompt.style.display = 'none';
+    const truth = [
+      { t: '22:48', text: 'An unknown number summons him: "Exam scripts. Your office, tonight."' },
+      { t: '23:19', text: 'He locks up the Staff Common Room and heads for his office.' },
+      { t: '23:31', text: 'The visitor texts: "Coming up the back stairs. Tell no one."' },
+      { t: '23:31 – 23:36', text: 'One shot, from under a metre. The shooter wipes a bloodied hand and leaves in a hurry. His phone starts missing calls.' },
+      { t: '00:50', text: 'The night cleaner finds him.' },
+    ];
+    const pool = truth.slice();
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    let placed = 0, slips = 0;
+    const el = this.ui.recon;
+    const render = (msg) => {
+      const done = placed === truth.length;
+      const tl = truth.slice(0, placed).map((e) =>
+        `<div style="margin:0 0 8px;padding:8px 12px;border-left:3px solid #3fa87a;background:rgba(63,168,122,.08)"><b style="color:#7fd4a8">${e.t}</b> &nbsp; ${e.text}</div>`).join('');
+      const left = pool.filter((e) => truth.indexOf(e) >= placed).map((e) =>
+        `<button data-i="${truth.indexOf(e)}" style="display:block;width:100%;text-align:left;font:inherit;padding:10px 14px;margin:0 0 8px;background:#141a24;color:#e9d9b0;border:1px solid #334052;cursor:pointer">${e.text}</button>`).join('');
+      el.innerHTML = `
+        <div style="width:min(760px,92vw)">
+          <div style="letter-spacing:5px;font-size:12px;color:#f2b84b;margin-bottom:6px">RECONSTRUCTION</div>
+          <div style="font-size:18px;margin-bottom:6px">${done ? 'That is the night, start to finish.' : 'Put the night in order. What happened NEXT?'}</div>
+          <div id="recon-msg" style="font-size:12px;opacity:.65;min-height:1.4em;margin-bottom:14px">${msg || (done ? (slips ? slips + ' slip' + (slips === 1 ? '' : 's') + ' on the record.' : 'No slips.') : 'Use what the phone, the trail and the case file told you.')}</div>
+          ${tl}${left}
+          ${done ? '<button id="recon-go" style="font:inherit;letter-spacing:1px;margin-top:10px;padding:12px 28px;background:#a1241c;color:#fff;border:0;cursor:pointer">Seal the file &rarr;</button>' : ''}
+        </div>`;
+      el.querySelectorAll('button[data-i]').forEach((b) => b.addEventListener('click', () => {
+        if (Number(b.dataset.i) === placed) { placed++; sfx('correct'); render(); return; }
+        slips++;
+        try { getStats().wrongDeductions++; } catch (e) {}
+        sfx('wrong'); this._flash('rgba(161,36,28,.4)');
+        b.animate([{ transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'none' }], { duration: 260 });
+        const m = el.querySelector('#recon-msg');
+        if (m) m.textContent = 'Not yet — something has to come before that. Check the times on the phone.';
+      }));
+      const go = el.querySelector('#recon-go');
+      if (go) go.addEventListener('click', () => { this.reconOpen = false; el.style.display = 'none'; this._openOutro(); });
+    };
+    el.style.display = 'flex';
+    render();
+  }
+
+  // =========================================================
   // INPUT
   // =========================================================
   _handleKey(e) {
     if (e.repeat) return;
-    if (this.outroOpen) return;
+    if (this.outroOpen || this.reconOpen) return;
     if (e.code === 'KeyC') { this.caseOpen ? this._closeCaseFile() : this._openCaseFile(); return; }
     if (this.caseOpen) return;
     if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
@@ -1720,6 +1832,26 @@ export class StreetLevel {
       `EVIDENCE ${this.clues.filter((x) => x.found).length}/${this.clues.length} — ${c.def.name.toUpperCase()}`,
       `${c.def.note}<div style="margin-top:6px;color:#f2b84b">&#9656; ${c.def.finding}</div>`,
       11000);
+    this._idle = 0;
+    // Halfway through the room, the building reminds you you are not alone in it.
+    if (!this._scared && this.clues.filter((x) => x.found).length >= 4) {
+      this._scared = true; this._dark = 2.6; this._flashT = 0.45;
+      clearTimeout(this._scareTimer);
+      this._scareTimer = setTimeout(() => {
+        if (this.ui) this._toast('FOOTSTEPS', 'The lights die. Out in the corridor, slow footsteps on the back stairs — the same stairs. Then the tube stutters back and the landing is empty. Whoever came up here once knows this building well.', 9000);
+      }, 1800);
+    }
+    // Six exhibits in: the dead man's phone lights up. Somebody is checking on him.
+    if (!this._buzzed && this.clues.filter((x) => x.found).length >= 6) {
+      this._buzzed = true;
+      clearTimeout(this._buzzTimer);
+      this._buzzTimer = setTimeout(() => {
+        if (!this.ui) return;
+        this._flash('rgba(120,140,255,.35)');
+        sfx('wrong');
+        this._toast('THE DEAD MAN\u2019S PHONE', 'It buzzes once against the desk, face-down. Then again. Whoever is on the other end does not know yet that he is not going to answer \u2014 and wants to know whether anyone has found what he was keeping.', 10000);
+      }, 2500);
+    }
     // Conclusions draw themselves once their evidence is bagged — no puzzles.
     for (const d of CASE.deductions) {
       if (!this.solved.has(d.id) && d.needs.every((id) => (this.clues.find((x) => x.id === id) || {}).found)) {
@@ -1894,6 +2026,15 @@ export class StreetLevel {
     const dropout = flick < -0.75 ? 0.15 : 1;
     this.tube.intensity = 2.4 * dropout * (0.9 + 0.1 * Math.sin(this.time * 40));
     this.tubeMat.emissiveIntensity = 0.9 * dropout;
+    if (this._dark > 0) {   // blackout: lamp + tube die, lightning (moon) still cracks through
+      this._dark = Math.max(0, this._dark - dt);
+      const k = this._dark > 0.5 ? 0.03 : (Math.sin(this.time * 70) > 0 ? 1 : 0.15);
+      this.lamp.intensity *= k; this.tube.intensity *= k; this.tubeMat.emissiveIntensity *= k;
+    }
+    if (!this.caseOpen && !this.outroOpen && !this.reconOpen && this.clues.some((x) => !x.found)) {
+      this._idle += dt;
+      if (this._idle > 70) { this._idle = 0; this._hint(); }
+    }
 
     // UV lamp
     const hasView = this._updateView(player);
@@ -1907,8 +2048,8 @@ export class StreetLevel {
     this.uvLight.intensity = 40 * this.uv.uUvOn.value;
 
     // physics + interaction
-    if (player && player.pos && !this.caseOpen && !this.outroOpen) this._stepMovables(dt, player);
-    if (hasView && !this.caseOpen && !this.outroOpen) this._updateFocus();
+    if (player && player.pos && !this.caseOpen && !this.outroOpen && !this.reconOpen) this._stepMovables(dt, player);
+    if (hasView && !this.caseOpen && !this.outroOpen && !this.reconOpen) this._updateFocus();
     if (this.photoCam) this.photoCam.update(dt, this.time);
   }
 
@@ -1918,6 +2059,9 @@ export class StreetLevel {
   dispose() {
     clearTimeout(this._toastTimer);
     clearTimeout(this._caseTimer);
+    clearTimeout(this._scareTimer);
+    clearTimeout(this._buzzTimer);
+    if (this._briefing) { this._briefing.cancel(); this._briefing = null; }
     window.removeEventListener('keydown', this._onKey);
     if (this.photoCam) { this.photoCam.dispose(); this.photoCam = null; }
     if (window.__firstPerson) window.__firstPerson = false;
@@ -1925,6 +2069,7 @@ export class StreetLevel {
       if (this.ui.root) this.ui.root.remove();
       if (this.ui.case) this.ui.case.remove();
       if (this.ui.outro) this.ui.outro.remove();
+      if (this.ui.recon) this.ui.recon.remove();
       this.ui = null;
     }
     if (this.level && this.level.parent) this.level.parent.remove(this.level);

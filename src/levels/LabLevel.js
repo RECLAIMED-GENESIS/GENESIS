@@ -38,6 +38,7 @@ import { getCase, SUSPECTS, IDS, normId } from '../game/case.js';
 import { getStats } from '../game/stats.js';
 import { PhotoCamera, PHOTO } from '../game/photoCamera.js';
 import { play as sfx } from '../audio/sfx.js';
+import { showBriefing } from '../game/briefing.js';
 
 const EYE = 1.7;
 const REACH = 3.4;
@@ -45,6 +46,20 @@ const PIN = '1610';            // DDMM: 16 October, ringed twice on his calendar
 const UNIT_SECS = 45;          // unlock-unit acquisition run (work elsewhere)
 const WIPE_SECS = 20;          // signal window after unlock before remote wipe
 const NAME = (id) => (SUSPECTS[normId(id)] || { name: id }).name;
+
+// Shift-pressure beats: the captain checks in over the intercom as the lab clock runs.
+// (1 real second = 0.5 lab minutes, so these land at roughly 4.5, 9.5, 14.5 and 16.5 real minutes.)
+const SHIFT_END = 17 * 60;
+const RADIO = [
+  { at: 10 * 60 + 30, text: (n) => n === 0
+      ? '\u201cHalf past ten. I have a body, a bag of exhibits and no names. Talk to me.\u201d'
+      : '\u201cHalf past ten. ' + n + ' report' + (n === 1 ? '' : 's') + ' on my desk. Keep them coming.\u201d' },
+  { at: 13 * 60, text: (n) => n >= 2
+      ? '\u201cOne o\u2019clock. Good \u2014 the picture is forming. Do not get sloppy now.\u201d'
+      : '\u201cOne o\u2019clock and I am still waiting on the bench work. Pick up the pace.\u201d' },
+  { at: 15 * 60 + 30, text: () => '\u201cNinety minutes to shift end. The city does not wait for paperwork.\u201d' },
+  { at: 16 * 60 + 30, text: () => '\u201cThirty minutes. Sign what you have \u2014 a partial dossier beats a late one.\u201d' },
+];
 
 const NEED = {
   digital: ['phone'],
@@ -243,7 +258,22 @@ export class LabLevel {
       if (this.ui.device.style.display === 'flex' && this._deviceMode === 'eyepiece') this._refreshEyepieceField();
     };
     window.addEventListener('wheel', this._onWheel, { passive: true });
-    this._toast('FORENSIC LAB — 08:15', 'Gloves, sign-in, then work. [Q] raises your camera — photograph each exhibit before you file it. [E] to interact.', 9000);
+    // Opening: Captain Mabaso sets the clock before the lab clock starts.
+    this._briefing = showBriefing({
+      kicker: 'CAPT. MABASO',
+      stamp: '08:15  \u2014  FORENSIC LAB, BASEMENT',
+      speaker: 'INTERCOM \u2192 FORENSIC ANALYST',
+      lines: [
+        'Eight bags from Nkosi\u2019s office are on your intake table. Last night I had a corpse and a guess. This morning I want a case I can put in front of a judge.',
+        'Four benches: the phone, the hairs and glass, the blood, the paperwork. Gloves on before you touch anything, and sign the intake sheet or nothing downstairs counts.',
+        'I need names I can defend, the weapon, the time window, and where he was going tomorrow. Say \u201cconsistent with\u201d when that is all you know. Overstate it and I stop trusting you.',
+        'Shift ends at 17:00. The city does not wait for paperwork, and neither does the killer. Clock starts when you walk in.',
+      ],
+      onDone: () => {
+        this.elapsed = 0;   // the briefing must not eat lab time
+        if (this.ui) this._toast('FORENSIC LAB \u2014 08:15', 'Gloves, sign-in, then work. [Q] raises your camera \u2014 photograph each exhibit before you file it. [E] to interact. [Esc] frees the mouse.', 9000);
+      },
+    });
   }
 
   getSurfaceHeight() { return 0; }
@@ -619,6 +649,7 @@ export class LabLevel {
     ui.root = mk('div', 'position:fixed;inset:0;pointer-events:none;z-index:50;font-family:"Courier New",monospace;color:#1c222b;');
     ui.counter = mk('div', 'position:absolute;left:18px;top:16px;font-size:13px;letter-spacing:1px;background:rgba(240,244,248,.85);padding:6px 10px;border:1px solid #9aa2ad;', ui.root, '');
     ui.carry = mk('div', 'position:absolute;left:18px;top:52px;font-size:12px;letter-spacing:1px;background:rgba(20,26,34,.85);color:#ffe9a8;padding:6px 10px;display:none;', ui.root);
+    ui.quest = mk('div', 'position:absolute;right:18px;top:16px;width:290px;font-size:12px;line-height:1.6;background:rgba(240,244,248,.9);padding:8px 12px;border:1px solid #9aa2ad;', ui.root, '');
     ui.prompt = mk('div', 'position:absolute;left:50%;bottom:22%;transform:translateX(-50%);font-size:15px;letter-spacing:1px;background:rgba(20,26,34,.85);color:#f2f4f6;padding:8px 14px;display:none;', ui.root);
     ui.toast = mk('div', 'position:absolute;left:50%;top:9%;transform:translate(-50%,0);width:min(680px,92vw);text-align:center;opacity:0;transition:opacity .4s;', ui.root);
     ui.overlay = mk('div', 'position:fixed;inset:0;display:none;background:rgba(235,238,242,.97);z-index:9000;font-family:"Courier New",monospace;color:#1c222b;overflow:auto;pointer-events:auto;');
@@ -635,6 +666,7 @@ export class LabLevel {
     const film = this.photoCam ? this.photoCam.film + ' exp' : '';
     const shots = this.photoCam ? this.photoCam.photos.length : 0;
     this.ui.counter.textContent = this._labClock() + '  ·  REPORTS ' + done + '/4  ·  NAMES ' + this.dossier.names.size + (this.gloves ? '  ·  🧤' : '') + '  ·  FILM ' + film + ' (' + shots + ' taken)';
+    if (this.ui.quest) this._refreshQuest();
     this.ui.carry.style.display = this.carried ? 'block' : 'none';
     if (this.carried) {
       let next = 'lay it in the FARADAY box (silver box, cyber bench)';
@@ -643,6 +675,65 @@ export class LabLevel {
       this.ui.carry.textContent = 'CARRYING: ' + this.carried.id.toUpperCase() + ' — ' + next;
     }
   }
+  // ================= GUIDANCE: work order + next step =================
+  _uiBusy() {
+    return !!(this.heldKnob || this.ui.overlay.style.display === 'block' || this.ui.device.style.display === 'flex'
+      || this.ui.captain.style.display === 'flex' || (this.photoCam && this.photoCam.up));
+  }
+  _nextStep() {
+    const c = this.cyber, r = this.reports, b = this.bio, d = this.docs;
+    if (!this.signedIn) return { text: 'Sign the intake sheet on the intake table.' };
+    if (!this.gloves) return { text: 'Glove up \u2014 the dispenser is on the intake table.' };
+    const opts = [];
+    if (!r.digital && !c.wiped) {
+      let t, wait = false;
+      if (c.staged === 'bag') t = 'CYBER: lift the phone out of its bag on the intake table.';
+      else if (c.staged === 'carried') t = 'CYBER: lay the phone in the silver FARADAY box.';
+      else if (c.staged === 'faraday') t = 'CYBER: seat the phone in the unlock-unit CRADLE.';
+      else if (c.unlocked && !c.airplane) t = 'CYBER: AIRPLANE MODE on the handset \u2014 it is signalling and will wipe!';
+      else if (c.unlocked) t = 'CYBER: read his apps, then file the digital report.';
+      else if (c.unitDone) t = 'CYBER: type the PIN from the unit display into the handset.';
+      else if (c.unitRunning) { t = 'CYBER: acquisition running \u2014 work another bench meanwhile.'; wait = true; }
+      else t = 'CYBER: start the acquisition on the unlock unit.';
+      opts.push({ text: t, wait });
+    }
+    if (!r.dna) {
+      if (b.running) opts.push({ text: 'BIOLOGY: sequencer running \u2014 work another bench meanwhile.', wait: true });
+      else if (b.ready) opts.push({ text: 'BIOLOGY: read the 16-marker profile at the DNA bench.' });
+      else opts.push({ text: 'BIOLOGY: prepare the handkerchief sample at the DNA bench.' });
+    }
+    if (!r.micro) opts.push({ text: 'TRACE: prep a slide and compare the guest-chair hair under the scope.' });
+    if (!r.docs) {
+      if (!d.lightsOff) opts.push({ text: 'DOCUMENTS: kill the lights, take the UV wand, sweep the torn note.' });
+      else if (!d.noteRead) opts.push({ text: 'DOCUMENTS: sweep the wand across the whole note.' });
+      else opts.push({ text: 'DOCUMENTS: finish the documents panel and file it.' });
+    }
+    const act = opts.find((o) => !o.wait) || opts[0];
+    if (act) return act;
+    const unsigned = ['digital', 'micro', 'dna', 'docs'].filter((k) => r[k] && !r[k].signed).length;
+    if (unsigned) return { text: 'Sign every page of the folder at the report table (' + unsigned + ' left).' };
+    return { text: 'Report to Capt. Mabaso at her desk.' };
+  }
+  _refreshQuest() {
+    const r = this.reports;
+    const signedAll = ['digital', 'micro', 'dna', 'docs'].every((k) => r[k] && r[k].signed);
+    const rows = [
+      ['Sign in + gloves', this.signedIn && this.gloves],
+      ['CYBER \u2014 the phone', !!r.digital],
+      ['BIOLOGY \u2014 handkerchief DNA', !!r.dna],
+      ['TRACE \u2014 hair vs references', !!r.micro],
+      ['DOCUMENTS \u2014 note, calendar, casing', !!r.docs],
+      ['Sign every page', signedAll],
+    ].map(([t, ok]) => '<div style="' + (ok ? 'color:#1f6f5c' : '') + '">' + (ok ? '&#10003; ' : '&#9744; ') + t + '</div>').join('');
+    const left = SHIFT_END - this._labMinutes();
+    const shift = left <= 0 ? 'SHIFT OVER \u2014 every minute is on your record'
+      : 'Shift ends 17:00 \u00b7 ' + Math.floor(left / 60) + 'h ' + String(Math.floor(left % 60)).padStart(2, '0') + 'm left';
+    this.ui.quest.innerHTML =
+      '<div style="letter-spacing:2px;opacity:.6;margin-bottom:2px">WORK ORDER</div>' + rows +
+      '<div style="margin-top:6px;' + (left < 60 ? 'color:#a1241c;font-weight:bold' : 'opacity:.7') + '">' + shift + '</div>' +
+      '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed #9aa2ad"><b>NEXT:</b> ' + this._nextStep().text + '</div>';
+  }
+
   _toast(title, text, ms = 6000) {
     clearTimeout(this._toastTimer);
     this.ui.toast.innerHTML =
@@ -729,6 +820,7 @@ export class LabLevel {
   }
 
   _interact(it) {
+    this._idleT = 0;
     if (!this.signedIn && it.kind !== 'intake' && it.kind !== 'gloves') {
       if (it.kind === 'captain') { this._toast('NOT YET', 'Sign in first.', 2500); return; }
       this._toast('CHAIN OF CUSTODY', 'Sign the intake sheet before touching anything.', 3500); return;
@@ -1543,8 +1635,10 @@ export class LabLevel {
       memo: this.dossier.memo,
     };
     if (typeof window.__saveRun === 'function') window.__saveRun();
-    this._toast('HANDOFF', 'The captain signs the folder. City — find both names.', 2400);
-    setTimeout(() => { if (typeof window.__switchLevel === 'function') window.__switchLevel(3); }, 2400);
+    let st = {}; try { st = getStats(); } catch (e) {}
+    this._toast('HANDOFF \u2014 FILED ' + this._labClock(),
+      'The captain signs the folder. Contamination: ' + (st.contamination || 0) + ' \u00b7 wipes: ' + (st.wipes || 0) + ' \u00b7 film wasted: ' + (st.wastedFilm || 0) + '. City \u2014 find both names.', 3600);
+    setTimeout(() => { if (typeof window.__switchLevel === 'function') window.__switchLevel(3); }, 3600);
   }
 
   // ================= FRAME =================
@@ -1633,6 +1727,21 @@ export class LabLevel {
 
   update(dt, t, player) {
     this.elapsed += dt;
+    // Intercom beats + a nudge when the player has stalled
+    if (this._uiBusy()) this._idleT = 0;
+    else {
+      this._idleT = (this._idleT || 0) + dt;
+      this._radioDone = this._radioDone || new Set();
+      const lm = this._labMinutes();
+      const rb = RADIO.find((x) => lm >= x.at && !this._radioDone.has(x.at));
+      if (rb) {
+        this._radioDone.add(rb.at); this._idleT = 0; sfx('collect');
+        this._toast('INTERCOM \u2014 CAPT. MABASO', rb.text(Object.keys(this.reports).length), 7000);
+      } else if (this._idleT > 60) {
+        this._idleT = 0;
+        this._toast('NEXT STEP', this._nextStep().text, 6000);
+      }
+    }
     // Unlock-unit acquisition keeps running while you work elsewhere
     const cy = this.cyber;
     if (cy.unitRunning && !cy.unitDone) {
@@ -1723,6 +1832,7 @@ export class LabLevel {
 
   dispose() {
     clearTimeout(this._toastTimer);
+    if (this._briefing) { this._briefing.cancel(); this._briefing = null; }
     window.removeEventListener('keydown', this._onKey);
     window.removeEventListener('mousemove', this._onMouseMove);
     window.removeEventListener('wheel', this._onWheel);

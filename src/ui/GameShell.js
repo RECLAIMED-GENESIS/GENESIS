@@ -1,54 +1,188 @@
 // ============================================================
 // GameShell — main menu, settings, credits, pause, level cards,
 // fade transitions, save slots and the painted story intro.
+//
+// Look: the detective's night. The menu is the victim's office
+// window in the rain, sodium streetlight and a desk lamp, with the
+// title stamped over it. Everything that is "paper" (how to play,
+// settings, credits) is a typed case-file sheet. Everything that is
+// "game state" (pause, level cards) is type on the dark glass.
+//
+// Public API is unchanged, so main.js needs no edits:
+//   showMenu / showPause / showCard / showIntro / showError
+//   hideAll / show / fade / transition / openSettings
+//   saveGame / loadGame / hasSave / clearSave / refreshMenu
 // All overlays live at z-index 20000+, above every level UI.
-// Styling: noir / Courier, amber + cyan on near-black.
+// The `.gs-screen` / `.on` classes are read by main.js; keep them.
 // ============================================================
 
 const SAVE_KEY = 'genesis.save.v1';
 const SETTINGS_KEY = 'genesis.settings.v1';
 
 export const LEVEL_CARDS = {
-  1: { title: 'LEVEL 1', sub: "THE VICTIM'S OFFICE", line: 'Dr. Nkosi is dead. The room remembers everything.' },
-  2: { title: 'LEVEL 2', sub: 'THE FORENSIC LAB', line: 'Eight objects. Two names. The lab cannot say which is which.' },
-  3: { title: 'LEVEL 3', sub: 'THE CITY', line: 'Two names walked out of that room. Find them both.' },
+  1: { title: 'Level 1', sub: "The victim's office", line: 'Dr. Nkosi is dead. The room remembers everything.' },
+  2: { title: 'Level 2', sub: 'The forensic lab', line: 'Eight objects. Two names. The lab cannot say which is which.' },
+  3: { title: 'Level 3', sub: 'The city', line: 'Two names walked out of that room. Find them both.' },
 };
+
+const LEVEL_NAMES = {
+  1: "The victim's office",
+  2: 'The forensic lab',
+  3: 'The city',
+  depot: 'The depot stakeout',
+};
+
+const FONT_HREF = 'https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800;900&family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap';
 
 const CSS = `
 #gs-veil{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .45s ease;z-index:20000}
 #gs-veil.on{opacity:1;pointer-events:auto}
-.gs-screen{position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:20001;
-  font-family:"Courier New",monospace;color:#e9d9b0;background:linear-gradient(rgba(2,3,6,.84),rgba(2,3,6,.9)),url('assets/textures/scenary.jpg') center/cover no-repeat}
+
+.gs-screen{
+  --night:#07111a; --paper:#eadfc4; --paper2:#d6c8a4; --ink:#1e1b16;
+  --sodium:#e8a33d; --stamp:#c2362b; --mist:#9fb4bf;
+  --disp:"Big Shoulders Display","Arial Narrow","Franklin Gothic Condensed",Impact,sans-serif;
+  --type:"Courier Prime","Courier New",monospace;
+  position:fixed;inset:0;display:none;z-index:20001;
+  font-family:var(--type);color:var(--paper);background:var(--night);
+}
 .gs-screen.on{display:flex}
-.gs-card{max-width:min(680px,93vw);max-height:92vh;overflow:auto;text-align:center;
-  background:rgba(6,8,13,.96);border:1px solid #3c4656;padding:34px 42px;box-shadow:0 0 60px rgba(0,0,0,.8)}
-.gs-title{font-size:52px;letter-spacing:10px;color:#f2b84b;margin:0;text-shadow:0 0 26px rgba(242,184,75,.35)}
-.gs-sub{letter-spacing:5px;font-size:13px;color:#7fd4ff;margin:8px 0 26px}
-.gs-btn{display:block;width:300px;margin:9px auto;padding:13px 18px;font:inherit;font-size:16px;letter-spacing:2px;
-  cursor:pointer;border:1px solid #334052;background:#141a24;color:#e9d9b0;transition:all .15s}
-.gs-btn:hover:not(:disabled){border-color:#f2b84b;color:#f2b84b;background:#1c222e}
-.gs-btn.primary{background:#a1241c;border-color:#a1241c;color:#fff}
-.gs-btn.primary:hover:not(:disabled){background:#c22e23;color:#fff;border-color:#c22e23}
-.gs-btn:disabled{opacity:.35;cursor:default}
-.gs-btn.small{width:220px;font-size:13px;padding:9px 12px}
-.gs-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:12px auto;max-width:340px;font-size:14px}
-.gs-row input[type=range]{flex:1;accent-color:#f2b84b}
-.gs-row input[type=checkbox]{transform:scale(1.4);accent-color:#a1241c}
-.gs-body{font-size:14px;line-height:1.8;text-align:left;opacity:.92}
-.gs-body b{color:#f2b84b}
-.gs-foot{margin-top:18px;font-size:12px;opacity:.55}
-#gs-card-title{font-size:40px;letter-spacing:8px;color:#f2b84b;margin:0}
-#gs-card-sub{letter-spacing:6px;color:#7fd4ff;font-size:16px;margin:10px 0}
-#gs-card-line{font-style:italic;opacity:.75;font-size:14px}
-/* intro */
-#gs-intro .gs-card{max-width:min(1020px,95vw);padding:22px}
-#gs-canvas{width:min(900px,88vw);aspect-ratio:16/9;background:#05070c;border:1px solid #2c3440;display:block;overflow:hidden}
-#gs-canvas canvas{width:100%;height:100%;display:block;animation:kenburns 7s ease-out forwards}
-@keyframes kenburns{from{transform:scale(1)}to{transform:scale(1.09)}}
-#gs-caption{min-height:52px;margin:14px auto 4px;font-size:17px;line-height:1.6;max-width:820px}
-#gs-dots{margin:8px 0 4px;letter-spacing:6px;font-size:12px;color:#7fd4ff}
-#gs-dots .dim{opacity:.3}
-.gs-introbar{display:flex;gap:12px;justify-content:center;margin-top:10px}
+.gs-screen button{font:inherit;color:inherit;cursor:pointer}
+.gs-screen :focus-visible{outline:2px solid var(--sodium);outline-offset:3px}
+
+/* ---------- shared: rows (menu + pause) ---------- */
+.gm-nav{display:flex;flex-direction:column;width:min(430px,100%);margin-top:30px}
+.gm-row{position:relative;display:block;width:100%;text-align:left;background:none;border:0;
+  border-top:1px solid rgba(234,223,196,.16);padding:13px 8px 13px 26px;transition:transform .18s ease}
+.gm-row:last-child{border-bottom:1px solid rgba(234,223,196,.16)}
+.gm-row::before{content:"";position:absolute;left:0;top:11px;bottom:11px;width:4px;background:var(--stamp);
+  transform:scaleY(0);transform-origin:top;transition:transform .2s ease}
+.gm-row:hover:not(:disabled),.gm-row:focus-visible{transform:translateX(6px)}
+.gm-row:hover:not(:disabled)::before,.gm-row:focus-visible::before{transform:scaleY(1)}
+.gm-row:hover:not(:disabled) .gm-n,.gm-row:focus-visible .gm-n{color:var(--sodium)}
+.gm-row:focus-visible{outline-offset:-2px}
+.gm-n{display:block;font-family:var(--disp);font-weight:800;font-size:30px;line-height:1.05;letter-spacing:.03em;text-transform:uppercase}
+.gm-row.primary .gm-n{font-size:42px}
+.gm-s{display:block;font-size:13px;line-height:1.4;color:var(--mist);margin-top:3px}
+.gm-row:disabled{opacity:.42;cursor:default}
+
+/* ---------- menu ---------- */
+.gs-screen[data-screen="menu"]{align-items:stretch;justify-content:flex-start;overflow:hidden}
+.gm-canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.gm-shade{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(90deg,rgba(3,7,11,.86) 0%,rgba(3,7,11,.6) 36%,rgba(3,7,11,0) 72%)}
+.gm-vig{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse at 40% 55%,rgba(0,0,0,0) 45%,rgba(0,0,0,.7) 100%)}
+.gm-grain{position:absolute;inset:0;pointer-events:none;opacity:.09;mix-blend-mode:overlay}
+.gm-col{position:relative;z-index:3;display:flex;flex-direction:column;justify-content:center;
+  width:100%;padding:0 clamp(24px,8vw,128px);overflow:auto}
+.gm-title{position:relative;margin:0;font-family:var(--disp);font-weight:900;text-transform:uppercase;
+  font-size:clamp(76px,15vw,216px);line-height:.84;letter-spacing:.005em;width:max-content;max-width:100%}
+.gm-word{display:block;background:linear-gradient(180deg,#f6eed9 8%,#c9ba94 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 26px rgba(232,163,61,.22))}
+.gm-stamp{position:absolute;right:-3%;bottom:4%;font-family:var(--type);font-weight:700;
+  font-size:clamp(15px,2vw,26px);letter-spacing:.14em;text-transform:uppercase;line-height:1;
+  color:var(--stamp);border:3px solid var(--stamp);padding:.22em .55em;transform:rotate(-7deg);opacity:.92;
+  -webkit-mask-image:radial-gradient(circle at 18% 30%,#000 55%,rgba(0,0,0,.7) 100%)}
+.gm-lede{max-width:34ch;margin:26px 0 0;font-size:17px;line-height:1.55;color:#d8ccb0}
+.gm-slogan{margin:14px 0 0;font-family:var(--type);font-weight:700;font-size:14px;letter-spacing:.28em;text-transform:uppercase;color:var(--sodium)}
+.gm-hint{margin:26px 0 0;font-size:13px;line-height:1.5;color:var(--mist);max-width:44ch}
+
+.gs-screen[data-screen="menu"].on .gm-word{animation:gm-wipe .95s cubic-bezier(.2,.7,.2,1) both}
+.gs-screen[data-screen="menu"].on .gm-stamp{animation:gm-slam .32s .95s cubic-bezier(.3,1.7,.5,1) both}
+.gs-screen[data-screen="menu"].on .gm-rest{animation:gm-fade .8s 1.15s ease both}
+@keyframes gm-wipe{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+@keyframes gm-slam{from{opacity:0;transform:rotate(-7deg) scale(1.7)}to{opacity:.92;transform:rotate(-7deg) scale(1)}}
+@keyframes gm-fade{from{opacity:0}to{opacity:1}}
+
+/* ---------- paper sheets (how to play, settings, credits) ---------- */
+.gs-screen[data-screen="howto"],.gs-screen[data-screen="settings"],.gs-screen[data-screen="credits"]{
+  align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 50% 40%,#10202c 0%,#050b11 75%)}
+.gs-sheet{position:relative;width:min(760px,92vw);max-height:90vh;overflow:auto;
+  background-color:var(--paper);
+  background-image:repeating-linear-gradient(0deg,transparent 0 27px,rgba(30,27,22,.075) 27px 28px);
+  color:var(--ink);padding:40px 48px 40px 78px;box-shadow:0 34px 90px rgba(0,0,0,.7);
+  transform:rotate(-.35deg);font-size:15px;line-height:28px}
+.gs-sheet::before{content:"";position:absolute;left:46px;top:0;bottom:0;width:2px;background:rgba(194,54,43,.4)}
+.gs-sheet p{margin:0 0 28px}
+.gs-h{margin:0 0 28px;font-family:var(--disp);font-weight:900;font-size:46px;line-height:56px;
+  text-transform:uppercase;letter-spacing:.01em}
+.gs-sheet b{font-weight:700}
+.gs-keys{display:grid;grid-template-columns:150px 1fr;margin:0 0 28px}
+.gs-keys dt{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.gs-keys dd{margin:0}
+.gs-sheet kbd{font:700 12px/18px var(--type);padding:0 7px;border:1px solid var(--ink);border-bottom-width:3px;
+  border-radius:3px;background:var(--paper2)}
+.gs-pill{display:inline-block;padding:9px 22px;line-height:1.2;background:transparent;border:1px solid currentColor;
+  letter-spacing:.04em;transition:background .15s,color .15s}
+.gs-sheet .gs-pill{border:2px solid var(--ink);color:var(--ink);font-weight:700}
+.gs-sheet .gs-pill:hover{background:var(--ink);color:var(--paper)}
+.gs-set{display:grid;grid-template-columns:150px 1fr 44px;align-items:center;column-gap:16px;margin:0 0 28px;min-height:28px}
+.gs-set output{text-align:right;font-weight:700}
+.gs-sheet input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:28px;background:transparent;margin:0}
+.gs-sheet input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--ink)}
+.gs-sheet input[type=range]::-moz-range-track{height:2px;background:var(--ink)}
+.gs-sheet input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:24px;margin-top:-11px;background:var(--stamp);border:0;border-radius:0}
+.gs-sheet input[type=range]::-moz-range-thumb{width:14px;height:24px;background:var(--stamp);border:0;border-radius:0}
+.gs-sheet input[type=checkbox]{-webkit-appearance:none;appearance:none;width:26px;height:26px;margin:0;border:2px solid var(--ink);background:transparent;position:relative;cursor:pointer}
+.gs-sheet input[type=checkbox]:checked::after{content:"";position:absolute;inset:3px;background:var(--stamp)}
+.gs-sheet :focus-visible{outline-color:var(--stamp)}
+.gs-cr h3{margin:0;font-weight:700;font-size:15px}
+.gs-faint{opacity:.72}
+
+/* ---------- pause ---------- */
+.gs-screen[data-screen="pause"]{align-items:center;justify-content:flex-start;
+  background:rgba(4,10,15,.8);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.gp-col{padding:0 clamp(24px,8vw,128px)}
+.gp-title{margin:0;font-family:var(--disp);font-weight:900;text-transform:uppercase;font-size:clamp(64px,9vw,124px);line-height:.88}
+.gp-sub{margin:10px 0 0;color:var(--mist);font-size:15px}
+
+/* ---------- level card ---------- */
+.gs-screen[data-screen="card"]{align-items:center;justify-content:flex-start;background:#02060a;padding-left:clamp(24px,10vw,170px)}
+#gs-card-title{margin:0 0 6px;font-size:18px;letter-spacing:.06em;color:var(--sodium)}
+#gs-card-sub{margin:0;font-family:var(--disp);font-weight:900;text-transform:uppercase;
+  font-size:clamp(56px,10.5vw,160px);line-height:.88}
+.gc-rule{height:3px;width:min(220px,40vw);background:var(--stamp);margin:22px 0 18px;transform-origin:left}
+#gs-card-line{margin:0;font-style:italic;font-size:17px;color:var(--mist);max-width:46ch;line-height:1.55}
+.gs-screen[data-screen="card"].on #gs-card-sub{animation:gm-wipe .8s cubic-bezier(.2,.7,.2,1) both}
+.gs-screen[data-screen="card"].on .gc-rule{animation:gc-rule .6s .5s ease both}
+.gs-screen[data-screen="card"].on #gs-card-line{animation:gm-fade .7s .8s ease both}
+@keyframes gc-rule{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+
+/* ---------- intro ---------- */
+.gs-screen[data-screen="intro"]{flex-direction:column;align-items:center;justify-content:center;background:#010305}
+.gi-wrap{width:min(960px,92vw)}
+#gs-canvas{width:100%;aspect-ratio:16/9;background:#05070c;overflow:hidden;position:relative;
+  box-shadow:0 0 0 1px rgba(234,223,196,.12),0 30px 80px rgba(0,0,0,.8)}
+#gs-canvas canvas{width:100%;height:100%;display:block;animation:kenburns 8s ease-out forwards}
+#gs-canvas::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse at 50% 50%,transparent 55%,rgba(0,0,0,.55) 100%)}
+@keyframes kenburns{from{transform:scale(1)}to{transform:scale(1.08)}}
+#gs-canvas #gs-fx{position:absolute;inset:0;animation:none;pointer-events:none;z-index:2}
+#gs-canvas::before{content:"";position:absolute;left:0;right:0;top:0;height:7%;background:#000;z-index:3}
+#gs-slug{position:absolute;left:4%;bottom:10%;z-index:4;font-size:13px;letter-spacing:.28em;color:var(--sodium);
+  text-shadow:0 0 8px #000;opacity:0;animation:gm-fade .8s .4s ease forwards}
+#gs-hint{margin:10px 0 0;font-size:11px;letter-spacing:.12em;opacity:.45}
+#gs-caption{min-height:3.3em;margin:20px 0 14px;font-size:19px;line-height:1.6;max-width:62ch}
+.gi-bar{display:flex;align-items:center;justify-content:space-between;gap:16px}
+#gs-dots{display:flex;gap:6px}
+#gs-dots i{display:block;width:34px;height:3px;background:rgba(234,223,196,.22)}
+#gs-dots i.on{background:var(--sodium)}
+.gi-btns{display:flex;gap:12px}
+.gs-pill.solid{background:var(--sodium);border-color:var(--sodium);color:var(--ink);font-weight:700}
+.gs-pill.solid:hover{background:#f4b955;border-color:#f4b955}
+.gs-pill.quiet:hover{background:rgba(234,223,196,.1)}
+
+@media (max-width:640px){
+  .gs-sheet{padding:28px 22px 28px 52px}.gs-sheet::before{left:30px}
+  .gs-keys,.gs-set{grid-template-columns:1fr}.gs-set output{text-align:left}
+  .gm-n{font-size:26px}.gm-row.primary .gm-n{font-size:34px}
+}
+@media (prefers-reduced-motion:reduce){
+  .gs-screen *,.gs-screen *::before,.gs-screen *::after{animation:none!important;transition:none!important}
+}
 `;
 
 function el(html) {
@@ -57,14 +191,261 @@ function el(html) {
   return d.firstChild;
 }
 
+// ============================================================
+// RainScene — the menu backdrop: a night skyline seen through a
+// rain-streaked window, with a desk lamp guttering in the corner.
+// Static layers are drawn once; only bokeh, rain and glow animate.
+// Runs only while the menu is on screen.
+// ============================================================
+function mulberry(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+class RainScene {
+  constructor(canvas) {
+    this.cv = canvas;
+    this.g = canvas.getContext ? canvas.getContext('2d') : null;
+    this.running = false;
+    this.raf = 0;
+    this.t = 0;
+    this.last = 0;
+    this.reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    this._onResize = () => this._layout();
+    window.addEventListener('resize', this._onResize);
+    this._layout();
+  }
+
+  _layout() {
+    if (!this.g) return;
+    const w = this.w = Math.max(320, window.innerWidth);
+    const h = this.h = Math.max(240, window.innerHeight);
+    const s = this.s = Math.min(window.devicePixelRatio || 1, 1.25);
+    this.cv.width = Math.floor(w * s);
+    this.cv.height = Math.floor(h * s);
+    this.layers = this._buildLayers(w, h, s);
+    this._seed(w, h);
+    if (!this.running && this.reduce && this.shown) this._draw(2, 0);
+  }
+
+  _buildLayers(w, h, s) {
+    const rng = mulberry(20241016);
+    const mk = () => {
+      const c = document.createElement('canvas');
+      c.width = Math.floor(w * s); c.height = Math.floor(h * s);
+      const g = c.getContext('2d');
+      g.setTransform(s, 0, 0, s, 0, 0);
+      return [c, g];
+    };
+
+    // --- far world: sky, sodium haze, three skyline layers ---
+    const [bg, b] = mk();
+    const sky = b.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, '#04090f'); sky.addColorStop(0.5, '#0a1a26');
+    sky.addColorStop(0.82, '#1a2a30'); sky.addColorStop(1, '#2a2418');
+    b.fillStyle = sky; b.fillRect(0, 0, w, h);
+    const haze = b.createRadialGradient(w * 0.4, h * 0.8, 10, w * 0.4, h * 0.8, w * 0.55);
+    haze.addColorStop(0, 'rgba(232,163,61,.18)'); haze.addColorStop(1, 'rgba(232,163,61,0)');
+    b.fillStyle = haze; b.fillRect(0, 0, w, h);
+    const rows = [
+      { base: h * 0.74, lo: h * 0.10, hi: h * 0.24, fill: '#0c1b26', win: 'rgba(160,195,210,.55)', lit: 2, cell: [13, 17] },
+      { base: h * 0.82, lo: h * 0.12, hi: h * 0.30, fill: '#08141d', win: 'rgba(232,170,80,.75)', lit: 3, cell: [15, 20] },
+      { base: h * 0.92, lo: h * 0.10, hi: h * 0.26, fill: '#050c13', win: 'rgba(232,170,80,.85)', lit: 2, cell: [18, 24] },
+    ];
+    for (const L of rows) {
+      let x = -30;
+      while (x < w + 30) {
+        const bw = 56 + rng() * 110;
+        const bh = L.lo + rng() * (L.hi - L.lo);
+        b.fillStyle = L.fill; b.fillRect(x, L.base - bh, bw, h);
+        const cols = Math.max(1, Math.floor((bw - 10) / L.cell[0]));
+        const rws = Math.max(1, Math.floor((bh - 14) / L.cell[1]));
+        for (let r = 0; r < rws; r++) {
+          for (let c = 0; c < cols; c++) {
+            if (rng() * 10 < L.lit) {
+              b.fillStyle = L.win;
+              b.fillRect(x + 6 + c * L.cell[0], L.base - bh + 8 + r * L.cell[1], L.cell[0] - 6, L.cell[1] - 8);
+            }
+          }
+        }
+        x += bw + 4 + rng() * 10;
+      }
+    }
+    const mist = b.createLinearGradient(0, h * 0.7, 0, h);
+    mist.addColorStop(0, 'rgba(120,150,165,0)'); mist.addColorStop(1, 'rgba(120,150,165,.10)');
+    b.fillStyle = mist; b.fillRect(0, h * 0.7, w, h * 0.3);
+
+    // --- window frame in front of the glass ---
+    const [fg, f] = mk();
+    const edge = '#030609';
+    f.fillStyle = edge;
+    f.fillRect(0, 0, w * 0.035, h); f.fillRect(w * 0.965, 0, w * 0.035, h);
+    f.fillRect(0, 0, w, h * 0.05); f.fillRect(0, h * 0.9, w, h * 0.1);
+    f.fillRect(w * 0.66 - 7, 0, 14, h * 0.9);            // mullion
+    f.fillRect(w * 0.66, h * 0.42 - 6, w * 0.34, 12);     // transom (right pane only)
+    f.fillStyle = 'rgba(170,200,215,.10)';
+    f.fillRect(w * 0.66 - 7, 0, 2, h * 0.9); f.fillRect(w * 0.66, h * 0.42 - 6, w * 0.34, 2);
+    f.fillRect(0, h * 0.9, w, 2);
+
+    // --- bokeh sprites ---
+    const sprite = (rgb) => {
+      const c = document.createElement('canvas'); c.width = c.height = 128;
+      const g = c.getContext('2d');
+      const gr = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+      gr.addColorStop(0, `rgba(${rgb},.85)`); gr.addColorStop(0.7, `rgba(${rgb},.5)`);
+      gr.addColorStop(0.92, `rgba(${rgb},.75)`); gr.addColorStop(1, `rgba(${rgb},0)`);
+      g.fillStyle = gr; g.beginPath(); g.arc(64, 64, 62, 0, 7); g.fill();
+      return c;
+    };
+    return { bg, fg, sprites: [sprite('232,163,61'), sprite('110,175,195'), sprite('240,225,190')] };
+  }
+
+  _seed(w, h) {
+    const rng = mulberry(77);
+    this.bokeh = Array.from({ length: 16 }, () => ({
+      x: w * (0.25 + rng() * 0.8), y: h * (0.5 + rng() * 0.38), r: 18 + rng() * 52,
+      sp: (rng() < 0.5 ? -1 : 1) * (2 + rng() * 6), ph: rng() * 6.28, a: 0.05 + rng() * 0.1,
+      k: Math.floor(rng() * 3),
+    }));
+    this.streaks = Array.from({ length: Math.round(w / 12) }, () => ({
+      x: rng() * w, y: rng() * h, l: 12 + rng() * 18, v: 700 + rng() * 500,
+    }));
+    this.drops = Array.from({ length: Math.round((w * h) / 26000) }, () => ({
+      x: rng() * w, y: rng() * h, r: 2 + rng() * 4.5, vy: 15 + rng() * 120,
+      wait: rng() * 2, tl: 30 + rng() * 70, trail: 0,
+    }));
+  }
+
+  _draw(t, dt) {
+    const g = this.g, w = this.w, h = this.h, s = this.s;
+    g.setTransform(s, 0, 0, s, 0, 0);
+    g.globalCompositeOperation = 'source-over';
+    g.globalAlpha = 1;
+    g.drawImage(this.layers.bg, 0, 0, w, h);
+
+    for (const b of this.bokeh) {
+      b.x += b.sp * dt;
+      if (b.x < -b.r) b.x = w + b.r;
+      if (b.x > w + b.r) b.x = -b.r;
+      g.globalAlpha = b.a * (0.75 + 0.25 * Math.sin(t * 0.6 + b.ph));
+      g.drawImage(this.layers.sprites[b.k], b.x - b.r, b.y - b.r, b.r * 2, b.r * 2);
+    }
+    g.globalAlpha = 1;
+
+    // falling rain outside the glass
+    g.strokeStyle = 'rgba(170,200,220,.16)';
+    g.lineWidth = 1;
+    g.beginPath();
+    for (const r of this.streaks) {
+      r.y += r.v * dt; r.x -= r.v * 0.16 * dt;
+      if (r.y > h + 30 || r.x < -30) { r.y = -30 - Math.random() * h * 0.2; r.x = Math.random() * (w + 200); }
+      g.moveTo(r.x, r.y); g.lineTo(r.x + r.l * 0.16, r.y - r.l);
+    }
+    g.stroke();
+
+    // drops that cling to the glass, stop, then run
+    for (const d of this.drops) {
+      if (d.wait > 0) {
+        d.wait -= dt;
+      } else {
+        d.y += d.vy * dt;
+        d.trail = Math.min(d.tl, d.trail + d.vy * dt);
+        if (Math.random() < dt * 0.9) { d.wait = 0.3 + Math.random() * 2.2; d.vy = 15 + Math.random() * 120; }
+        if (d.y > h + 30) { d.y = -20; d.x = Math.random() * w; d.trail = 0; d.wait = Math.random() * 3; }
+      }
+      if (d.trail > 1) {
+        g.strokeStyle = 'rgba(200,225,238,.07)'; g.lineWidth = d.r * 0.55;
+        g.beginPath(); g.moveTo(d.x, d.y - d.trail); g.lineTo(d.x, d.y); g.stroke();
+      }
+      g.fillStyle = 'rgba(190,215,230,.09)'; g.strokeStyle = 'rgba(215,235,245,.32)'; g.lineWidth = 1;
+      g.beginPath(); g.ellipse(d.x, d.y, d.r * 0.8, d.r * 1.15, 0, 0, 7); g.fill(); g.stroke();
+      g.fillStyle = 'rgba(255,255,255,.45)';
+      g.beginPath(); g.arc(d.x - d.r * 0.25, d.y - d.r * 0.35, d.r * 0.2, 0, 7); g.fill();
+    }
+
+    g.drawImage(this.layers.fg, 0, 0, w, h);
+
+    // desk lamp in the corner, with the odd gutter
+    const dip = (Math.sin(t * 0.9) * Math.sin(t * 2.3) > 0.93) ? 0.05 : 0;
+    const flick = 0.15 + 0.02 * Math.sin(t * 3.1) + 0.012 * Math.sin(t * 7.7) - dip;
+    g.globalCompositeOperation = 'lighter';
+    const lg = g.createRadialGradient(w * 0.1, h * 1.02, 10, w * 0.1, h * 1.02, h * 0.95);
+    lg.addColorStop(0, `rgba(232,163,61,${(flick * 1.6).toFixed(3)})`);
+    lg.addColorStop(1, 'rgba(232,163,61,0)');
+    g.fillStyle = lg; g.fillRect(0, 0, w, h);
+    g.globalCompositeOperation = 'source-over';
+
+    // fade up from black on arrival
+    if (t < 1.4) { g.fillStyle = `rgba(0,0,0,${(1 - t / 1.4).toFixed(3)})`; g.fillRect(0, 0, w, h); }
+  }
+
+  start() {
+    this.shown = true;
+    if (!this.g || this.running) return;
+    if (this.reduce) { this._draw(2, 0); return; }
+    this.running = true;
+    this.t = 0;
+    this.last = performance.now();
+    const loop = (now) => {
+      if (!this.running) return;
+      const dt = Math.min(0.05, (now - this.last) / 1000);
+      this.last = now;
+      this.t += dt;
+      this._draw(this.t, dt);
+      this.raf = requestAnimationFrame(loop);
+    };
+    this.raf = requestAnimationFrame(loop);
+  }
+
+  stop() {
+    this.shown = false;
+    this.running = false;
+    cancelAnimationFrame(this.raf);
+  }
+
+  dispose() {
+    this.stop();
+    window.removeEventListener('resize', this._onResize);
+  }
+}
+
+function grainURL() {
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    if (!g) return '';
+    const img = g.createImageData(128, 128);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = Math.random() * 255;
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+    g.putImageData(img, 0, 0);
+    return c.toDataURL('image/png');
+  } catch (e) { return ''; }
+}
+
 export class GameShell {
   constructor(opts = {}) {
     this.cb = opts;                       // onNewGame, onContinue, onResume, onRestartLevel, onQuitToMenu
     this.audio = opts.audio || null;
     this.settings = this._loadSettings();
     this._applySettings();
-    this._pauseFrom = null;               // 'pause' | 'settings-return'
+    this._pauseFrom = null;               // 'pause' | 'menu'
+    this.scene = null;
 
+    if (!document.getElementById('gs-fonts')) {
+      const l = document.createElement('link');
+      l.id = 'gs-fonts'; l.rel = 'stylesheet'; l.href = FONT_HREF;
+      document.head.appendChild(l);
+    }
     const st = document.createElement('style');
     st.textContent = CSS;
     document.head.appendChild(st);
@@ -89,6 +470,26 @@ export class GameShell {
       if (!e.target.closest('.gs-btn')) return;
       try { if (this.audio) this.audio.playSfx('button_click'); } catch (err) {}
     });
+
+    // Arrow keys move between rows; Esc backs out of the paper sheets.
+    this._onKey = (e) => {
+      const on = document.querySelector('.gs-screen.on');
+      if (!on) return;
+      const name = on.dataset.screen;
+      if (e.code === 'ArrowDown' || e.code === 'ArrowUp') {
+        const rows = [...on.querySelectorAll('.gm-row:not(:disabled)')];
+        if (!rows.length) return;
+        let i = rows.indexOf(document.activeElement);
+        i = e.code === 'ArrowDown' ? (i + 1) % rows.length : (i <= 0 ? rows.length - 1 : i - 1);
+        rows[i].focus();
+        e.preventDefault();
+      } else if (e.code === 'Escape') {
+        if (name === 'howto' || name === 'credits' || (name === 'settings' && this._pauseFrom !== 'pause')) {
+          this.show('menu');
+        }
+      }
+    };
+    document.addEventListener('keydown', this._onKey);
   }
 
   // ================= settings + saves =================
@@ -104,7 +505,7 @@ export class GameShell {
     this.audio.setMusicVolume(this.settings.music);
     this.audio.setSfxVolume(this.settings.sfx);
     this.audio.setMuted(this.settings.muted);
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings)); } catch (e) {}
   }
   saveGame(data) {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...data, ts: Date.now() })); } catch (e) {}
@@ -119,16 +520,23 @@ export class GameShell {
   // ================= screen plumbing =================
   _addScreen(name, node) {
     node.classList.add('gs-screen');
+    node.dataset.screen = name;
     this.root.appendChild(node);
     this.screens[name] = node;
   }
   show(name) {
     for (const k of Object.keys(this.screens)) this.screens[k].classList.remove('on');
     if (this.screens[name]) this.screens[name].classList.add('on');
+    if (this.scene) { if (name === 'menu') this.scene.start(); else this.scene.stop(); }
     this._syncHudPause();
+    if (name === 'menu' || name === 'pause') {
+      const first = this.screens[name] && this.screens[name].querySelector('.gm-row:not(:disabled)');
+      if (first) setTimeout(() => { try { first.focus({ preventScroll: true }); } catch (e) {} }, 0);
+    }
   }
   hideAll() {
     for (const k of Object.keys(this.screens)) this.screens[k].classList.remove('on');
+    if (this.scene) this.scene.stop();
     this._syncHudPause();
   }
   _syncHudPause() {
@@ -158,7 +566,7 @@ export class GameShell {
       this.showCard(cardN);
       await new Promise((r) => setTimeout(r, 500));
       await this.fade(false);
-      await new Promise((r) => setTimeout(r, 1400));
+      await new Promise((r) => setTimeout(r, 1800));
       this.hideAll();
     } else {
       await this.fade(false);
@@ -170,12 +578,12 @@ export class GameShell {
     if (!s) {
       s = document.createElement('div');
       s.id = 'gs-error';
-      s.style.cssText = 'position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:20002;font-family:"Courier New",monospace;background:rgba(2,3,6,.92)';
-      s.innerHTML = '<div style="max-width:min(720px,92vw);background:#16090a;border:1px solid #a1241c;padding:28px 32px;color:#e9d9b0">' +
-        '<div style="letter-spacing:4px;color:#ff7a6a;margin-bottom:10px">LEVEL FAILED TO LOAD</div>' +
-        '<div style="font-size:13px;opacity:.8;margin-bottom:10px">Screenshot this and send it to the developer. Press R or reload to retry.</div>' +
-        '<pre id="gs-error-text" style="font-size:11px;line-height:1.5;max-height:40vh;overflow:auto;background:#000;padding:12px;white-space:pre-wrap"></pre>' +
-        '<button id="gs-error-back" style="font:inherit;margin-top:14px;padding:10px 22px;background:#1a2028;color:#e9d9b0;border:1px solid #3c4656;cursor:pointer">Back to menu</button></div>';
+      s.style.cssText = 'position:fixed;inset:0;display:none;align-items:center;justify-content:center;z-index:20002;font-family:"Courier Prime","Courier New",monospace;background:rgba(2,6,10,.94)';
+      s.innerHTML = '<div style="max-width:min(720px,92vw);background:#eadfc4;color:#1e1b16;padding:30px 36px;box-shadow:0 30px 80px rgba(0,0,0,.7);border-top:6px solid #c2362b">' +
+        '<div style="font-family:\'Big Shoulders Display\',Impact,sans-serif;font-weight:900;font-size:38px;text-transform:uppercase;line-height:1;margin-bottom:10px">The level failed to load</div>' +
+        '<div style="font-size:14px;line-height:1.5;margin-bottom:12px">Take a screenshot of this and send it to the developer. Press R or reload the page to try again.</div>' +
+        '<pre id="gs-error-text" style="font-size:11px;line-height:1.5;max-height:40vh;overflow:auto;background:#1e1b16;color:#eadfc4;padding:12px;white-space:pre-wrap"></pre>' +
+        '<button id="gs-error-back" style="font:inherit;font-weight:700;margin-top:14px;padding:9px 22px;background:transparent;color:#1e1b16;border:2px solid #1e1b16;cursor:pointer">Back to menu</button></div>';
       document.body.appendChild(s);
       s.querySelector('#gs-error-back').addEventListener('click', () => {
         s.style.display = 'none';
@@ -196,56 +604,84 @@ export class GameShell {
   // ================= menu =================
   _buildMenu() {
     const n = el(`<div>
-      <div class="gs-card">
-        <p class="gs-title">GENESIS</p>
-        <p class="gs-sub">· A MURDER MYSTERY ·</p>
-        <p style="font-style:italic;opacity:.7;font-size:14px;margin:0 0 22px">Dr. Nkosi is dead. Three levels. Five liars. One truth.</p>
-        <button class="gs-btn primary" id="gs-new">▶&nbsp; NEW GAME</button>
-        <button class="gs-btn" id="gs-continue">↻&nbsp; CONTINUE</button>
-        <button class="gs-btn" id="gs-how">HOW TO PLAY</button>
-        <button class="gs-btn" id="gs-settings">SETTINGS</button>
-        <button class="gs-btn" id="gs-credits">CREDITS</button>
-        <p class="gs-foot">WASD + mouse · E examine · F torch · C case file · P pause</p>
+      <canvas class="gm-canvas" aria-hidden="true"></canvas>
+      <div class="gm-shade"></div><div class="gm-vig"></div><div class="gm-grain"></div>
+      <div class="gm-col">
+        <h1 class="gm-title"><span class="gm-word">Genesis</span><span class="gm-stamp">Unsolved</span></h1>
+        <div class="gm-rest">
+          <p class="gm-slogan">Read the Room. Close the Case.</p>
+          <p class="gm-lede">Dr. Thabo Nkosi was shot in his own office. Five people had a reason to want him quiet.</p>
+          <nav class="gm-nav">
+            <button class="gs-btn gm-row primary" id="gs-new"><span class="gm-n">Open the case</span></button>
+            <button class="gs-btn gm-row" id="gs-continue"><span class="gm-n">Continue</span><span class="gm-s">No saved case yet</span></button>
+            <button class="gs-btn gm-row" id="gs-how"><span class="gm-n">How to play</span></button>
+            <button class="gs-btn gm-row" id="gs-settings"><span class="gm-n">Settings</span></button>
+            <button class="gs-btn gm-row" id="gs-credits"><span class="gm-n">Credits</span></button>
+          </nav>
+          <p class="gm-hint">Walk with W A S D, look with the mouse, and press E to use whatever you are looking at.</p>
+        </div>
       </div></div>`);
     n.querySelector('#gs-new').addEventListener('click', () => this.cb.onNewGame && this.cb.onNewGame());
     n.querySelector('#gs-continue').addEventListener('click', () => this.cb.onContinue && this.cb.onContinue());
     n.querySelector('#gs-how').addEventListener('click', () => this.show('howto'));
-    n.querySelector('#gs-settings').addEventListener('click', () => { this._pauseFrom = 'menu'; this.show('settings'); });
+    n.querySelector('#gs-settings').addEventListener('click', () => this.openSettings('menu'));
     n.querySelector('#gs-credits').addEventListener('click', () => this.show('credits'));
+    const url = grainURL();
+    if (url) n.querySelector('.gm-grain').style.backgroundImage = `url(${url})`;
     this._addScreen('menu', n);
+    try { this.scene = new RainScene(n.querySelector('.gm-canvas')); } catch (e) { this.scene = null; }
+  }
+  _saveSummary(s) {
+    const name = LEVEL_NAMES[s.level] || `Level ${s.level}`;
+    let when = '';
+    if (s.ts) {
+      try { when = new Date(s.ts).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) {}
+    }
+    return when ? `${name}, saved ${when}` : name;
   }
   refreshMenu() {
     const b = this.screens.menu && this.screens.menu.querySelector('#gs-continue');
     if (!b) return;
     const s = this.loadGame();
     b.disabled = !s;
-    b.innerHTML = s ? `↻&nbsp; CONTINUE — LEVEL ${s.level}` : '↻&nbsp; CONTINUE';
+    b.querySelector('.gm-s').textContent = s ? this._saveSummary(s) : 'No saved case yet';
   }
   showMenu() { this.refreshMenu(); this.show('menu'); }
 
+  // ================= paper sheets =================
   _buildHowto() {
     const n = el(`<div>
-      <div class="gs-card"><p class="gs-title" style="font-size:34px">HOW TO PLAY</p>
-      <div class="gs-body">
-        <p><b>MOVE</b> — W / S walk, A / D (or mouse) turn. SHIFT sprints, SPACE jumps. Click the scene to grab the mouse.</p>
-        <p><b>E</b> — question people, collect evidence. <b>F</b> — UV torch (one clue needs it). <b>C</b> — case file.</p>
-        <p><b>LEVEL 1 — THE OFFICE.</b> Log every clue, then close the room.</p>
-        <p><b>LEVEL 2 — THE CITY.</b> Question all five witnesses, work the three street clues, seal the suspect list of three.</p>
-        <p><b>LEVEL 3 — THE CELLS.</b> Show each prisoner the right evidence, then accuse the killer.</p>
-        <p><b>P / Esc / ⏸</b> — pause. <b>R</b> — restart the level. Progress auto-saves on every level change.</p>
-      </div>
-      <button class="gs-btn small" id="gs-how-back">← BACK</button></div></div>`);
+      <div class="gs-sheet">
+        <h2 class="gs-h">How to play</h2>
+        <p class="gs-faint"><b>Read the Room. Close the Case.</b></p>
+        <dl class="gs-keys">
+          <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Walk. Move the mouse to look; click the scene once to capture it.</dd>
+          <dt><kbd>Shift</kbd><kbd>Space</kbd></dt><dd>Run and jump.</dd>
+          <dt><kbd>E</kbd></dt><dd>Use what you are looking at: pick it up, question it, open it.</dd>
+          <dt><kbd>Q</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></dt><dd>Office kit: camera, bags, tweezers, swab. Photograph first, lift second.</dd>
+          <dt><kbd>F</kbd></dt><dd>Switch on the UV torch.</dd>
+          <dt><kbd>C</kbd></dt><dd>Open the case file.</dd>
+          <dt><kbd>B</kbd></dt><dd>Open the evidence board in the city.</dd>
+          <dt><kbd>Y</kbd><kbd>N</kbd></dt><dd>Accept / decline the depot stakeout warrant.</dd>
+          <dt><kbd>P</kbd><kbd>R</kbd></dt><dd>Pause, or restart the level.</dd>
+        </dl>
+        <p>The case runs in four stages. <b>1 — Office:</b> work the crime scene with the right tool for each clue; wrong tool means contamination. <b>2 — Lab:</b> sign evidence in, wear gloves, shield the phone and read the microscope yourself to name two people. <b>3 — City:</b> question all five witnesses, link evidence to them on the board and ask the captain for a warrant. <b>4 — Depot:</b> run the 14:00 stakeout and close it.</p>
+        <p>Progress saves every time you change level.</p>
+        <button class="gs-btn gs-pill" id="gs-how-back">Back</button>
+      </div></div>`);
     n.querySelector('#gs-how-back').addEventListener('click', () => this.show('menu'));
     this._addScreen('howto', n);
   }
 
   _buildSettings() {
     const n = el(`<div>
-      <div class="gs-card"><p class="gs-title" style="font-size:34px">SETTINGS</p>
-        <div class="gs-row"><span>MUSIC</span><input id="gs-music" type="range" min="0" max="100"><b id="gs-music-v"></b></div>
-        <div class="gs-row"><span>SOUND FX</span><input id="gs-sfx" type="range" min="0" max="100"><b id="gs-sfx-v"></b></div>
-        <div class="gs-row"><span>MUTE ALL</span><input id="gs-mute" type="checkbox"></div>
-        <button class="gs-btn small" id="gs-set-back">← BACK</button></div></div>`);
+      <div class="gs-sheet">
+        <h2 class="gs-h">Settings</h2>
+        <div class="gs-set"><label for="gs-music">Music</label><input id="gs-music" type="range" min="0" max="100"><output id="gs-music-v"></output></div>
+        <div class="gs-set"><label for="gs-sfx">Sound effects</label><input id="gs-sfx" type="range" min="0" max="100"><output id="gs-sfx-v"></output></div>
+        <div class="gs-set"><label for="gs-mute">Mute everything</label><input id="gs-mute" type="checkbox"></div>
+        <button class="gs-btn gs-pill" id="gs-set-back">Back</button>
+      </div></div>`);
     const m = n.querySelector('#gs-music'), s = n.querySelector('#gs-sfx'), mu = n.querySelector('#gs-mute');
     const paint = () => {
       m.value = Math.round(this.settings.music * 100);
@@ -260,26 +696,28 @@ export class GameShell {
     n.querySelector('#gs-set-back').addEventListener('click', () => this.show(this._pauseFrom === 'pause' ? 'pause' : 'menu'));
     this._addScreen('settings', n);
     this._paintSettings = paint;
+    paint();
   }
   openSettings(from) { this._pauseFrom = from; if (this._paintSettings) this._paintSettings(); this.show('settings'); }
 
   _buildCredits() {
     const n = el(`<div>
-      <div class="gs-card"><p class="gs-title" style="font-size:34px">CREDITS</p>
-      <div class="gs-body">
-        <p><b>GENESIS</b><br>A three-level murder mystery: the office, the city, the cells.</p>
-        <p><b>MADE BY — 404 FOUND US</b><br>
-        Banele Mjali<br>
-        Busisiwe Mnguni<br>
-        Pumelela Mapukata<br>
-        Sibusiso Ndunge</p>
-        <p><b>STORY & CASE</b> — Dr. T. Nkosi, the five witnesses, and the sealed list of three.</p>
-        <p><b>MUSIC</b> — all tracks from OpenGameArt.org<br>
-        <span style="opacity:.7">menu theme · office chiptune · city orchestral · cells electronic · city traffic ambience</span></p>
-        <p><b>ENGINE</b> — Three.js · Howler.js · Vite</p>
-        <p style="opacity:.65">Thanks for playing detective.</p>
-      </div>
-      <button class="gs-btn small" id="gs-cr-back">← BACK</button></div></div>`);
+      <div class="gs-sheet gs-cr">
+        <h2 class="gs-h">Credits</h2>
+        <p><b>GENESIS — Read the Room. Close the Case.</b><br>A murder mystery in four stages: the office, the lab, the city and the depot stakeout.</p>
+        <h3>Made by 404 Found Us</h3>
+        <p>Banele Mjali — UI &amp; Polish<br>Busisiwe Mnguni — Shaders &amp; Effects<br>Pumelela Mapukata — Environment &amp; Art<br>Sibusiso Ndunge — Player &amp; Physics</p>
+        <h3>This pass</h3>
+        <p>Forensic-sim rebuild: tool-based office kit (photograph first, lift second), physical lab benches with sign-in / gloves / phone-shield / microscope reads, blood-soaked monogram + UV-trail deduction chain, city arrival ride, depot-stakeout finale, rain-streaked menu art, paper case-file sheets, level cards, pointer-lock + pause polish, direct Open-the-Case start.</p>
+        <h3>Story</h3>
+        <p>Dr. T. Nkosi, the five witnesses and the case behind them. Procedural killer, clues and alibis — different every run.</p>
+        <h3>Music</h3>
+        <p>All tracks from OpenGameArt.org: menu theme, office chiptune, city orchestral, cells electronic, city traffic ambience.</p>
+        <h3>Tools</h3>
+        <p>Three.js, Howler.js and Vite. Type set in Big Shoulders Display and Courier Prime.</p>
+        <p class="gs-faint">Thanks for playing detective.</p>
+        <button class="gs-btn gs-pill" id="gs-cr-back">Back</button>
+      </div></div>`);
     n.querySelector('#gs-cr-back').addEventListener('click', () => this.show('menu'));
     this._addScreen('credits', n);
   }
@@ -287,12 +725,16 @@ export class GameShell {
   // ================= pause =================
   _buildPause() {
     const n = el(`<div>
-      <div class="gs-card"><p class="gs-title" style="font-size:34px">PAUSED</p>
-        <p class="gs-sub" id="gs-pause-sub">LEVEL 1 — THE OFFICE</p>
-        <button class="gs-btn primary" id="gs-resume">▶&nbsp; RESUME</button>
-        <button class="gs-btn" id="gs-restart">↻&nbsp; RESTART LEVEL</button>
-        <button class="gs-btn" id="gs-pset">SETTINGS</button>
-        <button class="gs-btn" id="gs-quit">QUIT TO MENU</button></div></div>`);
+      <div class="gp-col">
+        <h2 class="gp-title">Paused</h2>
+        <p class="gp-sub" id="gs-pause-sub"></p>
+        <nav class="gm-nav">
+          <button class="gs-btn gm-row primary" id="gs-resume"><span class="gm-n">Resume</span></button>
+          <button class="gs-btn gm-row" id="gs-restart"><span class="gm-n">Restart level</span></button>
+          <button class="gs-btn gm-row" id="gs-pset"><span class="gm-n">Settings</span></button>
+          <button class="gs-btn gm-row" id="gs-quit"><span class="gm-n">Quit to menu</span></button>
+        </nav>
+      </div></div>`);
     n.querySelector('#gs-resume').addEventListener('click', () => this.cb.onResume && this.cb.onResume());
     n.querySelector('#gs-restart').addEventListener('click', () => this.cb.onRestartLevel && this.cb.onRestartLevel());
     n.querySelector('#gs-pset').addEventListener('click', () => this.openSettings('pause'));
@@ -304,10 +746,14 @@ export class GameShell {
     this.show('pause');
   }
 
+  // ================= level card =================
   _buildCard() {
-    const n = el(`<div style="background:rgba(1,2,4,.0)">
-      <div style="text-align:center">
-        <p id="gs-card-title"></p><p id="gs-card-sub"></p><p id="gs-card-line"></p>
+    const n = el(`<div>
+      <div>
+        <p id="gs-card-title"></p>
+        <p id="gs-card-sub"></p>
+        <div class="gc-rule"></div>
+        <p id="gs-card-line"></p>
       </div></div>`);
     this._addScreen('card', n);
   }
@@ -315,22 +761,30 @@ export class GameShell {
   // ================= painted intro =================
   _buildIntro() {
     const n = el(`<div id="gs-intro">
-      <div class="gs-card">
-        <div id="gs-canvas"><canvas id="gs-art" width="960" height="540"></canvas></div>
+      <div class="gi-wrap">
+        <div id="gs-canvas"><canvas id="gs-art" width="960" height="540"></canvas><canvas id="gs-fx" width="960" height="540"></canvas><div id="gs-slug"></div></div>
         <p id="gs-caption"></p>
-        <div id="gs-dots"></div>
-        <div class="gs-introbar">
-          <button class="gs-btn small" id="gs-skip">SKIP →</button>
-          <button class="gs-btn small primary" id="gs-next">NEXT →</button>
+        <div class="gi-bar">
+          <div id="gs-dots"></div>
+          <div class="gi-btns">
+            <button class="gs-btn gs-pill quiet" id="gs-skip">Skip</button>
+            <button class="gs-btn gs-pill solid" id="gs-next">Next</button>
+          </div>
         </div>
+        <p id="gs-hint">SPACE next &nbsp;·&nbsp; ESC skip</p>
       </div></div>`);
     this._addScreen('intro', n);
     this._art = n.querySelector('#gs-art');
     this._cap = n.querySelector('#gs-caption');
     this._dots = n.querySelector('#gs-dots');
+    this._fx = n.querySelector('#gs-fx');
+    this._slug = n.querySelector('#gs-slug');
     this._next = n.querySelector('#gs-next');
+    this._typeT = 0;
+    this._typing = false;
     n.querySelector('#gs-skip').addEventListener('click', () => this._finishIntro());
     this._next.addEventListener('click', () => {
+      if (this._typing) { this._skipTyping(); return; }
       if (this._introIdx >= INTRO_PANELS.length - 1) this._finishIntro();
       else this._showPanel(this._introIdx + 1);
     });
@@ -339,12 +793,84 @@ export class GameShell {
     this._introDone = onDone;
     this._showPanel(0);
     this.show('intro');
+    this._startFx();
+    this._introKey = (e) => {
+      if (!document.querySelector('.gs-screen[data-screen="intro"].on')) return;
+      if (e.code === 'Escape') { e.preventDefault(); this._finishIntro(); return; }
+      if (e.code === 'Space' || e.code === 'Enter' || e.code === 'ArrowRight') {
+        e.preventDefault();
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        this._next.click();
+      }
+    };
+    document.addEventListener('keydown', this._introKey);
+  }
+  // Live layer over the painted panel: slanting rain, lightning, film grain.
+  _startFx() {
+    this._stopFx();
+    const cv = this._fx; if (!cv) return;
+    const g = cv.getContext('2d');
+    const W = cv.width, H = cv.height;
+    const drops = Array.from({ length: 170 }, () => ({ x: Math.random() * W, y: Math.random() * H, v: 700 + Math.random() * 500, l: 12 + Math.random() * 22 }));
+    let last = performance.now(), flash = 0, nextFlash = 1.5 + Math.random() * 2.5;
+    this._flashNow = () => { flash = 0.9; };
+    const loop = (now) => {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      g.clearRect(0, 0, W, H);
+      g.strokeStyle = 'rgba(175,200,255,.30)'; g.lineWidth = 1.2;
+      g.beginPath();
+      for (const d of drops) {
+        d.y += d.v * dt; d.x -= d.v * dt * 0.28;
+        if (d.y > H) { d.y = -20; d.x = Math.random() * (W + 200); }
+        g.moveTo(d.x, d.y); g.lineTo(d.x + d.l * 0.28, d.y - d.l);
+      }
+      g.stroke();
+      nextFlash -= dt;
+      if (nextFlash <= 0) { flash = 0.55 + Math.random() * 0.35; nextFlash = 3 + Math.random() * 5; }
+      if (flash > 0.01) {
+        g.fillStyle = `rgba(205,220,255,${(flash * 0.32).toFixed(3)})`; g.fillRect(0, 0, W, H);
+        flash *= Math.pow(0.02, dt);
+      }
+      for (let i = 0; i < 90; i++) {            // grain
+        g.fillStyle = `rgba(255,255,255,${(Math.random() * 0.05).toFixed(3)})`;
+        g.fillRect(Math.random() * W, Math.random() * H, 2, 2);
+      }
+      this._fxRaf = requestAnimationFrame(loop);
+    };
+    this._fxRaf = requestAnimationFrame(loop);
+  }
+  _stopFx() {
+    if (this._fxRaf) cancelAnimationFrame(this._fxRaf);
+    this._fxRaf = 0; this._flashNow = null;
   }
   _finishIntro() {
+    clearInterval(this._typeT);
+    this._typing = false;
+    this._stopFx();
+    if (this._introKey) { document.removeEventListener('keydown', this._introKey); this._introKey = null; }
     const cb = this._introDone;
     this._introDone = null;
     this.hideAll();
     if (cb) cb();
+  }
+  _typeCaption(text) {
+    clearInterval(this._typeT);
+    this._capFull = text;
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduce) { this._cap.textContent = text; this._typing = false; return; }
+    let i = 0;
+    this._cap.textContent = '';
+    this._typing = true;
+    this._typeT = setInterval(() => {
+      i += 1;
+      this._cap.textContent = text.slice(0, i);
+      if (i >= text.length) { clearInterval(this._typeT); this._typing = false; }
+    }, 24);
+  }
+  _skipTyping() {
+    clearInterval(this._typeT);
+    this._typing = false;
+    this._cap.textContent = this._capFull || '';
   }
   _showPanel(i) {
     this._introIdx = i;
@@ -353,10 +879,14 @@ export class GameShell {
     // restart the slow zoom
     const cv = this._art;
     cv.style.animation = 'none'; void cv.offsetWidth; cv.style.animation = '';
-    this._cap.textContent = INTRO_PANELS[i].cap;
-    this._dots.innerHTML = INTRO_PANELS.map((_, k) =>
-      `<span class="${k === i ? '' : 'dim'}">●</span>`).join('');
-    this._next.innerHTML = (i === INTRO_PANELS.length - 1) ? 'BEGIN THE INVESTIGATION →' : 'NEXT →';
+    this._typeCaption(INTRO_PANELS[i].cap);
+    if (this._slug) {
+      const s = this._slug; s.textContent = INTRO_PANELS[i].slug || '';
+      s.style.animation = 'none'; void s.offsetWidth; s.style.animation = '';
+    }
+    if (this._flashNow && i > 0) this._flashNow();
+    this._dots.innerHTML = INTRO_PANELS.map((_, k) => `<i class="${k <= i ? 'on' : ''}"></i>`).join('');
+    this._next.textContent = (i === INTRO_PANELS.length - 1) ? 'Begin the investigation' : 'Next';
   }
 }
 
@@ -379,7 +909,8 @@ function litWindows(g, x, y, ww, hh, cols, rows, lit, color) {
 }
 
 const INTRO_PANELS = [
-  { cap: 'CENTRAL CITY, OCTOBER — rain for three days straight, and nobody is sleeping.',
+  { slug: 'CENTRAL CITY  \u2014  22:47',
+    cap: 'Central City, October. Three days of rain, and the whole town is holding its breath. I have not slept for most of them.',
     draw(g, w, h) {
       sky(g, w, h, '#04060d', '#0b1226', '#1a1430');
       // moon glow
@@ -404,7 +935,8 @@ const INTRO_PANELS = [
         g.beginPath(); g.moveTo(x, y); g.lineTo(x - 8, y + 26); g.stroke();
       }
     } },
-  { cap: 'DR. THABO NKOSI — found dead in his university office. One gunshot, close range.',
+  { slug: 'FACULTY OF COMPUTING  \u2014  00:50',
+    cap: 'Dr. Thabo Nkosi. Senior lecturer. The cleaner found him at ten to one, in his own office. One shot, chest, closer than a handshake.',
     draw(g, w, h) {
       sky(g, w, h, '#0a0a10', '#141018', '#241418');
       // room
@@ -432,7 +964,8 @@ const INTRO_PANELS = [
       g.fillText('POLICE LINE — DO NOT CROSS · POLICE LINE — DO NOT CROSS', 0, 19);
       g.restore();
     } },
-  { cap: 'No witnesses. No confession. Only what the room remembers.',
+  { slug: 'OFFICE 3.14  \u2014  THE SCENE',
+    cap: 'No witness. No confession. Two glasses, a stranger\u2019s hair, and a room that refuses to say who was sitting across from him.',
     draw(g, w, h) {
       sky(g, w, h, '#05070d', '#0a0f1c', '#131020');
       // detective silhouette
@@ -449,22 +982,27 @@ const INTRO_PANELS = [
       g.strokeStyle = '#cfd6e4'; g.lineWidth = 10;
       g.beginPath(); g.arc(640, 330, 95, 0, 7); g.stroke();
       g.lineWidth = 16; g.beginPath(); g.moveTo(710, 400); g.lineTo(790, 480); g.stroke();
-      // handkerchief + casing inside the lens
+      // handkerchief with a blood-smeared monogram (the killer is different every run,
+      // so the initials are never legible)
       g.fillStyle = '#ddd6c2'; g.save(); g.translate(610, 320); g.rotate(-0.2); g.fillRect(-45, -35, 90, 70); g.restore();
-      g.fillStyle = '#7a1f1a'; g.font = 'bold 34px monospace'; g.textAlign = 'center'; g.fillText('K.P.', 610, 333);
+      g.fillStyle = 'rgba(122,31,26,.85)';
+      for (const [dx, dy, rx, ry, rot] of [[0, 0, 26, 10, 0.3], [10, 6, 18, 7, -0.4], [-14, 8, 14, 6, 0.8]]) {
+        g.beginPath(); g.ellipse(610 + dx, 325 + dy, rx, ry, rot, 0, 7); g.fill();
+      }
       g.fillStyle = '#c9a227'; g.fillRect(668, 352, 26, 10);
       g.fillStyle = 'rgba(255,240,200,.5)'; g.fillRect(668, 352, 26, 3);
     } },
-  { cap: 'Five names in the city. Three of them are lying.',
+  { slug: 'FIVE NAMES',
+    cap: 'Five people had a reason to want him quiet. One of them pulled the trigger. The other four are lying about something smaller \u2014 and that makes it harder.',
     draw(g, w, h) {
       sky(g, w, h, '#0b0906', '#17110a', '#241811');
       // cork board
       g.fillStyle = '#3a2a1a'; g.fillRect(130, 60, 700, 420);
       g.fillStyle = '#4a3622'; g.fillRect(142, 72, 676, 396);
-      const photos = [[180, 120], [330, 120], [480, 120], [630, 120], [255, 290], [405, 290], [555, 290]];
-      const faces = ['S.N.', 'A.M.', 'N.D.', 'K.P.', 'M.D.', '?', '?'];
+      const photos = [[162, 120], [292, 120], [422, 120], [552, 120], [682, 120]];
+      const faces = ['S.N.', 'A.M.', 'N.D.', 'K.P.', 'M.D.'];
       photos.forEach(([x, y], i) => {
-        g.fillStyle = i < 5 ? '#c9c2ae' : '#5a5a5a'; g.fillRect(x, y, 110, 130);
+        g.fillStyle = '#c9c2ae'; g.fillRect(x, y, 110, 130);
         g.fillStyle = '#222'; g.beginPath(); g.arc(x + 55, y + 55, 26, 0, 7); g.fill();
         g.fillRect(x + 20, y + 88, 70, 34);
         g.fillStyle = '#7a1f1a'; g.font = 'bold 22px monospace'; g.textAlign = 'center';
@@ -473,13 +1011,14 @@ const INTRO_PANELS = [
       });
       // red strings to the center note
       g.strokeStyle = 'rgba(200,40,40,.85)'; g.lineWidth = 2.5;
-      const cx = 480, cy = 420;
+      const cx = 480, cy = 400;
       photos.forEach(([x]) => { g.beginPath(); g.moveTo(x + 55, 250); g.lineTo(cx, cy); g.stroke(); });
-      g.fillStyle = '#e8dcc0'; g.fillRect(cx - 130, cy - 24, 260, 52);
-      g.fillStyle = '#111'; g.font = 'bold 21px monospace'; g.textAlign = 'center';
-      g.fillText('WHO STAYS OFF THE LIST?', cx, cy + 8);
+      g.fillStyle = '#e8dcc0'; g.fillRect(cx - 110, cy - 24, 220, 52);
+      g.fillStyle = '#111'; g.font = 'bold 22px monospace'; g.textAlign = 'center';
+      g.fillText('WHO LIED?', cx, cy + 8);
     } },
-  { cap: 'You are the investigator. Question all five. Seal the list of three.',
+  { slug: 'CASE #001  \u2014  OPENED',
+    cap: 'The file has my name on it now. Read the room. Work the lab. Then take it to the streets before the killer gets comfortable.',
     draw(g, w, h) {
       sky(g, w, h, '#0a0d1a', '#2b1f38', '#59331f');
       // dawn sun band over the sea
