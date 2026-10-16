@@ -6,12 +6,14 @@ import { StreetLevel } from './levels/lvl1.js';
 import { LabLevel }    from './levels/LabLevel.js';
 import { CityLevel }   from './levels/CityLevel.js';
 import { DepotLevel }  from './levels/DepotLevel.js';
+import { ChaseLevel }  from './levels/ChaseLevel.js';   // Level 3 police chase (new)
 import { GameShell } from './ui/GameShell.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { loadAllAudio } from './audio/loadAudio.js';
 import { getStats } from './game/stats.js';
 
 const LEVELS = { 1: StreetLevel, 2: LabLevel, 3: CityLevel, depot: DepotLevel };
+LEVELS.chase = ChaseLevel;   // police chase level (new)
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
@@ -317,6 +319,8 @@ window.__switchLevel = (n) => { if (appState === 'playing') switchLevel(n, { fad
 window.__showMenu = () => quitToMenu();
 window.__restartLevel = () => { if (appState === 'playing') switchLevel(current, { fade: true, card: true }); };
 window.__saveRun = () => { try { shell.saveGame({ level: current, caseProgress: window.__caseProgress || null }); } catch (e) {} };
+// test the chase straight from the menu: open the browser console and type  __playChase()
+window.__playChase = () => { appState = 'playing'; paused = false; shell.hideAll(); switchLevel('chase', { fade: true, card: false }); };
 
 const mini = new THREE.OrthographicCamera(-55, 55, 55, -55, 1, 300);
 mini.layers.enable(0);
