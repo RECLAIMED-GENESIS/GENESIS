@@ -113,6 +113,7 @@ export function level1Clues(c = getCase()) {
   const k = killerOf(c);
   const len = k.hairLong ? 'long' : 'short';
   const initial = k.initials.charAt(0);
+  const lastInitial = k.initials.split('.')[1] || '';
   return {
     hair: {
       name: `${cap(k.hairName)} hair fibres (guest chair)`,
@@ -121,8 +122,8 @@ export function level1Clues(c = getCase()) {
     },
     handkerchief: {
       name: 'Monogrammed handkerchief',
-      note: `Linen, monogrammed "${k.initials}" in the corner, and the tip is stiff with dried blood that is not the victim's — no wound of his is on the front of his hand. It lay where the guest stood up.`,
-      finding: `"${k.initials}" was in this room, close enough to the barrel to be spattered, and wiped a hand.`,
+      note: `Linen, monogrammed in the corner — but the first initial is soaked through with dried blood that is not the victim's, and only ".${lastInitial}." still reads. No wound of his is on the front of his hand. It lay where the guest stood up.`,
+      finding: `Someone whose initials end in ".${lastInitial}." was in this room, close enough to the barrel to be spattered, and wiped a hand. The first letter is under the blood — something else at the scene may supply it.`,
     },
     trail: {
       name: 'Wiped blood trail (UV)',
@@ -141,7 +142,11 @@ export function applyCaseToStory(CASE, c = getCase()) {
   const gen = level1Clues(c);
   for (const key of Object.keys(gen)) CASE.clues[key] = Object.assign({}, CASE.clues[key], gen[key]);
   const guest = (CASE.deductions || []).find((d) => d.id === 'guest');
-  if (guest) guest.answer = level1GuestAnswer(c);
+  if (guest) {
+    guest.answer = level1GuestAnswer(c);
+    // The monogram is blood-soaked: it takes the scrawled first letter (UV trail) to read the whole name.
+    guest.needs = ['hair', 'handkerchief', 'trail'];
+  }
   return CASE;
 }
 

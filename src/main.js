@@ -49,8 +49,12 @@ const player = {
 const keys = {};
 let locked = false;
 
+// Esc while the mouse is captured only RELEASES the mouse (the browser does that itself).
+// Esc again (mouse already free) pauses. P always pauses.
+let lastUnlockAt = 0;
 addEventListener('keydown', e => {
   if ((e.code === 'KeyP' || e.code === 'Escape') && !window.__uiCapture && !e.repeat) {
+    if (e.code === 'Escape' && (locked || performance.now() - lastUnlockAt < 250)) return;
     if (appState === 'playing' && !levelUiOpen()) setPaused(!paused);
     return;
   }
@@ -90,9 +94,12 @@ renderer.domElement.addEventListener('click', () => {
 });
 
 document.addEventListener('pointerlockchange', () => {
+  const wasLocked = locked;
   locked = document.pointerLockElement === renderer.domElement;
+  if (wasLocked && !locked) lastUnlockAt = performance.now();
   updateMsg();
-  if (!locked && appState === 'playing' && !paused && !levelUiOpen()) setPaused(true);
+  // Losing the mouse no longer pauses: the player just gets the cursor back.
+  // Click the view to recapture it; Esc again or P to pause.
 });
 
 addEventListener('mousemove', e => {
@@ -110,6 +117,17 @@ const crossEl = document.getElementById('cross');
 
 const audio = new AudioManager();
 try { loadAllAudio(audio); } catch (e) { console.warn('audio init failed', e); }
+
+// Browsers block audio before the first user gesture, so the menu theme
+// started on page load dies silently. Retry it on the first click/keypress.
+function unlockAudio() {
+  try {
+    if (audio && typeof audio._unlock === 'function') audio._unlock();
+    if (appState === 'menu' && audio && !audio.isPlayingMusic) audio.playMusic('menu_theme');
+  } catch (e) {}
+}
+window.addEventListener('pointerdown', unlockAudio);
+window.addEventListener('keydown', unlockAudio);
 
 const shell = new GameShell({
   audio,
@@ -253,7 +271,7 @@ async function switchLevel(n, opts = {}) {
   try { audio.playLevelMusic(n); } catch (e) {}
   try {
     audio.stopAmbience();
-    if (n === 3) audio.playAmbience('city_ambience');
+    if (n === 3 || n === 'depot') audio.playAmbience('city_ambience');
   } catch (e) {}
   try { shell.saveGame({ level: n, caseProgress: window.__caseProgress || null }); } catch (e) {}
   _lastHudString = '';
@@ -263,11 +281,9 @@ async function switchLevel(n, opts = {}) {
 function onNewGame() {
   shell.clearSave();
   window.__caseProgress = null;
-  appState = 'intro';
-  shell.showIntro(() => {
-    appState = 'playing';
-    switchLevel(1, { fade: true, card: true });
-  });
+  appState = 'playing';
+  shell.hideAll();
+  switchLevel(1, { fade: true, card: true });
 }
 
 function onContinue() {
@@ -419,7 +435,7 @@ function tick() {
   const levelName = (level && level.name) ? level.name : `LEVEL ${current}`;
   const hudStr =
     `<b>GENESIS — ${levelName}</b><br>` +
-    `WASD move · E examine · F torch · C file · P pause`;
+    `WASD move · E examine · F torch · C file · Esc free mouse · P pause`;
   if (hudStr !== _lastHudString) {
     hud.innerHTML = hudStr;
     _lastHudString = hudStr;

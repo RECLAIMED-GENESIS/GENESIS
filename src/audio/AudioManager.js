@@ -38,6 +38,7 @@ export class AudioManager {
 
     playSfx(key) {
         if (this.isMuted) return;
+        this._unlock();
         const sound = this.sounds[key];
         if (!sound) {
             console.warn(`Sound "${key}" not found`);
@@ -51,6 +52,7 @@ export class AudioManager {
 
     playMusic(key) {
         if (this.isMuted) return;
+        this._unlock();
         const sound = this.sounds[key];
         if (!sound) {
             console.warn(`Music "${key}" not found`);
@@ -111,6 +113,7 @@ export class AudioManager {
     // ---- looping ambience bed (runs under the music, follows its volume) ----
     playAmbience(key) {
         if (this.isMuted) return;
+        this._unlock();
         const sound = this.sounds[key];
         if (!sound) {
             console.warn(`Ambience "${key}" not found`);
@@ -137,11 +140,27 @@ export class AudioManager {
         const musicMap = {
             1: 'level_1_chiptune',
             2: 'level_2_orchestral',
-            3: 'level_3_electronic'
+            3: 'level_3_electronic',
+            depot: 'level_3_electronic',
         };
         const track = musicMap[level];
         if (track && this.sounds[track]) {
             this.playMusic(track);
         }
+    }
+
+    // Browsers suspend the shared AudioContext until a user gesture.
+    // Howler auto-resumes on later gestures, but a play() issued on page
+    // load (menu music) dies silently — so resume eagerly on every play,
+    // and let the main.js first-gesture hook retry the menu theme.
+    _unlock() {
+        try {
+            const ctx = Howler.ctx;
+            if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+        } catch (e) {}
+    }
+
+    get isPlayingMusic() {
+        return !!(this.currentMusic && this.currentMusic.playing(this.currentMusicId));
     }
 }

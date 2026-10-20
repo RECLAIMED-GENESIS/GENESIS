@@ -1,6 +1,6 @@
-# GENESIS
+# GENESIS — Read the Room. Close the Case.
 
-A 3D browser-based murder mystery built with Three.js. Dr. Thabo Nkosi has been found dead in his university office — one gunshot, close range. You are the investigator. Work three levels — the office, the city, the cells — question five witnesses, log the evidence, seal the suspect list of three, and accuse the killer.
+A 3D browser-based murder mystery built with Three.js. Dr. Thabo Nkosi has been found dead in his university office — one gunshot, close range. You are the investigator. Work four levels — the office, the lab, the city, the depot stakeout — question five witnesses, log the evidence, and close the case.
 
 ---
 
@@ -16,33 +16,45 @@ Five people around the waterfront know something about that night. Three of them
 
 ## Levels
 
-### Level 1 — "The Office"
+### Level 1 — "The Office" ✅ Playable
 
 **Vibe:** Night-time crime scene, first-person, UV torch, chiptune music.
 
-**Gameplay:**
-- First-person examination of the victim's office (E to collect, F for the UV torch, C for the case file)
-- Log every clue: handkerchief, casing, hair, note, diary and more
-- Logging everything triggers the outro: evidence to the lab, then on to the city
+**How to play:**
+- Move with W/S, turn with A/D + mouse (click the scene once to capture the mouse), Shift to sprint, Space to jump
+- Work the kit: Q camera, 1 bags, 2 tweezers, 3 swab, E to collect, F for the UV torch, C for the case file
+- Photograph first, lift second — wrong tool means contamination
+- Log every clue: handkerchief (blood-soaked monogram), casing, hair, note, diary, wiped UV trail and more
+- Logging everything triggers the outro: evidence to the lab
 
-### Level 2 — "The City"
+### Level 2 — "The Forensic Lab" ✅ Playable
+
+**Vibe:** Benches, sign-in desk and comparison scope, lab-camera work.
+
+**How to play:**
+- Move with WASD + mouse, E to use benches, C for the case file, F for UV where needed
+- Sign evidence in, wear gloves, shield the phone and read the microscope yourself
+- Name two people from eight objects; confirm the city depot 14:00 appointment
+- File the dossier to hand the case to the city
+
+### Level 3 — "The City" 🚧 Still in progress
 
 **Vibe:** Waterfront street at last light, passing traffic, café terrace, orchestral music + traffic ambience.
 
-**Gameplay:**
+**How to play:**
+- Move with WASD + mouse, E to question / collect, C for the case file, B for the evidence board, F for UV
 - Question all five witnesses (E while facing them), each with follow-ups unlocked by office and street evidence
 - Collect three city clues: an unregistered pistol, a UV-only scrawl, a timestamped parking stub
 - Ambient life: moving cars, a café terrace with a lit shop sign, benches, a quay railing, boats on the water, street lamps
-- Seal the suspect list of three — any three go to the cells, no restarts
+- Link evidence on the board (B), ask the captain for a warrant (Y accept / N keep investigating) — authorises the depot stakeout
+- _Note: this level is still being built — questioning, board links and the warrant flow may change._
 
-### Level 3 — "The Cells"
+### Level 4 — "The Depot Stakeout" ✅ Finale (needs City warrant)
 
-**Vibe:** Holding cells, interrogation at the bars, tense electronic music.
+**Vibe:** 14:00, dockside depot parking bays — finale.
 
-**Gameplay:**
-- The three people you picked, in the cells
-- Show each one the right evidence (handkerchief, stub, bandage…), watch what breaks
-- Accuse: case closed, unproven, or the wrong man — four endings
+**How to play:**
+- Arrive via the City warrant (Y), hold the sightline, follow prompts to close the case
 
 ---
 
@@ -53,8 +65,11 @@ Five people around the waterfront know something about that night. Three of them
 | Walk / turn         | W, S / A, D, mouse |
 | Sprint / jump       | Shift / Space    |
 | Examine / question / collect | E |
+| Office kit          | Q camera, 1 bags, 2 tweezers, 3 swab |
 | UV torch            | F                |
 | Case file           | C                |
+| Evidence board (city) | B              |
+| Warrant accept / decline | Y / N       |
 | Pause               | P, Esc, or ⏸ button |
 | Restart level       | R                |
 
@@ -129,6 +144,10 @@ Progress auto-saves on every level change — **Continue** on the main menu pick
 | Busisiwe Mnguni | Shaders & Effects |
 | Pumelela Mapukata | Environment & Art |
 | Sibusiso Ndunge | Player & Physics |
+
+### This pass
+- Forensic-sim rebuild: tool-based office kit, physical lab benches, blood-soaked monogram + UV-trail deduction, city arrival ride, depot-stakeout finale
+- Shell: rain-streaked menu art, paper case-file sheets, level cards, pointer-lock + pause polish, direct Open-the-Case start (story intro removed)
 
 ## 📝 Credits
 
