@@ -494,6 +494,7 @@ export class ChaseLevel {
     this.time = 0;
     this.lane = 1;
     this.prevLane = 1;
+    this.py = 0; this.vy = 0; this.grounded = true;   // the chase does its own jump + gravity
     this.px = LANES[1];
     this.pz = PLAYER_START_Z;
     this.speed = 0;
@@ -1568,6 +1569,7 @@ export class ChaseLevel {
     if (this.pz < NARROW_Z + 2) return;               // one path near the bridge
     if (e.code === 'KeyA' || e.code === 'ArrowLeft') { this.prevLane = this.lane; this.lane = Math.max(0, this.lane - 1); }
     if (e.code === 'KeyD' || e.code === 'ArrowRight') { this.prevLane = this.lane; this.lane = Math.min(2, this.lane + 1); }
+    if (e.code === 'Space' && this.grounded) { this.vy = 12; this.grounded = false; }
   }
 
   // =========================================================
@@ -1578,8 +1580,18 @@ export class ChaseLevel {
     this.stateT += dt;
     const p = player && player.pos ? player : null;
     this._player = p;
-    const py = p ? p.pos.y : 0;
-    const grounded = p ? !!p.grounded : true;
+    // Jump and gravity live here: main.js does not move the player in Level 3.
+    if (this.state === 'run' || this.state === 'fell' || this.state === 'escaped') {
+      this.vy -= 30 * Math.min(dt, 0.05);
+      this.py += this.vy * Math.min(dt, 0.05);
+      const floor = this.getSurfaceHeight(this.px, this.pz);
+      if (this.py <= floor) { this.py = floor; this.vy = 0; this.grounded = true; }
+      else this.grounded = false;
+      if (this.py < -200) { this.py = -200; this.vy = 0; }
+    } else { this.py = 0; this.vy = 0; this.grounded = true; }
+    if (p) { p.pos.y = this.py; p.vel.y = this.vy; p.grounded = this.grounded; }
+    const py = this.py;
+    const grounded = this.grounded;
 
     // mouse look is limited: you always run down the road
     if (p) {
@@ -1737,7 +1749,7 @@ export class ChaseLevel {
   _trip(o) {
     o.knocked = true;
     o.kt = 99;
-    if (this._player && this._player.grounded) this._player.vel.y = 9;
+    if (this.grounded) { this.vy = 9; this.grounded = false; }
     this.stumble = 0.6;
     this.shake = 0.3;
     this.hits++;
