@@ -15,22 +15,29 @@ export function loadAllAudio(audioManager) {
     });
 
     audioManager.loadSound('level_2_orchestral', {
-        src: './assets/audio/music/level_2_orchestral.mp3',
+        src: './assets/audio/music/level_2_orchestral.ogg',
         loop: true,
         volume: 0.7
     });
 
     audioManager.loadSound('level_3_electronic', {
-        src: './assets/audio/music/level_3_electronic.mp3',
+        src: './assets/audio/music/level_3_electronic.ogg',
         loop: true,
         volume: 0.7
     });
 
-    // Ambience — the city street: traffic, cars, trams (loops under Level 2)
+    // Ambience — the city street: traffic, cars, trams (outdoors at the station and in the city)
     audioManager.loadSound('city_ambience', {
         src: './assets/audio/sfx/city_ambience_-_traffic_-_street_-_cars_and_tram.mp3',
         loop: true,
         volume: 0.4
+    });
+
+    audioManager.loadSound('station_office', {
+        src: './assets/audio/sfx/station-office.ogg', loop: true, volume: 0.35
+    });
+    audioManager.loadSound('station_workspace', {
+        src: './assets/audio/sfx/station-workspace.ogg', loop: true, volume: 0.35
     });
 
     // UI

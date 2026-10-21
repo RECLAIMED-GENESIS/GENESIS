@@ -1,13 +1,13 @@
 // ============================================================
-// LabLevel.js — LEVEL 2, THE FORENSIC LAB (phase-1 physical rebuild)
+// LabLevel.js — LEVEL 2, POLICE STATION & FORENSIC LAB
 //
-// You are the forensic analyst. Eight bagged items from Dr. Nkosi's
+// You are the forensic analyst. Six bagged items from Dr. Nkosi's
 // office sit on the intake table. Four benches process them:
 //
 //   BENCH 1 CYBER     → the victim's phone (carry, shield, unlock, read)
 //   BENCH 2 TRACE     → hair fibres vs 5 references + guest-glass print
 //   BENCH 3 BIOLOGY   → handkerchief blood DNA (16-marker STR)
-//   BENCH 4 DOCUMENTS → torn note (ESDA/UV) + calendar + UV trail photos
+//   BENCH 4 RECONSTRUCTION → casing examination + UV trail reconstruction
 //
 // PHASE-1 PRINCIPLE: objects get interacted with, not panels. You pick
 // things up, carry them, place them, turn knobs and look through lenses.
@@ -19,7 +19,7 @@
 //   - the phone is cracked BY YOU: dump the lock record and run hashcat in a
 //     real terminal on the examiner laptop (levels/LabExtras.js), then walk
 //     to the handset and type the PIN. No "DECRYPTING" bars, no auto-solve.
-//     FAST + RISKY alternative: guess 1610 from the October calendar —
+//     FAST + RISKY alternative: guess 1610 on the handset without cracking it —
 //     3 wrong guesses wipe it
 //   - every bench action is a physical prop ([E] on it), not a panel
 //   - results are hedged ("consistent with", "insufficient"), and on the
@@ -41,6 +41,8 @@ import { PhotoCamera, PHOTO } from '../game/photoCamera.js';
 import { play as sfx } from '../audio/sfx.js';
 import { showBriefing } from '../game/briefing.js';
 import { installLabExtras } from './LabExtras.js';
+import { installPoliceStation } from './PoliceStation.js';
+import { buildStationEnvironment, updateStationEnvironment, disposeStationEnvironment } from './StationEnvironment.js';
 
 const EYE = 1.7;
 const REACH = 3.4;
@@ -67,13 +69,13 @@ const NEED = {
   digital: ['phone'],
   micro: ['hair', 'glass'],
   dna: ['handkerchief', 'trail'],
-  docs: ['note', 'calendar', 'casing'],
+  docs: ['casing', 'trail'],
 };
 const LABEL = {
   casing: 'Bullet casing (9mm, brass)', glass: 'Two whiskey glasses',
   hair: 'Hair fibres (guest chair)', handkerchief: 'Monogrammed handkerchief',
-  phone: "The victim's phone", note: 'Torn note (two halves)',
-  trail: 'Wiped blood trail (UV photo)', calendar: 'Desk calendar',
+  phone: "The victim's phone",
+  trail: 'Wiped blood trail (UV photo)',
 };
 
 // Fake-but-stable per-suspect hair detail for the comparison scope.
@@ -174,12 +176,13 @@ export class LabLevel {
     this._prevFog = this.scene.fog;
     // Daylight working lab: bright, flat, nothing hides in shadow. Evidence
     // is found by looking, not by following glow markers — there are none.
-    this.scene.background = new THREE.Color(0x2b2f36);
+    this.scene.background = new THREE.Color(0x9baebc);
     this.scene.fog = null;
 
-    this.name = 'LEVEL 2 — THE FORENSIC LAB';
-    this.spawn = new THREE.Vector3(0, 0, 5.6);
-    this.spawnYaw = Math.PI;
+    this.name = 'LEVEL 2 — THE POLICE STATION';
+    this.spawn = new THREE.Vector3(0, 0, 26);
+    this.spawnYaw = 0;
+    this.station = { checkedIn: false, evidenceHanded: false, doorOpen: true, departureReady: false };
     this.colliders = [];
     this.level = new THREE.Group();
     this.root = this.level;
@@ -217,7 +220,7 @@ export class LabLevel {
       glassUV: false, reported: false,
     };
     this.bio = { cut: false, lysis: false, loaded: false, running: false, t: 0, ready: false, matched: false, reported: false };
-    this.docs = { lightsOff: false, uvOn: false, noteRead: false, calRead: false, trailRead: false, reported: false, cover: new Set() };
+    this.docs = { lightsOff: false, uvOn: false, casingRead: false, trailRead: false, reported: false, cover: new Set() };
 
     this.elapsed = 0;
     this.clockStartMin = 8 * 60 + 15;
@@ -228,6 +231,7 @@ export class LabLevel {
     this._knobRay = new THREE.Raycaster();
 
     this._buildRoom();
+    this._buildStation();
     this._buildIntake();
     this._buildCyberBench();
     this._buildTraceBench();
@@ -241,6 +245,7 @@ export class LabLevel {
     this._buildLabProps();       // chemicals, hood, fridge, sink, whiteboard ... (LabExtras)
     this._buildPhysicalBenches(); // laptop, strand, linen, buttons, clipboards ... (LabExtras)
     this._syncProps();
+    buildStationEnvironment(this);
 
     this.level.traverse((o) => {
       if (o.isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; }
@@ -263,20 +268,21 @@ export class LabLevel {
       if (this.ui.device.style.display === 'flex' && this._deviceMode === 'eyepiece') this._refreshEyepieceField();
     };
     window.addEventListener('wheel', this._onWheel, { passive: true });
-    // Opening: Captain Mabaso sets the clock before the lab clock starts.
     this._briefing = showBriefing({
-      kicker: 'CAPT. MABASO',
-      stamp: '08:15  \u2014  FORENSIC LAB, BASEMENT',
-      speaker: 'INTERCOM \u2192 FORENSIC ANALYST',
+      kicker: 'CENTRAL POLICE STATION',
+      stamp: '08:15 — THE MORNING AFTER',
+      speaker: 'DETECTIVE / ARRIVAL',
+      objective: 'Reception → captain’s evidence receipt → four lab examinations → signed reports → private briefing → front exit.',
       lines: [
-        'Eight bags from Nkosi\u2019s office are on your intake table. Last night I had a corpse and a guess. This morning I want a case I can put in front of a judge.',
-        'Four benches: the phone, the hairs and glass, the blood, the paperwork. Gloves on before you touch anything, and sign the intake sheet or nothing downstairs counts.',
-        'I need names I can defend, the weapon, the time window, and where he was going tomorrow. Say \u201cconsistent with\u201d when that is all you know. Overstate it and I stop trusting you.',
-        'Shift ends at 17:00. The city does not wait for paperwork, and neither does the killer. Clock starts when you walk in.',
+        'DETECTIVE: It is 08:15, the morning after Nkosi’s murder. I am outside Central Police Station with the exhibits collected from his office. The lab must establish what they can actually prove.',
+        'MOKOENA — FRONT DESK: Walk through the main entrance and speak to me at reception on the left. Captain Mabaso’s office is on the right. Follow the central corridor right and leave her door open to hand in the sealed evidence before starting lab work.',
+        'CAPTAIN MABASO: Once I authorise the examination, enter the marked lab on the left. Sign its intake sheet and put on gloves. Examine four groups: the phone, hair and glass, blood, and a reconstruction from the casing and UV trail.',
+        'LAB INSTRUCTIONS: Shield the phone in the Faraday box, connect it to the cradle and crack its lock on the examiner laptop. Enter the recovered PIN on the handset and enable airplane mode. Follow the work-order HUD for the remaining benches.',
+        'CAPTAIN MABASO: Photograph your findings, file all four reports and sign every page at the report table. Return to my office, close the door and brief me. I will authorise your next destination; then leave through reception’s front entrance.',
       ],
       onDone: () => {
-        this.elapsed = 0;   // the briefing must not eat lab time
-        if (this.ui) this._toast('FORENSIC LAB \u2014 08:15', 'Gloves, sign-in, then work. [Q] raises your camera \u2014 photograph each exhibit before you file it. [E] to interact. [Esc] frees the mouse.', 9000);
+        this.elapsed = 0;
+        if (this.ui) this._toast('ARRIVAL — CENTRAL POLICE', 'Walk inside. Reception is on the left; the captain’s office is on the right.', 9000);
       },
     });
   }
@@ -288,6 +294,13 @@ export class LabLevel {
   // ================= GEOMETRY =================
   _box(parent, w, h, d, mat, x, y, z) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    if (mat.map?.userData.stationSurface) {
+      const uv = m.geometry.attributes.uv, normal = m.geometry.attributes.normal;
+      for (let i = 0; i < uv.count; i++) {
+        uv.setXY(i, uv.getX(i) * (Math.abs(normal.getX(i)) > 0.5 ? d : w) / 2,
+          uv.getY(i) * (Math.abs(normal.getY(i)) > 0.5 ? d : h) / 2);
+      }
+    }
     m.position.set(x, y, z); parent.add(m); return m;
   }
   _std(color, rough = 0.8, metal = 0.1) {
@@ -296,21 +309,29 @@ export class LabLevel {
 
   _buildRoom() {
     const W = 20, D = 14, H = 3.4;
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), this._std(0x9aa0a8, 0.55, 0.05));
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(W, D), this._stationMaterial('tile'));
+    const uv = floor.geometry.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * W / 2, uv.getY(i) * D / 2);
     floor.rotation.x = -Math.PI / 2; this.level.add(floor);
-    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), this._std(0x191c22, 1, 0));
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), this._stationMaterial('plaster', 0xd2d8d5));
+    const ceilingUV = ceil.geometry.attributes.uv;
+    for (let i = 0; i < ceilingUV.count; i++) ceilingUV.setXY(i, ceilingUV.getX(i) * W / 2, ceilingUV.getY(i) * D / 2);
     ceil.rotation.x = Math.PI / 2; ceil.position.y = H; this.level.add(ceil);
-    const wallMat = this._std(0xcfd4da, 0.95, 0);
+    const wallMat = this._stationMaterial('plaster');
     const mkWall = (cx, cz, w, d) => {
       this._box(this.level, w, H, d, wallMat, cx, H / 2, cz);
       this.colliders.push(new THREE.Box3(
         new THREE.Vector3(cx - w / 2, 0, cz - d / 2), new THREE.Vector3(cx + w / 2, H, cz + d / 2)));
     };
-    mkWall(0, -D / 2 - 0.15, W + 0.6, 0.3); mkWall(0, D / 2 + 0.15, W + 0.6, 0.3);
+    mkWall(0, -D / 2 - 0.15, W + 0.6, 0.3);
+    // Lobby-to-lab doorway at x=-5. Bench coordinates remain unchanged.
+    mkWall(-8.15, D / 2 + 0.15, 4.3, 0.3);
+    mkWall(3.15, D / 2 + 0.15, 14.3, 0.3);
+    this._box(this.level, 2, 0.6, 0.3, wallMat, -5, 3.1, D / 2 + 0.15);
     mkWall(-W / 2 - 0.15, 0, 0.3, D + 0.6); mkWall(W / 2 + 0.15, 0, 0.3, D + 0.6);
 
-    const court = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.8), new THREE.MeshBasicMaterial({ color: 0x8d99a3 }));
-    court.position.set(-2, 2.0, -D / 2 + 0.02); this.level.add(court);
+    const court = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.8), new THREE.MeshStandardMaterial({ color: 0x9fb7be, roughness: 0.5, metalness: 0.15 }));
+    court.position.set(-2, 2.0, -D / 2 + 0.10); this.level.add(court);
     this._box(this.level, 8.4, 2.0, 0.08, this._std(0x3a3f47, 0.6, 0.4), -2, 2.0, -D / 2 + 0.05);
     for (let i = 0; i < 3; i++) this._box(this.level, 0.08, 1.8, 0.1, this._std(0x3a3f47, 0.6, 0.4), -5 + i * 3, 2.0, -D / 2 + 0.06);
 
@@ -326,21 +347,30 @@ export class LabLevel {
     [[-6, 2.5], [0, 2.5], [6, 2.5], [0, -3.5]].forEach(([x, z], i) => {
       const tube = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.06, 0.24), (i === 2) ? this._flickerMat : steady);
       tube.position.set(x, H - 0.06, z); tube.userData.noShadow = true; this.level.add(tube);
-      this._box(this.level, 3.4, 0.04, 0.34, this._std(0x2a2e35, 0.6, 0.5), x, H - 0.02, z);
+      const housing = this._box(this.level, 3.4, 0.04, 0.34, this._std(0x2a2e35, 0.6, 0.5), x, H - 0.02, z);
+      (this._ceilingFallbacks ||= []).push(tube, housing);
     });
 
     this._box(this.level, 0.5, 0.22, 0.18, this._std(0x23262c, 0.7, 0.2), 9.4, 1.15, -6.6);
-    this._box(this.level, 0.09, 0.11, 0.09, this._std(0xd8d2c2, 0.9, 0), -3.2, 1.0, 1.4);
+    this._box(this.level, 0.09, 0.11, 0.09, this._std(0xd8d2c2, 0.9, 0), 1.8, 0.99, 4.6);
     this._box(this.level, 0.5, 1.1, 0.14, this._std(0xe4e8ec, 0.95, 0), -9.75, 1.4, 5.5);
 
     this._focusMat = MicroscopeFocusMaterial();
     const demo = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.5), this._focusMat);
-    demo.position.set(6.6, 1.9, 0.4); demo.rotation.y = -Math.PI / 2; demo.userData.noShadow = true;
+    demo.position.set(6.6, 1.4, 1.1); demo.rotation.y = -Math.PI / 2; demo.userData.noShadow = true;
     this.level.add(demo);
     this._uvMat = UVRevealMaterial();
-    const uv = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.6), this._uvMat);
-    uv.position.set(6.6, 1.9, -2.2); uv.rotation.y = -Math.PI / 2; uv.userData.noShadow = true;
-    this.level.add(uv);
+    const uvPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.6), this._uvMat);
+    uvPanel.position.set(6.6, 1.4, -2.2); uvPanel.rotation.y = -Math.PI / 2; uvPanel.userData.noShadow = true;
+    this.level.add(uvPanel);
+    // These live readouts sit on bench-mounted monitor stands, not floating planes.
+    demo.scale.setScalar(.7); uvPanel.scale.setScalar(.7);
+    for(const z of [1.1,-2.2]){
+      const metal=this._std(0x252c34,.6,.3);
+      this._box(this.level,.07,.46,.68,metal,6.65,1.4,z);
+      this._box(this.level,.06,.25,.06,metal,6.69,1.065,z);
+      this._box(this.level,.32,.03,.45,metal,6.69,.955,z);
+    }
   }
 
   _drawClock(mins) {
@@ -367,7 +397,7 @@ export class LabLevel {
 
   _benchBase(g, x, z) {
     g.position.set(x, 0, z);
-    this._box(g, 3.4, 0.08, 1.7, this._std(0x6b5a44, 0.7, 0.05), 0, 0.9, 0);
+    this._box(g, 3.4, 0.08, 1.7, this._std(0x35464b, 0.38, 0.25), 0, 0.9, 0);
     for (const [lx, lz] of [[-1.5, -0.7], [1.5, -0.7], [-1.5, 0.7], [1.5, 0.7]])
       this._box(g, 0.09, 0.9, 0.09, this._std(0x4a3d2e, 0.8, 0), lx, 0.45, lz);
     this.level.add(g);
@@ -410,10 +440,11 @@ export class LabLevel {
       tag.rotation.y = 0.2;
       bag.position.set(x, 0.95, 4.6); this.level.add(bag);
     });
-    this._box(this.level, 0.34, 0.01, 0.26, this._std(0xd8cfa8, 0.9, 0), 2.9, 0.955, 4.6);
+    const intakeSheet = this._box(this.level, 0.34, 0.01, 0.26, this._std(0xd8cfa8, 0.9, 0), 2.4, 1.15, 4.66);
+    intakeSheet.rotation.x = Math.PI / 2;
     // Glove dispenser on the intake table's door-side end
-    this._box(this.level, 0.4, 0.22, 0.3, this._std(0x7a9ec2, 0.7, 0), -3.4, 1.05, 4.6);
-    this._hit(-3.4, 1.0, 4.6, 0.7, 0.6, 0.7, { kind: 'gloves' });
+    this._box(this.level, 0.4, 0.22, 0.3, this._std(0x7a9ec2, 0.7, 0), -3.15, 1.05, 4.6);
+    this._hit(-3.15, 1.0, 4.6, 0.7, 0.6, 0.7, { kind: 'gloves' });
     this._hit(1.2, 1.0, 4.6, 4.0, 0.8, 1.9, { kind: 'intake' });
     if (this.collected.phone) this._hit(-2.7 + 4 * 0.77, 1.0, 4.6, 0.5, 0.4, 0.6, { kind: 'phone' });
   }
@@ -448,6 +479,7 @@ export class LabLevel {
 
   _buildTraceBench() {
     const b = new THREE.Group(); this._benchBase(b, 6.8, 1.6);
+    const scopeStart = b.children.length;
     this._box(b, 0.2, 0.03, 0.32, this._std(0x2a2d34, 0.6, 0.4), -0.7, 0.955, 0);
     this._box(b, 0.1, 0.5, 0.1, this._std(0x1c1f25, 0.5, 0.5), -0.7, 1.22, -0.1);
     this._box(b, 0.26, 0.07, 0.12, this._std(0x1c1f25, 0.5, 0.5), -0.7, 1.5, -0.06);
@@ -469,6 +501,7 @@ export class LabLevel {
     this._stageKnobY = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.05, 14), knobMat.clone());
     this._stageKnobY.rotation.x = Math.PI / 2; this._stageKnobY.position.set(-0.45, 1.0, 0.42);
     this._stageKnobY.userData.knob = 'stageY'; b.add(this._stageKnobY);
+    this._scopeFallbacks = b.children.slice(scopeStart);
     this._box(b, 0.5, 0.06, 0.3, this._std(0x2a2d34, 0.6, 0.4), 0.5, 0.97, -0.2);
     for (let i = 0; i < 5; i++)
       this._box(b, 0.06, 0.005, 0.14, new THREE.MeshStandardMaterial({ color: 0xd8e2ec, transparent: true, opacity: 0.45, roughness: 0.2 }), 0.1 + i * 0.16, 0.955, 0.5);
@@ -482,13 +515,13 @@ export class LabLevel {
 
   _buildBioBench() {
     const b = new THREE.Group(); this._benchBase(b, -6.8, -2.6);
-    this._box(b, 1.25, 0.85, 1.0, this._std(0x30343c, 0.5, 0.5), -0.5, 1.36, 0);
+    this._bioBody = this._box(b, 1.25, 0.85, 1.0, this._std(0x30343c, 0.5, 0.5), -0.5, 1.36, 0);
     { const bc = document.createElement('canvas'); bc.width = 512; bc.height = 205;
       this._bioCtx = bc.getContext('2d'); this._bioTex = new THREE.CanvasTexture(bc); this._bioTex.colorSpace = THREE.SRGBColorSpace; }
     this._bioDisplay = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 0.4), new THREE.MeshBasicMaterial({ map: this._bioTex }));
     this._bioDisplay.position.set(-0.5, 1.5, 0.51);
     this._bioDisplay.userData.noShadow = true; b.add(this._bioDisplay);
-    this._box(b, 0.26, 0.05, 0.03, this._std(0x0a0c10, 0.6, 0.3), -0.5, 1.12, 0.5);
+    this._bioSlot = this._box(b, 0.26, 0.05, 0.03, this._std(0x0a0c10, 0.6, 0.3), -0.5, 1.12, 0.5);
     for (let i = 0; i < 3; i++)
       this._box(b, 0.09, 0.15, 0.09, new THREE.MeshStandardMaterial({ color: 0x4a8fb8, transparent: true, opacity: 0.85, roughness: 0.4 }), 0.7 + i * 0.16, 1.02, 0.5);
     this._cartridgeMesh = this._box(b, 0.3, 0.1, 0.2, this._std(0xd8e2ec, 0.3, 0.1), 1.3, 0.99, -0.3);
@@ -499,17 +532,17 @@ export class LabLevel {
     this._docsLight = this._box(b, 1.7, 0.025, 1.05,
       new THREE.MeshStandardMaterial({ color: 0xe8f0f8, emissive: 0x8fb8d8, emissiveIntensity: 0.55, roughness: 0.4 }), -0.3, 0.945, 0);
     this._box(b, 0.52, 0.006, 0.42, this._std(0xd8cfa8, 0.95, 0), -0.7, 0.962, 0);
-    // The torn note itself: a sweep-reveal surface. The beam position drives
-    // the shader, so indentations surface only where the wand points.
-    this._noteMat = UVRevealMaterial();
-    this._noteMat.uniforms.uSweep.value = 1;
-    this._noteMat.uniforms.uUV.value = 1;
-    this._noteMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.4), this._noteMat);
-    this._noteMesh.rotation.x = -Math.PI / 2;
-    this._noteMesh.position.set(-0.7, 0.968, 0);
-    this._noteMesh.userData.noShadow = true;
-    b.add(this._noteMesh);
-    this._box(b, 0.5, 0.006, 0.4, this._std(0xcdd6e0, 0.95, 0), 0.5, 0.962, 0.1);
+    // A working copy of the original scene photograph, not another exhibit.
+    const print = document.createElement('canvas'); print.width = 512; print.height = 384;
+    const ink = print.getContext('2d'); ink.fillStyle = '#202933'; ink.fillRect(0, 0, 512, 384);
+    ink.strokeStyle = '#5b707e'; ink.lineWidth = 2;
+    for (let x = 0; x < 512; x += 64) { ink.beginPath(); ink.moveTo(x,0); ink.lineTo(x,384); ink.stroke(); }
+    ink.fillStyle = '#ad97da';
+    for (let i = 0; i < 6; i++) { ink.beginPath(); ink.ellipse(110+i*52, 110+(i%2)*85, 32, 10, .3, 0, Math.PI*2); ink.fill(); }
+    ink.fillStyle = '#eee6d2'; ink.font = '24px monospace'; ink.fillText('SCENE EXHIBIT 6 / UV TRAIL', 24, 340);
+    const tex = new THREE.CanvasTexture(print); tex.colorSpace = THREE.SRGBColorSpace;
+    const photo = new THREE.Mesh(new THREE.PlaneGeometry(.5,.4), new THREE.MeshStandardMaterial({map:tex,roughness:.9}));
+    photo.rotation.x = -Math.PI / 2; photo.position.set(-.7,.968,0); b.add(photo);
     this._box(b, 0.14, 0.05, 0.1, this._std(0xb08d3e, 0.4, 0.8), 1.35, 0.97, 0.4);
     this._box(b, 0.04, 0.55, 0.04, this._std(0x1c1f25, 0.5, 0.5), 1.3, 1.2, -0.4);
     this._uvLampHead = new THREE.Mesh(new THREE.ConeGeometry(0.14, 0.16, 14, 1, true),
@@ -525,7 +558,7 @@ export class LabLevel {
     this._wandProp.position.set(0.4, 0.98, -0.55);
     b.add(this._wandProp);
     this._hit(7.2, 0.98, -3.15, 0.5, 0.3, 0.4, { kind: 'wand' });
-    this._hit(6.1, 0.97, -2.6, 0.7, 0.3, 0.6, { kind: 'note' });
+    this._hit(6.1, 0.97, -2.6, 0.7, 0.3, 0.6, { kind: 'trailprints' });
     // Wall light switch by the west wall — the room goes dark by hand
     this._box(this.level, 0.04, 0.16, 0.1, this._std(0xd8d2c2, 0.6, 0), -9.93, 1.5, 1.0);
     this._hit(-9.85, 1.5, 1.0, 0.35, 0.4, 0.4, { kind: 'lightswitch' });
@@ -551,7 +584,8 @@ export class LabLevel {
   }
 
   _buildCaptainDesk() {
-    const d = new THREE.Group(); d.position.set(0, 0, -5.9);
+    const d = new THREE.Group(); d.position.set(15, 0, 9.5);
+    this._captainDesk = d;
     this._box(d, 3.0, 0.08, 1.3, this._std(0x3a2c20, 0.8, 0), 0, 0.78, 0);
     for (const [lx, lz] of [[-1.3, -0.5], [1.3, -0.5], [-1.3, 0.5], [1.3, 0.5]])
       this._box(d, 0.1, 0.78, 0.1, this._std(0x2a1e14, 0.9, 0), lx, 0.39, lz);
@@ -561,16 +595,16 @@ export class LabLevel {
     lampHead.position.set(1.0, 1.32, -0.3); d.add(lampHead);
     this._box(d, 0.04, 0.5, 0.04, this._std(0x1c1f25, 0.5, 0.5), 1.0, 1.05, -0.3);
     this.level.add(d);
-    this.colliders.push(new THREE.Box3(new THREE.Vector3(-1.6, 0, -6.6), new THREE.Vector3(1.6, 0.9, -5.2)));
-    const cap = new THREE.Group();
-    const uniform = this._std(0x1e2a44, 0.85, 0), skin = this._std(0x6f4d3a, 0.8, 0);
-    this._box(cap, 0.42, 0.62, 0.24, uniform, 0, 1.15, 0);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 12), skin);
-    head.position.set(0, 1.62, 0); cap.add(head);
-    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.126, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), this._std(0x151210, 1, 0));
-    hair.position.set(0, 1.635, -0.008); cap.add(hair);
-    cap.position.set(0, 0, -6.7); this.level.add(cap); this.captain = cap;
-    this._hit(0, 1.0, -5.9, 2.2, 2.0, 1.6, { kind: 'captain' });
+    this.colliders.push(new THREE.Box3(new THREE.Vector3(13.4, 0, 8.8), new THREE.Vector3(16.6, 0.9, 10.2)));
+    const cap = this._stationOfficer(15,8.7,'Captain Mabaso',0,0x1e2a44);
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(.157,14,10,0,Math.PI*2,0,Math.PI*.55),this._std(0x151210,1,0));
+    hair.position.set(0,.02,-.008);cap.userData.head.add(hair);
+    const bun=new THREE.Mesh(new THREE.SphereGeometry(.075,10,8),hair.material);
+    bun.position.set(0,.02,-.15);cap.userData.head.add(bun);
+    for(const x of [-.19,.19])this._box(cap,.1,.025,.2,this._std(0xc7a654,.4,.6),x,1.49,0);
+    this._box(cap,.07,.1,.012,this._std(0xc7a654,.4,.6),-.12,1.34,.15);
+    this.captain=cap;
+    this._hit(15, 1.0, 9.5, 2.2, 2.0, 1.6, { kind: 'captain' });
   }
 
   _buildLights() {
@@ -582,7 +616,7 @@ export class LabLevel {
       pl.position.set(x, 3.1, z); this.level.add(pl); this._stripLights.push({ pl, flicker: i === 2 });
     });
     const warm = new THREE.PointLight(0xffc98a, 6, 8, 1.8);
-    warm.position.set(1.0, 1.6, -6.1); this.level.add(warm);
+    warm.position.set(16.0, 1.6, 9.3); this.level.add(warm);
     const uv = new THREE.PointLight(0x6a5adf, 0, 6, 1.8);
     uv.position.set(8.1, 1.7, -3.0); this.level.add(uv); this._uvLight = uv;
   }
@@ -597,8 +631,7 @@ export class LabLevel {
       { id: 'unit-display', name: 'examiner laptop screen', kind: 'evidence', radius: 0.35, getPos: (v) => v.copy(V(-6.5, 1.1, 1.8)) },
       { id: 'microscope', name: 'comparison scope', kind: 'evidence', radius: 0.5, getPos: (v) => v.copy(V(6.1, 1.35, 1.7)) },
       { id: 'sequencer', name: 'sequencer readout', kind: 'evidence', radius: 0.6, getPos: (v) => v.copy(V(-7.3, 1.5, -2.1)) },
-      { id: 'note', name: 'torn note', kind: 'evidence', radius: 0.35, getPos: (v) => v.copy(V(6.1, 0.97, -2.6)) },
-      { id: 'calendar', name: 'desk calendar', kind: 'evidence', radius: 0.3, getPos: (v) => v.copy(V(7.3, 0.97, -2.5)) },
+      { id: 'trail', name: 'UV trail working photograph', kind: 'evidence', radius: 0.35, getPos: (v) => v.copy(V(6.1, 0.97, -2.6)) },
       { id: 'casing', name: 'casing tray', kind: 'evidence', radius: 0.25, getPos: (v) => v.copy(V(8.15, 0.97, -2.2)) },
     ];
     this.photoCam = new PhotoCamera({
@@ -661,7 +694,7 @@ export class LabLevel {
     ui.device = mk('div', 'position:fixed;inset:0;display:none;align-items:center;justify-content:center;gap:26px;background:rgba(5,8,10,.72);z-index:9500;font-family:"Courier New",monospace;color:#dfe7ea;pointer-events:auto;padding:20px;');
     ui.deviceInner = mk('div', 'display:flex;gap:26px;align-items:flex-start;flex-wrap:wrap;justify-content:center;max-height:94vh;overflow:auto;', ui.device);
     ui.captain = mk('div', 'position:fixed;inset:0;display:none;align-items:flex-end;justify-content:center;background:linear-gradient(180deg,rgba(20,24,32,.35) 0%,rgba(10,12,16,.95) 70%);z-index:10000;font-family:"Courier New",monospace;color:#e9d9b0;pointer-events:auto;');
-    ui.captainInner = mk('div', 'max-width:840px;margin:0 auto 6vh;padding:0 24px;text-align:center', ui.captain);
+    ui.captainInner = mk('div', 'max-width:840px;max-height:88vh;overflow-y:auto;margin:0 auto 6vh;padding:16px 24px;text-align:center', ui.captain);
     this._refreshCounter();
   }
   _refreshCounter() {
@@ -674,7 +707,7 @@ export class LabLevel {
     this.ui.carry.style.display = this.carried ? 'block' : 'none';
     if (this.carried) {
       let next = 'lay it in the FARADAY box (silver box, cyber bench)';
-      if (this.carried.id === 'uvwand') next = this.docs.lightsOff ? 'sweep the beam across the torn note' : 'kill the room lights at the wall switch, then sweep the note';
+      if (this.carried.id === 'uvwand') next = 'examine the guest glass at the trace bench';
       else if (this.cyber.staged === 'faraday') next = 'seat it in the unit CRADLE (cyber bench)';
       this.ui.carry.textContent = 'CARRYING: ' + this.carried.id.toUpperCase() + ' — ' + next;
     }
@@ -686,7 +719,10 @@ export class LabLevel {
   }
   _nextStep() {
     const c = this.cyber, r = this.reports, b = this.bio, d = this.docs;
-    if (!this.signedIn) return { text: 'Sign the intake sheet on the intake table.' };
+    if (this.station.departureReady) return { text: 'Open the office door and leave through reception’s front entrance for GENESIS.' };
+    if (!this.station.checkedIn) return { text: 'Walk inside the station and speak to Mokoena at reception on the left.' };
+    if (!this.station.evidenceHanded) return { text: 'Follow the central corridor right to the captain. Leave her door open for the evidence receipt.' };
+    if (!this.signedIn) return { text: 'Enter the lab through the left doorway. Sign the intake sheet.' };
     if (!this.gloves) return { text: 'Glove up \u2014 the dispenser is on the intake table.' };
     const opts = [];
     if (!r.digital && !c.wiped) {
@@ -708,25 +744,29 @@ export class LabLevel {
     }
     if (!r.micro) opts.push({ text: 'TRACE: lay the strand, lower the cover slip, compare under the eyepiece, file the clipboard.' });
     if (!r.docs) {
-      if (!d.lightsOff) opts.push({ text: 'DOCUMENTS: kill the lights, take the UV wand, sweep the torn note.' });
-      else if (!d.noteRead) opts.push({ text: 'DOCUMENTS: sweep the wand across the whole note.' });
-      else opts.push({ text: 'DOCUMENTS: read the calendar and trail prints, photograph the note, file the clipboard.' });
+      const text = !d.casingRead ? 'RECONSTRUCTION: examine the original casing in its tray.'
+        : !d.trailRead ? 'RECONSTRUCTION: examine the working copy of the Level 1 UV trail photograph.'
+        : 'RECONSTRUCTION: photograph the casing and trail print, then file the clipboard.';
+      opts.push({ text });
     }
     const act = opts.find((o) => !o.wait) || opts[0];
     if (act) return act;
     const unsigned = ['digital', 'micro', 'dna', 'docs'].filter((k) => r[k] && !r[k].signed).length;
     if (unsigned) return { text: 'Sign every page of the folder at the report table (' + unsigned + ' left).' };
-    return { text: 'Report to Capt. Mabaso at her desk.' };
+    if (!this.dossier.depot) return { text: this.cyber.wiped ? 'The phone was wiped before the destination was recovered. Press R to retry the level; shield it and enable airplane mode immediately after unlocking.' : 'Read and flag the phone’s map pin, then file the digital report for the destination lead.' };
+    return { text: 'Return to the captain’s office, close the door and deliver all four signed reports.' };
   }
   _refreshQuest() {
     const r = this.reports;
     const signedAll = ['digital', 'micro', 'dna', 'docs'].every((k) => r[k] && r[k].signed);
     const rows = [
+      ['Reception check-in', this.station.checkedIn],
+      ['Captain’s evidence receipt', this.station.evidenceHanded],
       ['Sign in + gloves', this.signedIn && this.gloves],
       ['CYBER \u2014 the phone', !!r.digital],
       ['BIOLOGY \u2014 handkerchief DNA', !!r.dna],
       ['TRACE \u2014 hair vs references', !!r.micro],
-      ['DOCUMENTS \u2014 note, calendar, casing', !!r.docs],
+      ['RECONSTRUCTION \u2014 casing + UV trail', !!r.docs],
       ['Sign every page', signedAll],
     ].map(([t, ok]) => '<div style="' + (ok ? 'color:#1f6f5c' : '') + '">' + (ok ? '&#10003; ' : '&#9744; ') + t + '</div>').join('');
     const left = SHIFT_END - this._labMinutes();
@@ -825,6 +865,11 @@ export class LabLevel {
 
   _interact(it) {
     this._idleT = 0;
+    if (this._stationInteract(it)) return;
+    if (it.kind === 'captain') return this._openCaptain();
+    if (!this.station.evidenceHanded) {
+      this._toast('EVIDENCE HANDOVER REQUIRED', 'Speak to reception, then hand the sealed exhibits to Captain Mabaso in her office before starting lab work.', 5000); return;
+    }
     if (this._interactFlavor(it)) return;   // decor you can poke at any time
     if (!this.signedIn && it.kind !== 'intake' && it.kind !== 'gloves') {
       if (it.kind === 'captain') { this._toast('NOT YET', 'Sign in first.', 2500); return; }
@@ -893,8 +938,8 @@ export class LabLevel {
         this.carried = { id: 'uvwand' };
         if (this._wandProp) this._wandProp.visible = false;
         sfx('collect'); this._refreshCounter(); this._applyDocsMood();
-        if (this.docs.lightsOff) this._toast('UV WAND', 'In hand, and the room is dark. Aim at the torn note and sweep slowly \u2014 the words only show inside the beam.', 6000);
-        else this._toast('SWITCH THE LIGHTS OFF FIRST', 'Room light washes the UV out. Flip a wall switch (one on the east wall by this bench, one on the west wall), then sweep the torn note with the wand.', 9000);
+        if (this.docs.lightsOff) this._toast('UV WAND', 'In hand, and the room is dark. Examine the guest glass at the trace bench.', 6000);
+        else this._toast('SWITCH THE LIGHTS OFF FIRST', 'Room light washes the UV out. Flip a wall switch (one on the east wall by this bench, one on the west wall), then examine the guest glass with the wand.', 9000);
       } else this._toast('HANDS FULL', 'Put down what you are carrying first.', 3000);
       return;
     }
@@ -903,19 +948,10 @@ export class LabLevel {
       this._applyDocsMood(); this._markDocsReads();
       this._toast(this.docs.lightsOff ? 'LIGHTS OFF' : 'LIGHTS ON',
         this.docs.lightsOff
-          ? (this.carried && this.carried.id === 'uvwand' ? 'Dark. Aim the wand at the torn note and sweep slowly.' : 'Dark. Now pick up the UV wand from the documents bench.')
+          ? (this.carried && this.carried.id === 'uvwand' ? 'Dark. Examine the guest glass with the wand.' : 'Dark. Now pick up the UV wand from the reconstruction bench.')
           : 'Fluorescents hum back up.', 5000);
       return;
     }
-    if (it.kind === 'note') {
-      if (!this.collected.note) { this._toast('TORN NOTE', 'Not collected at the scene.', 3000); return; }
-      if (this.docs.noteRead) return this._openOverlay(this._transcriptionSlip());
-      if (!this.docs.lightsOff) { this._toast('ROOM LIGHT', 'Under these tubes it is just paper. Kill the lights, bring the wand.', 4000); return; }
-      const got = this.docs.cover.size;
-      this._toast('SWEEP IT YOURSELF', 'Aim the beam across the whole note — ' + got + '/3 thirds fluorescing so far. The words only live inside the beam.', 4500);
-      return;
-    }
-    if (it.kind === 'knob') return this._grabKnob(it.knob);
     if (it.kind === 'bench') {
       if (it.bench === 'digital') return this._openOverlay(this._cyberPanel());
       if (it.bench === 'micro') return this._openOverlay(this._tracePanel());
@@ -987,7 +1023,7 @@ export class LabLevel {
 
   _folderPanel() {
     const pages = ['digital', 'micro', 'dna', 'docs'].filter((k) => this.reports[k]).map((k) => {
-      const titles = { digital: 'DIGITAL FORENSICS', micro: 'TRACE EVIDENCE', dna: 'DNA ANALYSIS', docs: 'DOCUMENTS' };
+      const titles = { digital: 'DIGITAL FORENSICS', micro: 'TRACE EVIDENCE', dna: 'DNA ANALYSIS', docs: 'SCENE RECONSTRUCTION' };
       const signed = this.reports[k].signed;
       return '<div style="background:#fff;border:1px solid #9aa2ad;padding:14px 16px;margin-bottom:12px">' +
         '<div style="display:flex;justify-content:space-between;align-items:center"><b style="letter-spacing:2px">' + titles[k] + '</b>' +
@@ -1039,7 +1075,7 @@ export class LabLevel {
       el.innerHTML =
         '<div style="max-width:300px;font-size:12px;line-height:1.7;opacity:.85">The handset is warm from the cradle. Type the PIN on <b>its</b> keypad — the unit never touches the lock screen.' +
         (c.unitDone ? '<br><br>Your hashcat run recovered a PIN. Type it on this keypad.' : '<br><br>Not cracked yet. Either crack it on the laptop (safe) or guess from his habits (risky).') +
-        '<br><br>Notebook: “dates — DDMM. October, ringed twice.”' +
+        '<br><br>Use the examiner laptop to recover the PIN before entering it here.' +
         '<br><span style="opacity:.6">[Esc] set the handset down</span></div>' +
         '<div style="width:300px;background:#0c0e12;border:10px solid #1c1f25;border-radius:28px;padding:22px 16px;text-align:center">' +
         '<div style="font-size:11px;opacity:.6">VICTIM\'S PHOTO — a desk clock, a book</div>' +
@@ -1377,46 +1413,20 @@ export class LabLevel {
   }
 
   // ================= BENCH 4 — DOCUMENTS (phase-2 panel, unchanged logic) =================
-  // What you copied off the paper under the beam — your transcription, filed as paper
-  _transcriptionSlip() {
-    return '<h2 style="letter-spacing:4px;margin:0 0 6px">TRANSCRIPTION — TORN NOTE</h2>' +
-      '<p style="opacity:.7;font-size:13px;margin:0 0 14px">Copied by hand under the wand, ' + this._labClock() + '. Second hand pressed hard — not the victim\'s writing.</p>' +
-      '<div style="background:#fff;border:1px solid #9aa2ad;padding:18px 20px;max-width:560px;font-size:15px;line-height:1.8">' +
-      '“…MARKS — BOARD. Three names on the list.<br>Only one of them is lying to you.”</div>' +
-      '<p style="opacity:.5;margin-top:18px;font-size:12px">[Esc] close — the reading itself lives on the paper, this slip is just your copy</p>';
-  }
+  // Re-examine the original casing and the scene UV photograph; no new exhibits.
   _docsPanel() {
-    const d = this.docs;
-    const uvTxt = this.docs.noteRead
-      ? '<b style="color:#2a3a8f">“…MARKS — BOARD. Three names on the list. Only one of them is lying to you.”</b><br><span style="font-size:12px;opacity:.7">Transcribed under your own sweep. [E] on the note re-reads it.</span>'
-      : '<span style="opacity:.6">Unresolved — sweep coverage ' + this.docs.cover.size + '/3. Pick up the wand, kill the wall lights, sweep the paper by hand.</span>';
-    return '<h2 style="letter-spacing:4px;margin:0 0 6px">DOCUMENTS BENCH</h2>' +
-      '<p style="font-size:13px;opacity:.75;max-width:660px">The note is read <b>by hand</b>: pick up the UV wand on the bench, kill the room lights (wall switch, west wall), and sweep the beam across the paper until all three thirds fluoresce. Calendar and trail photos below.</p>' +
-      '<div style="display:flex;gap:10px;margin:14px 0;flex-wrap:wrap">' +
-      '<button id="doc-lights" style="font:inherit;padding:8px 16px;background:' + (d.lightsOff ? '#3a3f47' : '#fff') + ';color:' + (d.lightsOff ? '#fff' : '#111') + ';border:1px solid #555;cursor:pointer">' + (d.lightsOff ? 'Room lights: OFF' : 'Kill room lights (mirrors wall switch)') + '</button>' +
-      '<div style="font-size:12px;align-self:center;opacity:.7">sweep coverage: ' + d.cover.size + '/3' + (d.noteRead ? ' ✓' : '') + '</div></div>' +
-      '<div style="background:#fff;border:1px solid #9aa2ad;padding:12px 14px;max-width:640px;font-size:13px;line-height:1.6">' +
-      '<b>TORN NOTE</b> (item #6) — ' + (this.collected.note ? uvTxt : 'not collected at the scene.') + '</div>' +
-      '<div style="background:#fff;border:1px solid #9aa2ad;padding:12px 14px;margin-top:10px;max-width:640px;font-size:13px;line-height:1.6">' +
-      '<b>DESK CALENDAR</b> (item #8) — ' + (this.collected.calendar
-        ? 'October, the <b>16th ringed twice</b>. One appointment stands out: <b>city depot, 14:00, tomorrow</b>' + (this.cyber.reported ? ' (GPS-confirmed)' : ' (pending phone read)') + '.'
-        : 'not collected at the scene.') + '</div>' +
-      '<div style="background:#fff;border:1px solid #9aa2ad;padding:12px 14px;margin-top:10px;max-width:640px;font-size:13px;line-height:1.6">' +
-      '<b>TRAIL PHOTOS</b> (item #7) — ' + (this.collected.trail
-        ? 'stride 61cm, steady, no drag marks, no stumble. Whoever bled here <b>walked out calmly</b> — they did not run.'
-        : 'not collected at the scene.') +
-      (this.collected.casing ? '<br><b>CASING</b> (item #1) — 9×19mm Parabellum, unregistered lot. Primer strike fits a service pistol with the serial filed off. Under-a-metre shot.' : '') + '</div>' +
-      '<button id="doc-log" style="margin-top:14px;font:inherit;padding:10px 22px;background:' + (this._docsReady() && this._hasPhoto('note') && !d.reported ? '#1f6f5c' : '#9aa2ad') + ';color:#fff;border:0" ' + (this._docsReady() && this._hasPhoto('note') && !d.reported ? '' : 'disabled') + '>' + (d.reported ? 'Logged to folder' : 'Log documents report') + '</button>' +
-      (this._docsReady() && !this._hasPhoto('note') ? '<p style="font-size:12px;opacity:.6">Exhibit first: photograph the note ([Q], close and centred — lights on reads best).</p>' : '') +
-      (this._docsReady() ? '' : '<p style="font-size:12px;opacity:.6">Read the note under UV, the calendar and the trail photos to log this page.</p>') +
-      '<p style="opacity:.5;font-size:12px;margin-top:12px">[Esc] close</p>';
+    const ready = this._docsReady() && this._hasPhoto('casing') && this._hasPhoto('trail');
+    return '<h2>SCENE RECONSTRUCTION — ORIGINAL EXHIBITS 1 &amp; 6</h2>' +
+      '<p>Examine the casing tray and the working copy of the UV trail photograph with [E]. Photograph both with [Q] before filing this report.</p>' +
+      '<p>CASING: ' + (this.docs.casingRead ? 'Examined — 9×19mm. The casing identifies a calibre, not the shooter or a particular gun.' : 'Examine the casing tray.') + '</p>' +
+      '<p>UV TRAIL: ' + (this.docs.trailRead ? 'Examined — a wiped blood trail leads from the guest chair toward the exit. Compare its blood evidence with the handkerchief DNA report.' : 'Examine the scene photograph.') + '</p>' +
+      '<p>The destination and meeting time must come from the recovered phone. No extra scene documents are required.</p>' +
+      '<button id="doc-log" style="font:inherit;padding:12px" ' + (ready && !this.docs.reported ? '' : 'disabled') + '>' + (this.docs.reported ? 'Report filed' : 'File reconstruction report') + '</button><p>[Esc] close</p>';
   }
   _docsReady() {
-    return (!this.collected.note || this.docs.noteRead) &&
-      (!this.collected.calendar || this.docs.calRead) && (!this.collected.trail || this.docs.trailRead);
+    return !!(this.collected.casing && this.collected.trail && this.docs.casingRead && this.docs.trailRead);
   }
 
-  // ================= OVERLAY WIRING (paper panels) =================
   _wireOverlay() {
     const q = (s) => this.ui.overlayInner.querySelector(s);
     const qa = (s) => [...this.ui.overlayInner.querySelectorAll(s)];
@@ -1424,6 +1434,7 @@ export class LabLevel {
 
     const sign = q('#intake-sign');
     if (sign) sign.addEventListener('click', () => {
+      if (!this.station.evidenceHanded) return;
       this.signedIn = true; sfx('collect');
       this._toast('CUSTODY OPEN', 'Evidence signed in. Gloves on — the benches are yours, any order.', 4000);
       rerender(this._intakePanel());
@@ -1520,7 +1531,7 @@ export class LabLevel {
     if (bl) bl.addEventListener('click', () => {
       const b = this.bio; if (b.reported || !this._hasPhoto('sequencer')) return;
       b.reported = true;
-      this.reports.dna = { body: 'Sample: dried blood, item #4 (handkerchief). Full 16-locus STR profile, high confidence.<br>' + this._bioMatchText() + '<br>Trail photo (item #7): the bleeder walked — steady stride, no drag. Whoever left was calm.', signed: false };
+      this.reports.dna = { body: 'Sample: dried blood, item #4 (handkerchief). Full 16-locus STR profile, high confidence.<br>' + this._bioMatchText() + '<br>Trail photo (item #6): the bleeder walked — steady stride, no drag. Whoever left was calm.', signed: false };
       this.dossier.names.add(this.killer.name);
       this.dossier.names.add(this.witness.name);
       this.dossier.temperament = 'walked out, steady, calm';
@@ -1540,27 +1551,10 @@ export class LabLevel {
       this._applyDocsMood(); this._markDocsReads(); rerender(this._docsPanel());
     });
     const dl = q('#doc-log');
-    if (dl) dl.addEventListener('click', () => {
-      const d = this.docs; if (d.reported || !this._docsReady() || !this._hasPhoto('note')) return;
-      d.reported = true;
-      this.reports.docs = {
-        body: 'Torn note (item #6): two hands on one page. ESDA under UV reveals the missing half — <b>“MARKS — BOARD. Three names on the list. Only one of them is lying to you.”</b><br>' +
-          'Desk calendar (item #8): October, 16th ringed twice — <b>city depot, 14:00</b>' + (this.cyber.reported ? ' (GPS-confirmed)' : '') + '; the other ring is the board meeting.<br>' +
-          'UV trail (item #7): steady 61cm stride, no drag — the bleeder walked. Calm on the way out.<br>' +
-          'Casing (item #1): 9×19mm, unregistered. Whoever brought the gun brought it on purpose.',
-        signed: false,
-      };
-      this.dossier.weapon = '9mm, unregistered';
-      this.dossier.depot = 'City depot, 14:00';
-      this.dossier.memo = 'three names on the altered-marks memo';
-      sfx('correct'); this._refreshCounter(); this._checkCaptainReady();
-      this._toast('PAGE FILED', 'Documents page filed — motive, meeting and temperament.', 4500);
-      rerender(this._docsPanel());
-    });
+    if (dl) dl.addEventListener('click', () => { this._fileDocs(); rerender(this._docsPanel()); });
   }
   _markDocsReads() {
-    // The note is read only by hand-sweep (coverage), never by toggles.
-    // calendar + trail prints are read by hand now (see LabExtras)
+    // Casing and trail are examined at their physical props (LabExtras).
   }
   _applyDocsMood() {
     if (this._uvMat) this._uvMat.uniforms.uUV.value = this.docs.uvOn ? 1 : 0;
@@ -1577,13 +1571,16 @@ export class LabLevel {
   // ================= CAPTAIN =================
   _checkCaptainReady() {
     const done = Object.keys(this.reports).length;
-    if (done >= 3 && !this.captainReady) {
+    if (done === 4 && !this.captainReady) {
       this.captainReady = true;
       this._toast('THE CAPTAIN IS WAITING', 'Capt. R. Mabaso is at her desk. Sign your pages at the report table, then report. [E] to speak.', 9000);
     }
   }
   _openCaptain() {
-    if (!this.captainReady) { this._toast('NOT YET', 'File at least three bench reports before you report.', 3500); return; }
+    if (!this.station.evidenceHanded) return this._stationCaptainIntro();
+    if (this.station.departureReady) { this._toast('CAPT. MABASO', 'Your dispatch is signed. Leave through the front entrance for GENESIS.', 5000); return; }
+    if (this.station.doorOpen) { this._toast('CAPT. MABASO', 'Close the office door. This briefing stays between us.', 4000); return; }
+    if (!['digital', 'micro', 'dna', 'docs'].every(k => this.reports[k])) { this._toast('LAB WORK OUTSTANDING', 'Complete all four bench reports, then sign each page at the report table.', 5000); return; }
     this.ui.captain.style.display = 'flex';
     window.__uiCapture = true;
     if (document.exitPointerLock) document.exitPointerLock();
@@ -1601,7 +1598,7 @@ export class LabLevel {
     if (!this.dossier.temperament) missing.push('a temperament read');
     if (names.length < 2) missing.push('a second name');
     if (unsigned.length) missing.push('signatures (' + unsigned.join(', ') + ')');
-    const canGo = names.length >= 2 && this.dossier.depot && unsigned.length === 0;
+    const canGo = this._stationCanDepart();
     this.ui.captainInner.innerHTML =
       '<div style="font-size:12px;letter-spacing:4px;color:#7fd4ff;opacity:.8;margin-bottom:8px">CAPT. R. MABASO — CASE #001</div>' +
       '<div style="font-size:18px;line-height:1.6;margin-bottom:20px">' + line + '</div>' +
@@ -1614,8 +1611,10 @@ export class LabLevel {
       'TEMPERAMENT: ' + (this.dossier.temperament || '—') + '<br>' +
       'MEMO: ' + (this.dossier.memo || '—') + '</div>' +
       '<div style="font-size:12px;opacity:.75;margin-bottom:14px">' + (missing.length ? 'Still missing: ' + missing.join(' · ') : 'The dossier is complete.') + '</div>' +
+      (canGo ? '<p style="text-align:left;line-height:1.7">“The recovered phone’s depot pin matches the municipal GENESIS file on my wall. That depot serves the unfinished beachfront development. Funding collapsed before contractors could blast the cave away. A criminal crew now uses the abandoned works and has rigged a service bridge inside the cave to cut loose when police follow.”</p>' +
+        '<p style="text-align:left;line-height:1.7">“Start with ' + this.killer.name + ', the owner named by the monogram on the bloodied linen. Bring ' + this.killer.him + ' in for questioning. The blood donor, ' + this.witness.name + ', remains a separate lead. Go quietly: if the suspect recognises you and runs, reach ' + this.killer.him + ' before the cave crossing. This is an inquiry, not a conviction.”</p>' : '') +
       (canGo
-        ? '<button id="cap-go" style="font:inherit;padding:12px 26px;background:#a1241c;color:#fff;border:0;cursor:pointer">Take the dossier to the City →</button>'
+        ? '<button id="cap-go" style="font:inherit;padding:12px 26px;background:#a1241c;color:#fff;border:0;cursor:pointer">Accept the GENESIS assignment →</button>'
         : '<button id="cap-close" style="font:inherit;padding:10px 22px;background:#1a2028;color:#c8d8e8;border:1px solid #2a3440;cursor:pointer">Back to the lab</button>');
     const go = this.ui.captainInner.querySelector('#cap-go');
     if (go) go.addEventListener('click', () => this._handoffToCity());
@@ -1624,26 +1623,32 @@ export class LabLevel {
   }
   _closeCaptain() { this.ui.captain.style.display = 'none'; window.__uiCapture = false; }
   _handoffToCity() {
+    if (!this._stationCanDepart() || this.station.departureReady) return;
     window.__caseProgress = window.__caseProgress || { l1: {} };
-    if (this._labMinutes() >= 17 * 60) {
+    if (this._labMinutes() >= SHIFT_END) {
       try { getStats().timeOverrun = 1; } catch (e) {}
-      this._toast('SHIFT END', 'The clock reads past 17:00. The captain signs anyway — the delay is on your record.', 5000);
     }
+    // Preserve the dossier fields consumed by the existing City level. The
+    // pursuit record is the contract for its future GENESIS chase rebuild.
     window.__caseProgress.lab = {
-      names: [...this.dossier.names],
-      killerId: this.case.killerId,
-      witnessId: this.witnessId,
-      weapon: this.dossier.weapon,
-      window: this.dossier.window,
-      depot: this.dossier.depot,
-      temperament: this.dossier.temperament,
-      memo: this.dossier.memo,
+      names: [...this.dossier.names], killerId: this.case.killerId,
+      witnessId: this.witnessId, weapon: this.dossier.weapon,
+      window: this.dossier.window, depot: this.dossier.depot,
+      temperament: this.dossier.temperament, memo: this.dossier.memo,
+      evidenceReceived: [...this.station.inventory],
+      reports: Object.fromEntries(Object.entries(this.reports).map(([key, report]) => [key, { ...report }])),
+      pursuit: {
+        suspectId: this.case.killerId, suspectName: this.killer.name,
+        destination: 'GENESIS unfinished beachfront', route: 'cave service bridge',
+        tippedOff: false,
+        source: 'Recovered scene phone, six-exhibit lab reports and municipal site file',
+      },
     };
+    this._closeCaptain();
+    this.station.departureReady = true;
     if (typeof window.__saveRun === 'function') window.__saveRun();
-    let st = {}; try { st = getStats(); } catch (e) {}
-    this._toast('HANDOFF \u2014 FILED ' + this._labClock(),
-      'The captain signs the folder. Contamination: ' + (st.contamination || 0) + ' \u00b7 wipes: ' + (st.wipes || 0) + ' \u00b7 film wasted: ' + (st.wastedFilm || 0) + '. City \u2014 find both names.', 3600);
-    setTimeout(() => { if (typeof window.__switchLevel === 'function') window.__switchLevel(3); }, 3600);
+    this._refreshCounter();
+    this._toast('DISPATCH AUTHORISED', 'Your vehicle is cleared. Leave through reception’s front entrance for GENESIS.', 6500);
   }
 
   // ================= FRAME =================
@@ -1657,7 +1662,7 @@ export class LabLevel {
   _updateFocus(cam) {
     this.focus = null;
     if (!cam) return;
-    if (this.heldKnob) { this.ui.prompt.style.display = 'none'; return; }
+    if (window.__uiCapture || this.heldKnob) { this.ui.prompt.style.display = 'none'; return; }
     if (this.ui.overlay.style.display === 'block' || this.ui.device.style.display === 'flex' || this.ui.captain.style.display === 'flex') {
       this.ui.prompt.style.display = 'none'; return;
     }
@@ -1666,7 +1671,15 @@ export class LabLevel {
     this._rc.set(this._o, this._d);
     const targets = [];
     this.level.traverse((o) => { if (o.userData.interact) targets.push(o); });
-    const hits = this._rc.intersectObjects(targets, false).filter((h) => { const w = h.object.userData.interact.when; return !w || w(); });
+    const blockPoint = new THREE.Vector3();
+    const hits = this._rc.intersectObjects(targets, false).filter((h) => {
+      const w = h.object.userData.interact.when;
+      if (w && !w()) return false;
+      // A wall must block an interaction in another room. A bench enclosing
+      // its own prop is not an occluder for that prop.
+      return !this.colliders.some(box => !box.containsPoint(this._o) && !box.containsPoint(h.point) &&
+        this._rc.ray.intersectBox(box, blockPoint) && this._o.distanceTo(blockPoint) < h.distance - 0.12);
+    });
     if (!hits.length) { this.ui.prompt.style.display = 'none'; return; }
     // Small precise targets (phone, knobs, eyepiece, cradle) sit INSIDE big
     // bench hitboxes — nearest-surface would always pick the big box. The
@@ -1686,11 +1699,12 @@ export class LabLevel {
   }
   _promptFor(it) {
     const c = this.cyber;
+    { const label = this._stationPrompt(it); if (label !== undefined) return label; }
     { const x = this._promptExtra(it); if (x !== undefined) return x; }
     if (it.kind === 'gloves') return this.gloves ? 'Gloves on ✓' : '[E] Pull on gloves';
     if (it.kind === 'intake') return '[E] Read intake sheet';
     if (it.kind === 'folder') return '[E] Open case folder';
-    if (it.kind === 'captain') return this.captainReady ? '[E] Report to the captain' : '[E] The captain (not ready)';
+    if (it.kind === 'captain') return !this.station.evidenceHanded ? '[E] Hand evidence to Captain Mabaso' : '[E] Brief Captain Mabaso';
     if (it.kind === 'phone') return this.carried ? '' : '[E] Lift the phone out (gloves!)';
     if (it.kind === 'faraday') {
       if (this.carried && this.carried.id === 'phone') return '[E] Lay the phone in the faraday box';
@@ -1717,16 +1731,9 @@ export class LabLevel {
       return this.carried ? 'UV wand (hands full)' : (this.docs.lightsOff ? '[E] Pick up the UV wand' : '[E] Pick up the UV wand (switch the lights OFF first)');
     }
     if (it.kind === 'lightswitch') return this.docs.lightsOff ? '[E] Room lights on' : '[E] Kill the room lights';
-    if (it.kind === 'note') {
-      if (!this.collected.note) return 'Note slot (empty)';
-      if (this.docs.noteRead) return '[E] Read the transcription';
-      if (!this.docs.lightsOff) return 'Torn note \u2014 switch the room lights OFF first (wall switch)';
-      if (!(this.carried && this.carried.id === 'uvwand')) return 'Torn note \u2014 pick up the UV wand from the bench';
-      return 'Torn note \u2014 sweep it with the wand (' + this.docs.cover.size + '/3)';
-    }
     if (it.kind === 'bench') {
       if (it.bench === 'digital') return 'Examiner workstation — work the phone by hand';
-      const n = { micro: 'microscope bench', dna: 'DNA bench', docs: 'documents bench' }[it.bench];
+      const n = { micro: 'microscope bench', dna: 'DNA bench', docs: 'scene reconstruction bench' }[it.bench];
       const done = (it.bench === 'micro' && this.reports.micro) || (it.bench === 'dna' && this.reports.dna) || (it.bench === 'docs' && this.reports.docs);
       return '[E] ' + n + (done ? ' (filed)' : '');
     }
@@ -1734,7 +1741,7 @@ export class LabLevel {
   }
 
   update(dt, t, player) {
-    this.elapsed += dt;
+    if (this.signedIn && !this.station.departureReady) this.elapsed += dt;
     // Intercom beats + a nudge when the player has stalled
     if (this._uiBusy()) this._idleT = 0;
     else {
@@ -1787,37 +1794,6 @@ export class LabLevel {
         if (this.ui.overlay.style.display === 'block') { this._closeOverlay(); this._openOverlay(this._bioPanel()); }
       }
     }
-    // UV wand sweep: the beam lives where YOU aim. Text surfaces only inside it.
-    const sweeping = !!(this.carried && this.carried.id === 'uvwand' && this.docs.lightsOff && this.collected.note && !this.docs.noteRead);
-    if (this._noteMat) this._noteMat.uniforms.uOn.value = (this.carried && this.carried.id === 'uvwand' && this.docs.lightsOff) ? 1 : 0;
-    if (this._beam) this._beam.intensity = sweeping ? 6 : 0;
-    if (this._beamPool) this._beamPool.material.opacity = 0;
-    const cam2 = window.__camera;
-    if (sweeping && cam2 && this._noteMesh) {
-      cam2.getWorldDirection(this._d);
-      this._o.copy(cam2.position);
-      this._knobRay.set(this._o, this._d);
-      const hit = this._knobRay.intersectObject(this._noteMesh, false)[0];
-      if (hit && hit.uv) {
-        this._noteMat.uniforms.uBeam.value.set(hit.uv.x, hit.uv.y);
-        this._beam.position.copy(cam2.position);
-        this._beam.target.position.copy(hit.point);
-        this._beamPool.position.set(hit.point.x, hit.point.y + 0.006, hit.point.z);
-        this._beamPool.material.opacity = 0.45;
-        const third = hit.uv.x < 0.38 ? 0 : hit.uv.x < 0.71 ? 1 : 2;
-        if (!this.docs.cover.has(third)) {
-          this.docs.cover.add(third); sfx('collect');
-          if (this.docs.cover.size >= 3) {
-            this.docs.noteRead = true;
-            this._toast('INDENTATIONS RAISED', 'Three passes — the missing half reads clean under your beam. [E] on the note for your transcription.', 7000);
-          } else this._toast('FLUORESCING ' + this.docs.cover.size + '/3', 'Keep sweeping — the words only live inside the beam.', 2500);
-        }
-      } else {
-        this._noteMat.uniforms.uBeam.value.set(-1, -1);
-        this._beam.position.copy(cam2.position);
-        this._beam.target.position.copy(this._o.addScaledVector(this._d, 4));
-      }
-    }
     if ((this._clockTick = (this._clockTick || 0) + dt) > 1) {
       this._clockTick = 0;
       this._drawClock(this._labMinutes());
@@ -1830,17 +1806,20 @@ export class LabLevel {
       const drop = (Math.sin(t * 9.0) * 43758.5453) % 1;
       s.pl.intensity = (drop > 0.93) ? 3 : 22;
     }
-    if (this.captain) this.captain.position.y = Math.sin(this.elapsed * 1.2) * 0.006;
+    // Captain seating is anchored to the imported chair; gestures update in StationLife.
     if (this._helix && this._helix.visible) this._helix.rotation.y += dt * 0.9;
     if (this._centriSpin > 0 && this._rotor) { this._rotor.rotation.y += dt * 25; this._centriSpin -= dt; if (this._centriSpin <= 0) this._rotor.visible = false; }
     if (this.photoCam) this.photoCam.update(dt, this.elapsed);
 
     const cam = window.__camera;
     if (cam && cam.isCamera && player && player.pos) this._applyFirstPerson(player);
+    this._updateStation(dt, player);
+    updateStationEnvironment(this, dt, t);
     if (cam) this._updateFocus(cam);
   }
 
   dispose() {
+    disposeStationEnvironment(this);
     clearTimeout(this._toastTimer);
     if (this._briefing) { this._briefing.cancel(); this._briefing = null; }
     if (this._termStop) this._termStop();
@@ -1864,3 +1843,4 @@ export class LabLevel {
 }
 
 installLabExtras(LabLevel);
+installPoliceStation(LabLevel);

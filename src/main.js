@@ -10,13 +10,16 @@ import { GameShell } from './ui/GameShell.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { loadAllAudio } from './audio/loadAudio.js';
 import { getStats } from './game/stats.js';
+import { PlayerCamera } from './game/PlayerCamera.js';
+import { MouseLook } from './game/MouseLook.js';
 
 const LEVELS = { 1: StreetLevel, 2: LabLevel, 3: CityLevel, depot: DepotLevel };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.autoUpdate = false;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
@@ -35,6 +38,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1200);
 camera.rotation.order = 'YXZ';
 window.__camera = camera;
+const playerCamera = new PlayerCamera(scene, camera);
 
 const player = {
   pos: new THREE.Vector3(0, 0, 55),
@@ -46,15 +50,20 @@ const player = {
   R: 0.4, H: 1.8,
 };
 
+const mouseLook = new MouseLook();
 const keys = {};
 let locked = false;
+let lockPending = false;
+let lockError = false;
 
-// Esc while the mouse is captured only RELEASES the mouse (the browser does that itself).
-// Esc again (mouse already free) pauses. P always pauses.
-let lastUnlockAt = 0;
+// Click captures the mouse; Escape only releases it. P controls pause.
 addEventListener('keydown', e => {
-  if ((e.code === 'KeyP' || e.code === 'Escape') && !window.__uiCapture && !e.repeat) {
-    if (e.code === 'Escape' && (locked || performance.now() - lastUnlockAt < 250)) return;
+  if (e.code === 'Escape' && locked) {
+    mouseLook.reset();
+    if (document.exitPointerLock) document.exitPointerLock();
+    return;
+  }
+  if (e.code === 'KeyP' && !window.__uiCapture && !e.repeat) {
     if (appState === 'playing' && !levelUiOpen()) setPaused(!paused);
     return;
   }
@@ -72,6 +81,11 @@ addEventListener('keydown', e => {
 
   if (levelUiOpen() || paused || appState !== 'playing') return;
 
+  if (e.code === 'KeyV') {
+    if (!e.repeat) shell.setCameraMode(playerCamera.mode === 'first' ? 'third' : 'first');
+    return;
+  }
+
   keys[e.code] = true;
   if (e.code === 'Space') e.preventDefault();
 
@@ -82,11 +96,20 @@ addEventListener('keydown', e => {
 
 addEventListener('keyup', e => keys[e.code] = false);
 
+function pointerLockFailed() {
+  lockPending = false;
+  lockError = true;
+  updateMsg();
+}
+
 function lockPointer() {
+  if (document.pointerLockElement === renderer.domElement || lockPending) return;
+  lockPending = true;
+  lockError = false;
   try {
     const p = renderer.domElement.requestPointerLock();
-    if (p && typeof p.catch === 'function') p.catch(() => {});
-  } catch (err) {}
+    if (p && typeof p.catch === 'function') p.catch(pointerLockFailed);
+  } catch (err) { pointerLockFailed(); }
 }
 
 renderer.domElement.addEventListener('click', () => {
@@ -94,18 +117,30 @@ renderer.domElement.addEventListener('click', () => {
 });
 
 document.addEventListener('pointerlockchange', () => {
-  const wasLocked = locked;
   locked = document.pointerLockElement === renderer.domElement;
-  if (wasLocked && !locked) lastUnlockAt = performance.now();
+  lockPending = false;
+  lockError = false;
+  mouseLook.reset();
+  for (const key of Object.keys(keys)) keys[key] = false;
   updateMsg();
-  // Losing the mouse no longer pauses: the player just gets the cursor back.
-  // Click the view to recapture it; Esc again or P to pause.
+});
+document.addEventListener('pointerlockerror', pointerLockFailed);
+
+// A browser context menu can release capture during a right click.
+renderer.domElement.addEventListener('contextmenu', e => {
+  if (document.pointerLockElement === renderer.domElement) e.preventDefault();
 });
 
 addEventListener('mousemove', e => {
-  if (!locked || paused || appState !== 'playing') return;
-  player.yaw -= e.movementX * 0.0022;
-  player.pitch = Math.max(-1.4, Math.min(1.4, player.pitch - e.movementY * 0.0022));
+  if (!locked || paused || appState !== 'playing' || levelUiOpen()) return;
+  mouseLook.add(e.movementX, e.movementY);
+});
+
+addEventListener('blur', () => {
+  mouseLook.reset();
+  for (const key of Object.keys(keys)) keys[key] = false;
+  // Focus notifications alone must not release the game's mouse confinement.
+  // The browser handles tab/application switches; pointerlockchange is authoritative.
 });
 
 let level = null, current = 1;
@@ -114,6 +149,11 @@ let paused = false;
 const hud = document.getElementById('hud');
 const msgEl = document.getElementById('msg');
 const crossEl = document.getElementById('cross');
+// Keep shared controls above the level-specific tool belt.
+hud.style.bottom = '48px';
+msgEl.style.bottom = '104px';
+msgEl.style.pointerEvents = 'none';
+crossEl.style.pointerEvents = 'none';
 
 const audio = new AudioManager();
 try { loadAllAudio(audio); } catch (e) { console.warn('audio init failed', e); }
@@ -131,9 +171,10 @@ window.addEventListener('keydown', unlockAudio);
 
 const shell = new GameShell({
   audio,
+  onCameraMode: mode => playerCamera.setMode(mode),
   onNewGame,
   onContinue,
-  onResume: () => { setPaused(false); lockPointer(); },
+  onResume: () => { setPaused(false); },
   onRestartLevel: () => { setPaused(false); switchLevel(current, { fade: true, card: true }); },
   onQuitToMenu: () => quitToMenu(),
 });
@@ -143,22 +184,43 @@ function levelUiOpen() {
   if (!level) return false;
   return !!(level.caseOpen || level.outroOpen || level.fileOpen || level.panelOpen ||
     level.endOpen || level.dialogueOpen || level.suspectsOpen || level.verdictOpen ||
-    level.confirmOpen);
+    level.confirmOpen || level.reconOpen);
+}
+
+const pauseBtn = document.getElementById('pauseBtn');
+let shellOpen = !!shell.root.querySelector('.gs-screen.on');
+let lastMsgState = null;
+// Shell visibility changes only when a screen's class changes, not every frame.
+const shellObserver = new MutationObserver(() => {
+  shellOpen = !!shell.root.querySelector('.gs-screen.on');
+  updateMsg();
+});
+for (const screen of Object.values(shell.screens)) {
+  shellObserver.observe(screen, { attributes: true, attributeFilter: ['class'] });
 }
 
 function updateMsg() {
-  const shellOpen = !!document.querySelector('.gs-screen.on');
-  const clean = appState === 'playing' && !paused && !levelUiOpen() && !shellOpen;
+  const uiOpen = levelUiOpen();
+  const hasLevel = !!level;
+  const prev = lastMsgState;
+  if (prev && prev.shellOpen === shellOpen && prev.locked === locked &&
+      prev.paused === paused && prev.appState === appState && prev.uiOpen === uiOpen &&
+      prev.lockError === lockError && prev.hasLevel === hasLevel) return;
+  lastMsgState = { shellOpen, locked, paused, appState, uiOpen, lockError, hasLevel };
+  const clean = appState === 'playing' && !paused && !uiOpen && !shellOpen;
   if (msgEl) msgEl.style.display = (clean && !locked) ? 'block' : 'none';
+  if (msgEl) msgEl.textContent = lockError
+    ? 'MOUSE CAPTURE FAILED — Click the game to retry'
+    : 'CLICK TO LOCK MOUSE — Esc unlocks · P pauses';
   if (crossEl) crossEl.style.display = (appState === 'playing' && !shellOpen) ? 'block' : 'none';
-  if (hud) hud.style.display = (appState === 'playing' && level) ? 'block' : 'none';
-  const pb = document.getElementById('pauseBtn');
-  if (pb) pb.style.display = clean ? 'block' : 'none';
+  if (hud) hud.style.display = (appState === 'playing' && hasLevel) ? 'block' : 'none';
+  if (pauseBtn) pauseBtn.style.display = clean ? 'block' : 'none';
 }
 
 function setPaused(p) {
   if (appState !== 'playing') return;
   if (p && levelUiOpen()) return;
+  mouseLook.reset();
   paused = p;
   window.__paused = p;
   if (p) {
@@ -185,6 +247,7 @@ function disposeLevel() {
   if (level.sky && scene.children.includes(level.sky)) scene.remove(level.sky);
   if (level.stars && scene.children.includes(level.stars)) scene.remove(level.stars);
   level = null;
+  playerCamera.avatar.visible = false;
   if (window.__dialogue) {
     try { window.__dialogue.dispose(); } catch (e) {}
     window.__dialogue = null;
@@ -271,7 +334,7 @@ async function switchLevel(n, opts = {}) {
   try { audio.playLevelMusic(n); } catch (e) {}
   try {
     audio.stopAmbience();
-    if (n === 3 || n === 'depot') audio.playAmbience('city_ambience');
+    if (n === 2 || n === 3 || n === 'depot') audio.playAmbience('city_ambience');
   } catch (e) {}
   try { shell.saveGame({ level: n, caseProgress: window.__caseProgress || null }); } catch (e) {}
   _lastHudString = '';
@@ -330,17 +393,14 @@ marker.layers.set(2);
 scene.add(marker);
 
 const GRAV = 30, SPEED = 4.5, SPRINT = 9;
-const TURN_SPEED = 2.2;
+const pMin = new THREE.Vector3();
+const pMax = new THREE.Vector3();
+const playerBounds = new THREE.Box3(pMin, pMax);
 
 function stepPlayer(dt) {
   const isSprint = keys.ShiftLeft || keys.ShiftRight;
   const sp = isSprint ? SPRINT : SPEED;
-  const frozen = paused || levelUiOpen();
-
-  if (!frozen && !locked) {
-    if (keys.KeyA) player.yaw += TURN_SPEED * dt;
-    if (keys.KeyD) player.yaw -= TURN_SPEED * dt;
-  }
+  const frozen = paused || levelUiOpen() || !locked;
 
   const f = frozen ? 0 : (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
   const s = (frozen || !locked) ? 0 : (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
@@ -363,9 +423,9 @@ function stepPlayer(dt) {
   else player.grounded = false;
 
   const colliders = (level && Array.isArray(level.colliders)) ? level.colliders : [];
-  const pMin = new THREE.Vector3(player.pos.x - player.R, player.pos.y, player.pos.z - player.R);
-  const pMax = new THREE.Vector3(player.pos.x + player.R, player.pos.y + player.H, player.pos.z + player.R);
-  const pb = new THREE.Box3(pMin, pMax);
+  pMin.set(player.pos.x - player.R, player.pos.y, player.pos.z - player.R);
+  pMax.set(player.pos.x + player.R, player.pos.y + player.H, player.pos.z + player.R);
+  const pb = playerBounds;
   for (const c of colliders) {
     if (!c || typeof c.intersectsBox !== 'function') continue;
     if (!c.intersectsBox(pb)) continue;
@@ -384,6 +444,32 @@ function stepPlayer(dt) {
   }
 }
 
+// No diagnostic listeners, DOM, or frame work exist without ?debug=1.
+let stopDiagnostics;
+if (new URLSearchParams(location.search).get('debug') === '1') {
+  const fps = document.createElement('div');
+  fps.style.cssText = 'position:fixed;top:8px;left:8px;z-index:30000;color:#fff;background:#000a;padding:4px;font:12px monospace;pointer-events:none';
+  document.body.appendChild(fps);
+  let frames = 0, since = performance.now(), debugRaf;
+  const sample = now => {
+    frames++;
+    if (now - since >= 500) {
+      fps.textContent = `${Math.round(frames * 1000 / (now - since))} FPS`;
+      frames = 0; since = now;
+    }
+    debugRaf = requestAnimationFrame(sample);
+  };
+  debugRaf = requestAnimationFrame(sample);
+  // Opt in separately: ?debug=1&mouse=1 (logging can itself affect FPS).
+  const logMouse = e => console.log('[mouse]', e.movementX, e.movementY);
+  if (new URLSearchParams(location.search).get('mouse') === '1') addEventListener('mousemove', logMouse);
+  stopDiagnostics = () => {
+    cancelAnimationFrame(debugRaf);
+    removeEventListener('mousemove', logMouse);
+    fps.remove();
+  };
+}
+
 const timer = new THREE.Timer();
 let _rafId = 0;
 let _lastHudString = '';
@@ -392,6 +478,7 @@ function renderScene() {
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   renderer.clear();
+  renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, camera);
 
   const S = 200;
@@ -416,7 +503,17 @@ function tick() {
   if (!level) { renderScene(); updateMsg(); return; }
   if (paused) { renderScene(); return; }
 
+  if (locked && !levelUiOpen()) mouseLook.apply(player, dt);
+  else mouseLook.reset();
   stepPlayer(dt);
+  if (current === 2) {
+    const p = player.pos;
+    const workspace = p.x > -22.5 && p.x < -10 && p.z > 7 && p.z < 18.2;
+    const indoors = workspace || (Math.abs(p.x) < 10.3 && p.z > -7.2 && p.z < 19)
+      || (p.x >= 10.3 && p.x < 20.3 && p.z > 7 && p.z < 17.2);
+    audio.playAmbience(indoors ? (workspace ? 'station_workspace' : 'station_office') : 'city_ambience');
+  }
+  playerCamera.prepare(player);
   if (typeof level.update === 'function') {
     try { level.update(dt, t, player); }
     catch (e) { console.warn('level.update error', e); }
@@ -429,13 +526,13 @@ function tick() {
     camera.rotation.set(player.pitch, player.yaw, 0);
   }
 
+  playerCamera.present(player, level, t, levelUiOpen());
+
   marker.position.set(player.pos.x, player.pos.y + 2, player.pos.z);
   marker.rotation.set(-Math.PI / 2, player.yaw, 0);
 
   const levelName = (level && level.name) ? level.name : `LEVEL ${current}`;
-  const hudStr =
-    `<b>GENESIS — ${levelName}</b><br>` +
-    `WASD move · E examine · F torch · C file · Esc free mouse · P pause`;
+  const hudStr = `<b>GENESIS — ${levelName}</b>`;
   if (hudStr !== _lastHudString) {
     hud.innerHTML = hudStr;
     _lastHudString = hudStr;
@@ -462,7 +559,10 @@ tick();
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     cancelAnimationFrame(_rafId);
+    shellObserver.disconnect();
+    stopDiagnostics?.();
     try {
+      playerCamera.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
       if (renderer.domElement?.parentNode) {

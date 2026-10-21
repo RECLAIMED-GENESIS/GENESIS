@@ -113,13 +113,13 @@ export class AudioManager {
     // ---- looping ambience bed (runs under the music, follows its volume) ----
     playAmbience(key) {
         if (this.isMuted) return;
-        this._unlock();
         const sound = this.sounds[key];
         if (!sound) {
             console.warn(`Ambience "${key}" not found`);
             return;
         }
         if (this.ambience === sound) return;      // already bedded
+        this._unlock();
         this.stopAmbience();
         sound.loop(true);
         const id = sound.play();
@@ -139,9 +139,9 @@ export class AudioManager {
     playLevelMusic(level) {
         const musicMap = {
             1: 'level_1_chiptune',
-            2: 'level_2_orchestral',
-            3: 'level_3_electronic',
-            depot: 'level_3_electronic',
+            2: 'level_3_electronic',
+            3: 'level_2_orchestral',
+            depot: 'level_2_orchestral',
         };
         const track = musicMap[level];
         if (track && this.sounds[track]) {

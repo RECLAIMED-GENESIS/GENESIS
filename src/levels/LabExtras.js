@@ -9,7 +9,7 @@
 //   3. Every bench action is a physical prop you use with [E] — no more
 //      bench panels with buttons: strand + cover slip, guest glass under
 //      the wand, linen + lysis tube + cartridge + sequencer buttons,
-//      calendar, trail prints, casing tray, and a clipboard at each bench
+//      trail prints, casing tray, and a clipboard at each bench
 //      for filing the report.
 // ============================================================
 import * as THREE from 'three';
@@ -27,7 +27,7 @@ const CHEMS = [
   ['METHANOL', 0xd8e4ea, 'Toxic and flammable. Stays in the cabinet.'],
   ['LUMINOL', 0x8fb4ff, 'Presumptive blood test \u2014 glows blue. The stains here are already visible.'],
   ['PHENOLPHTHALEIN', 0xf0b6d8, 'Kastle\u2013Meyer reagent: turns pink when blood is present.'],
-  ['NINHYDRIN', 0xe8a060, 'Develops prints on paper. The torn note wants UV, not this.'],
+  ['NINHYDRIN', 0xe8a060, 'Develops prints on paper. Keep it away from the scene exhibits unless an examination calls for it.'],
   ['CYANOACRYLATE', 0xe6e6c8, 'Superglue fuming for latent prints on non-porous surfaces.'],
   ['SODIUM HYPOCHLORITE 10%', 0xe8e6a8, 'Bleach. Decontaminates the benches after biological work.'],
   ['LYSIS BUFFER', 0xb8d8a8, 'Breaks open cells to release DNA. Tonight\u2019s tube already has its dose.'],
@@ -200,15 +200,15 @@ const extras = {
       ['23:19  locked Staff Common Room', '23:31  last msg: \u201ccoming up the back stairs\u201d', '00:50  found by the night cleaner',
         'ONE SHOT \u00b7 < 1 m \u00b7 9 mm'].forEach((t, i) => c.fillText(t, 24, 92 + i * 32));
       c.fillStyle = '#a1241c'; c.font = 'bold 22px "Courier New",monospace';
-      c.fillText('PHONE  \u00b7  HAIR  \u00b7  BLOOD  \u00b7  NOTE', 24, 248);
+      c.fillText('6 EXHIBITS / 4 LAB REPORTS', 24, 248);
       c.fillStyle = '#2a7a4a'; c.font = '18px "Courier New",monospace'; c.fillText('shift ends 17:00 \u2014 sign every page', 24, 288);
       c.strokeStyle = '#a1241c'; c.lineWidth = 3; c.beginPath(); c.arc(640, 120, 70, 0, 7); c.stroke();
       c.fillStyle = '#a1241c'; c.font = 'bold 54px sans-serif'; c.textAlign = 'center'; c.fillText('?', 640, 140);
     });
     const wbM = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 1.33), new THREE.MeshBasicMaterial({ map: wb.tex }));
-    wbM.position.set(-5.5, 1.85, 6.97); wbM.rotation.y = Math.PI; wbM.userData.noShadow = true; L.add(wbM);
-    this._box(L, 3.3, 0.06, 0.06, steel, -5.5, 1.16, 6.94);
-    this._hit(-5.5, 1.85, 6.85, 3.3, 1.4, 0.3, { kind: 'whiteboard' });
+    wbM.position.set(-8.1, 1.85, 6.94); wbM.rotation.y = Math.PI; wbM.userData.noShadow = true; L.add(wbM);
+    this._box(L, 3.3, 0.06, 0.06, steel, -8.1, 1.16, 6.9);
+    this._hit(-8.1, 1.85, 6.85, 3.3, 1.4, 0.3, { kind: 'whiteboard' });
 
     // ---- lab coats, biohazard bin, gas cylinders, posters ----
     for (let i = 0; i < 3; i++) {
@@ -307,8 +307,7 @@ const extras = {
     this._box(L, 0.24, 0.004, 0.17, std(0xf2efe4, 0.9, 0), -8.2, 0.98, -2.4);
     this._hit(-8.2, 1.0, -2.4, 0.35, 0.2, 0.28, { kind: 'biopad' });
 
-    // ---------- DOCS: calendar, trail prints, casing tray, clipboard ----------
-    this._hit(7.3, 0.98, -2.5, 0.55, 0.15, 0.45, { kind: 'calendar' });
+    // ---------- DOCS: trail prints, casing tray, clipboard ----------
     const trail = new THREE.Group(); trail.position.set(7.8, 0.962, -2.95); L.add(trail);
     this._box(trail, 0.36, 0.004, 0.28, std(0xf2efe4, 0.9, 0), 0, 0, 0);
     this._box(trail, 0.3, 0.004, 0.22, std(0x1a2230, 0.6, 0), 0, 0.004, 0);
@@ -319,7 +318,7 @@ const extras = {
     this._box(L, 0.24, 0.004, 0.17, std(0xf2efe4, 0.9, 0), 5.35, 0.98, -2.05);
     this._hit(5.35, 1.0, -2.05, 0.35, 0.2, 0.28, { kind: 'docspad' });
 
-    // second wall switch right by the documents bench (east wall) so you don't have to cross the room
+    // second wall switch right by the reconstruction bench (east wall) so you don't have to cross the room
     this._box(L, 0.04, 0.16, 0.1, std(0xd8d2c2, 0.6, 0), 9.96, 1.5, -3.0);
     this._box(L, 0.02, 0.05, 0.03, new THREE.MeshBasicMaterial({ color: 0xffd36a }), 9.93, 1.5, -3.0);
     this._hit(9.85, 1.5, -3.0, 0.35, 0.4, 0.4, { kind: 'lightswitch' });
@@ -519,7 +518,7 @@ const extras = {
       case 'balance':
         return say('ANALYTICAL BALANCE', 'Tared to 0.0000 g. Tonight everything is weighed by a judge, not a scale.', 3500);
       case 'whiteboard':
-        return say('THE BOARD', 'Mabaso\u2019s handwriting: 23:19 locked the common room, 23:31 last message, 00:50 found. Four things circled: PHONE \u00b7 HAIR \u00b7 BLOOD \u00b7 NOTE.', 7000);
+        return say('THE BOARD', 'Mabaso\u2019s handwriting: 23:19 locked the common room, 23:31 last message, 00:50 found. Six exhibits: casing, glass, hair, handkerchief, phone and UV trail. Four reports to complete.', 7000);
       case 'bin':
         return say('BIOHAZARD BIN', 'Used gloves and swabs only. If you are tempted to throw something else in here, file it instead.', 4000);
       case 'cheatcard':
@@ -554,7 +553,7 @@ const extras = {
         return say('SLIDE PREPPED', 'Cover slip down, no bubbles. Lean into the eyepiece \u2014 [E] on the tubes.', 4500);
       case 'tglass':
         if (!this.collected.glass) return say('GUEST GLASS', 'The glass was never collected.', 3500);
-        if (!t.glassUV && !(this.carried && this.carried.id === 'uvwand')) return say('GUEST GLASS', 'Smudges, nothing you can read by eye. Fetch the UV wand from the documents bench and examine it under UV.', 5000);
+        if (!t.glassUV && !(this.carried && this.carried.id === 'uvwand')) return say('GUEST GLASS', 'Smudges, nothing you can read by eye. Fetch the UV wand from the reconstruction bench and examine it under UV.', 5000);
         this._openDevice('glassscan'); return true;
       case 'tracepad':
         return this._fileTrace();
@@ -593,18 +592,14 @@ const extras = {
         if (!b.ready) return say('DNA DISPLAY', 'The strand builds as the sequencer reads it \u2014 ' + this._dnaStage().toLowerCase() + '.', 4500);
         return say('DNA PROFILE', 'Full double helix resolved: 16 STR loci read. ' + (b.matched ? 'Gold rungs = loci matched to a known reference.' : 'Press MATCH on the sequencer to compare it against the references.'), 6500);
       // ---------------- DOCS ----------------
-      case 'calendar':
-        if (!this.collected.calendar) return say('DESK CALENDAR', 'Not collected at the scene.', 3500);
-        d.calRead = true; sfx('collect');
-        return say('DESK CALENDAR', 'October, the <b>16th ringed twice</b>. One appointment stands out: <b>city depot, 14:00, tomorrow</b>' + (this.cyber.reported ? ' (GPS-confirmed)' : ' (pending phone read)') + '.', 8000);
       case 'trailprints':
         if (!this.collected.trail) return say('TRAIL PHOTOS', 'Not collected at the scene.', 3500);
         d.trailRead = true; sfx('collect');
-        return say('TRAIL PHOTOS (UV)', 'Stride 61 cm, steady, no drag marks, no stumble. Whoever bled here <b>walked out calmly</b> \u2014 they did not run.', 8000);
+        return say('TRAIL PHOTOS (UV)', 'The wiped blood trail leads from the guest chair toward the exit. The letter beside the body supports the monogram lead; compare the blood with the handkerchief analysis.', 8000);
       case 'casingtray':
         if (!this.collected.casing) return say('CASING TRAY', 'Empty \u2014 the casing was not collected.', 3500);
-        sfx('collect');
-        return say('CASING', '9\u00d719 mm Parabellum, unregistered lot. Primer strike fits a service pistol with the serial filed off. Under-a-metre shot.', 7000);
+        d.casingRead = true; sfx('collect');
+        return say('CASING', '9\u00d719 mm Parabellum. Compare the primer and ejection marks with a recovered weapon later; the casing alone cannot identify its owner.', 7000);
       case 'docspad':
         return this._fileDocs();
       default: return false;
@@ -637,10 +632,9 @@ const extras = {
       case 'seqrun': return '[E] RUN';
       case 'seqmatch': return '[E] MATCH against the references';
       case 'biopad': return this.reports.dna ? 'Clipboard (DNA report filed)' : '[E] Clipboard \u2014 file the DNA report';
-      case 'calendar': return '[E] Read the desk calendar';
       case 'trailprints': return '[E] Study the UV trail prints';
       case 'casingtray': return '[E] Inspect the casing';
-      case 'docspad': return this.reports.docs ? 'Clipboard (documents report filed)' : '[E] Clipboard \u2014 file the documents report';
+      case 'docspad': return this.reports.docs ? 'Clipboard (reconstruction filed)' : '[E] Clipboard \u2014 file the reconstruction report';
       default: return undefined;
     }
   },
@@ -678,7 +672,7 @@ const extras = {
     if (!b.matched) { this._toast('DNA REPORT', b.ready ? 'Run the reference match on the sequencer first.' : 'No profile yet \u2014 the sequencer has not finished.', 4000); return true; }
     if (!this._hasPhoto('sequencer')) { this._toast('EXHIBIT FIRST', 'Photograph the sequencer readout ([Q], close and centred) before you file.', 5000); return true; }
     b.reported = true;
-    this.reports.dna = { body: 'Sample: dried blood, item #4 (handkerchief). Full 16-locus STR profile, high confidence.<br>' + this._bioMatchText() + '<br>Trail photo (item #7): the bleeder walked \u2014 steady stride, no drag. Whoever left was calm.', signed: false };
+    this.reports.dna = { body: 'Sample: dried blood, item #4 (handkerchief). Full 16-locus STR profile, high confidence.<br>' + this._bioMatchText() + '<br>Trail photo (item #6): the bleeder walked \u2014 steady stride, no drag. Whoever left was calm.', signed: false };
     this.dossier.names.add(this.killer.name);
     this.dossier.names.add(this.witness.name);
     this.dossier.temperament = 'walked out, steady, calm';
@@ -687,29 +681,23 @@ const extras = {
     return true;
   },
   _fileDocs() {
-    const d = this.docs;
-    if (d.reported) { this._toast('DOCUMENTS REPORT', 'Already filed.', 2500); return true; }
+    if (this.docs.reported) { this._toast('RECONSTRUCTION REPORT', 'Already filed.', 2500); return true; }
     if (!this._docsReady()) {
-      const miss = [];
-      if (this.collected.note && !d.noteRead) miss.push('sweep the note under the wand');
-      if (this.collected.calendar && !d.calRead) miss.push('read the calendar');
-      if (this.collected.trail && !d.trailRead) miss.push('study the trail prints');
-      this._toast('DOCUMENTS REPORT', 'Not ready \u2014 still to do: ' + miss.join(', ') + '.', 5000); return true;
+      this._toast('EXAMINE THE SCENE EVIDENCE', 'Use [E] on the casing tray and the UV trail print before filing.', 4500); return true;
     }
-    if (!this._hasPhoto('note')) { this._toast('EXHIBIT FIRST', 'Photograph the note ([Q], close and centred \u2014 lights on reads best) before you file.', 5000); return true; }
-    d.reported = true;
+    if (!this._hasPhoto('casing') || !this._hasPhoto('trail')) {
+      this._toast('PHOTOGRAPHS REQUIRED', 'Photograph the casing tray and the UV trail working print with [Q].', 4500); return true;
+    }
+    this.docs.reported = true;
     this.reports.docs = {
-      body: 'Torn note (item #6): two hands on one page. ESDA under UV reveals the missing half \u2014 <b>\u201cMARKS \u2014 BOARD. Three names on the list. Only one of them is lying to you.\u201d</b><br>' +
-        'Desk calendar (item #8): October, 16th ringed twice \u2014 <b>city depot, 14:00</b>' + (this.cyber.reported ? ' (GPS-confirmed)' : '') + '; the other ring is the board meeting.<br>' +
-        'UV trail (item #7): steady 61cm stride, no drag \u2014 the bleeder walked. Calm on the way out.<br>' +
-        'Casing (item #1): 9\u00d719mm, unregistered. Whoever brought the gun brought it on purpose.',
+      body: 'Original scene exhibit #1: 9×19mm casing. Calibre established; no individual weapon or owner can be identified without comparison.<br>' +
+        'Original scene exhibit #6: the UV photograph records a wiped blood trail from the guest chair toward the exit and the letter beside the body. Compare this with the handkerchief monogram and the DNA report.<br>' +
+        'These are examinations of the six office exhibits. The meeting place and time are recovered from the phone, not from additional documents.',
       signed: false,
     };
-    this.dossier.weapon = '9mm, unregistered';
-    this.dossier.depot = 'City depot, 14:00';
-    this.dossier.memo = 'three names on the altered-marks memo';
+    this.dossier.weapon = '9×19mm; individual weapon not yet identified';
     sfx('correct'); this._refreshCounter(); this._checkCaptainReady();
-    this._toast('PAGE FILED', 'Documents page filed \u2014 motive, meeting and temperament.', 4500);
+    this._toast('PAGE FILED', 'Scene reconstruction filed. Sign its page at the report table.', 4500);
     return true;
   },
 

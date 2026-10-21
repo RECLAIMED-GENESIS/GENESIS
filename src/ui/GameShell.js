@@ -21,13 +21,13 @@ const SETTINGS_KEY = 'genesis.settings.v1';
 
 export const LEVEL_CARDS = {
   1: { title: 'Level 1', sub: "The victim's office", line: 'Dr. Nkosi is dead. The room remembers everything.' },
-  2: { title: 'Level 2', sub: 'The forensic lab', line: 'Eight objects. Two names. The lab cannot say which is which.' },
+  2: { title: 'Level 2', sub: 'The police station', line: 'Check in. Hand over the evidence. Follow what the lab reveals.' },
   3: { title: 'Level 3', sub: 'The city', line: 'Two names walked out of that room. Find them both.' },
 };
 
 const LEVEL_NAMES = {
   1: "The victim's office",
-  2: 'The forensic lab',
+  2: 'The police station',
   3: 'The city',
   depot: 'The depot stakeout',
 };
@@ -74,25 +74,26 @@ const CSS = `
 .gm-vig{position:absolute;inset:0;pointer-events:none;
   background:radial-gradient(ellipse at 40% 55%,rgba(0,0,0,0) 45%,rgba(0,0,0,.7) 100%)}
 .gm-grain{position:absolute;inset:0;pointer-events:none;opacity:.09;mix-blend-mode:overlay}
-.gm-col{position:relative;z-index:3;display:flex;flex-direction:column;justify-content:center;
-  width:100%;padding:0 clamp(24px,8vw,128px);overflow:auto}
+.gm-col{position:relative;z-index:3;display:flex;flex-direction:column;
+  box-sizing:border-box;min-width:0;width:100%;padding:32px clamp(24px,8vw,128px);overflow:auto}
+.gm-col > *{flex-shrink:0}
+.gm-col > .gm-title{margin-top:auto}
+.gm-col > .gm-rest{margin-bottom:auto}
 .gm-title{position:relative;margin:0;font-family:var(--disp);font-weight:900;text-transform:uppercase;
-  font-size:clamp(76px,15vw,216px);line-height:.84;letter-spacing:.005em;width:max-content;max-width:100%}
+  font-size:clamp(40px,12vw,180px);line-height:1.12;letter-spacing:.005em;width:max-content;max-width:100%}
 .gm-word{display:block;background:linear-gradient(180deg,#f6eed9 8%,#c9ba94 100%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
   filter:drop-shadow(0 0 26px rgba(232,163,61,.22))}
-.gm-stamp{position:absolute;right:-3%;bottom:4%;font-family:var(--type);font-weight:700;
+.gm-stamp{position:absolute;right:0;bottom:4%;font-family:var(--type);font-weight:700;
   font-size:clamp(15px,2vw,26px);letter-spacing:.14em;text-transform:uppercase;line-height:1;
   color:var(--stamp);border:3px solid var(--stamp);padding:.22em .55em;transform:rotate(-7deg);opacity:.92;
   -webkit-mask-image:radial-gradient(circle at 18% 30%,#000 55%,rgba(0,0,0,.7) 100%)}
-.gm-lede{max-width:34ch;margin:26px 0 0;font-size:17px;line-height:1.55;color:#d8ccb0}
-.gm-slogan{margin:14px 0 0;font-family:var(--type);font-weight:700;font-size:14px;letter-spacing:.28em;text-transform:uppercase;color:var(--sodium)}
-.gm-hint{margin:26px 0 0;font-size:13px;line-height:1.5;color:var(--mist);max-width:44ch}
+.gm-slogan{max-width:42ch;margin:14px 0 0;font-family:var(--type);font-weight:700;font-size:clamp(12px,1.2vw,16px);line-height:1.6;letter-spacing:.16em;text-transform:uppercase;color:var(--sodium)}
 
 .gs-screen[data-screen="menu"].on .gm-word{animation:gm-wipe .95s cubic-bezier(.2,.7,.2,1) both}
 .gs-screen[data-screen="menu"].on .gm-stamp{animation:gm-slam .32s .95s cubic-bezier(.3,1.7,.5,1) both}
 .gs-screen[data-screen="menu"].on .gm-rest{animation:gm-fade .8s 1.15s ease both}
-@keyframes gm-wipe{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+@keyframes gm-wipe{from{clip-path:inset(-20% 100% -20% -5%)}to{clip-path:inset(-20% -5% -20% -5%)}}
 @keyframes gm-slam{from{opacity:0;transform:rotate(-7deg) scale(1.7)}to{opacity:.92;transform:rotate(-7deg) scale(1)}}
 @keyframes gm-fade{from{opacity:0}to{opacity:1}}
 
@@ -484,8 +485,15 @@ export class GameShell {
         rows[i].focus();
         e.preventDefault();
       } else if (e.code === 'Escape') {
-        if (name === 'howto' || name === 'credits' || (name === 'settings' && this._pauseFrom !== 'pause')) {
+        if (name === 'howto') {
+          this.show(this._guideFrom === 'pause' ? 'pause' : 'menu');
+          e.stopPropagation();
+        } else if (name === 'settings') {
+          this.show(this._pauseFrom === 'pause' ? 'pause' : 'menu');
+          e.stopPropagation();
+        } else if (name === 'credits') {
           this.show('menu');
+          e.stopPropagation();
         }
       }
     };
@@ -496,11 +504,17 @@ export class GameShell {
   _loadSettings() {
     try {
       const s = JSON.parse(localStorage.getItem(SETTINGS_KEY));
-      if (s && typeof s === 'object') return { music: 0.7, sfx: 0.8, muted: false, ...s };
+      if (s && typeof s === 'object') return { music: 0.7, sfx: 0.8, muted: false, ...s, cameraMode: s.cameraMode === 'third' ? 'third' : 'first' };
     } catch (e) {}
-    return { music: 0.7, sfx: 0.8, muted: false };
+    return { music: 0.7, sfx: 0.8, muted: false, cameraMode: 'first' };
+  }
+  setCameraMode(mode) {
+    this.settings.cameraMode = mode === 'third' ? 'third' : 'first';
+    this._applySettings();
+    if (this._paintSettings) this._paintSettings();
   }
   _applySettings() {
+    this.cb.onCameraMode?.(this.settings.cameraMode);
     if (!this.audio) return;
     this.audio.setMusicVolume(this.settings.music);
     this.audio.setSfxVolume(this.settings.sfx);
@@ -609,21 +623,19 @@ export class GameShell {
       <div class="gm-col">
         <h1 class="gm-title"><span class="gm-word">Genesis</span><span class="gm-stamp">Unsolved</span></h1>
         <div class="gm-rest">
-          <p class="gm-slogan">Read the Room. Close the Case.</p>
-          <p class="gm-lede">Dr. Thabo Nkosi was shot in his own office. Five people had a reason to want him quiet.</p>
+          <p class="gm-slogan">Follow the evidence. Question everyone.</p>
           <nav class="gm-nav">
             <button class="gs-btn gm-row primary" id="gs-new"><span class="gm-n">Open the case</span></button>
             <button class="gs-btn gm-row" id="gs-continue"><span class="gm-n">Continue</span><span class="gm-s">No saved case yet</span></button>
-            <button class="gs-btn gm-row" id="gs-how"><span class="gm-n">How to play</span></button>
+            <button class="gs-btn gm-row" id="gs-how"><span class="gm-n">Controls &amp; mission guide</span></button>
             <button class="gs-btn gm-row" id="gs-settings"><span class="gm-n">Settings</span></button>
             <button class="gs-btn gm-row" id="gs-credits"><span class="gm-n">Credits</span></button>
           </nav>
-          <p class="gm-hint">Walk with W A S D, look with the mouse, and press E to use whatever you are looking at.</p>
         </div>
       </div></div>`);
     n.querySelector('#gs-new').addEventListener('click', () => this.cb.onNewGame && this.cb.onNewGame());
     n.querySelector('#gs-continue').addEventListener('click', () => this.cb.onContinue && this.cb.onContinue());
-    n.querySelector('#gs-how').addEventListener('click', () => this.show('howto'));
+    n.querySelector('#gs-how').addEventListener('click', () => { this._guideFrom = 'menu'; this.show('howto'); });
     n.querySelector('#gs-settings').addEventListener('click', () => this.openSettings('menu'));
     n.querySelector('#gs-credits').addEventListener('click', () => this.show('credits'));
     const url = grainURL();
@@ -652,24 +664,26 @@ export class GameShell {
   _buildHowto() {
     const n = el(`<div>
       <div class="gs-sheet">
-        <h2 class="gs-h">How to play</h2>
+        <h2 class="gs-h">Controls &amp; mission guide</h2>
         <p class="gs-faint"><b>Read the Room. Close the Case.</b></p>
         <dl class="gs-keys">
           <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Walk. Move the mouse to look; click the scene once to capture it.</dd>
           <dt><kbd>Shift</kbd><kbd>Space</kbd></dt><dd>Run and jump.</dd>
+          <dt><kbd>V</kbd></dt><dd>Switch first-person / third-person during exploration. Photos and scripted scenes use their own view, then restore your choice.</dd>
           <dt><kbd>E</kbd></dt><dd>Use what you are looking at: pick it up, question it, open it.</dd>
           <dt><kbd>Q</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></dt><dd>Office kit: camera, bags, tweezers, swab. Photograph first, lift second.</dd>
           <dt><kbd>F</kbd></dt><dd>Switch on the UV torch.</dd>
           <dt><kbd>C</kbd></dt><dd>Open the case file.</dd>
           <dt><kbd>B</kbd></dt><dd>Open the evidence board in the city.</dd>
           <dt><kbd>Y</kbd><kbd>N</kbd></dt><dd>Accept / decline the depot stakeout warrant.</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Release the mouse. Click the game view to lock it again. Looking stops while unlocked.</dd>
           <dt><kbd>P</kbd><kbd>R</kbd></dt><dd>Pause, or restart the level.</dd>
         </dl>
-        <p>The case runs in four stages. <b>1 — Office:</b> work the crime scene with the right tool for each clue; wrong tool means contamination. <b>2 — Lab:</b> sign evidence in, wear gloves, shield the phone and read the microscope yourself to name two people. <b>3 — City:</b> question all five witnesses, link evidence to them on the board and ask the captain for a warrant. <b>4 — Depot:</b> run the 14:00 stakeout and close it.</p>
-        <p>Progress saves every time you change level.</p>
+        <h3>Your investigation</h3><p>The case runs in four stages. <b>1 — Office:</b> photograph all six exhibits with Q and left click before collecting them with E. Use 1 for bags, 2 for tweezers and 3 for a swab; F reveals the UV trail. Open C after all evidence is logged and seal the file to travel to the station.</p><p><b>2 — Police station:</b> start outside, speak to Mokoena at reception, close the captain’s office door and hand in your evidence. Enter the lab, sign intake and wear gloves. Examine the phone, trace evidence, blood, and the casing / UV-trail reconstruction. Crack the phone on the laptop, then enter its PIN on the handset. Sign all four reports, brief the captain behind a closed door, and leave through the front entrance. Closed wings are not accessible.</p><p> <b>3 — City:</b> question all five witnesses, link evidence to them on the board and ask the captain for a warrant. <b>4 — Depot:</b> run the 14:00 stakeout and close it.</p>
+        <p><b>Briefings:</b> Space, Enter or click finishes the current line, then advances. Esc skips. Your current objective stays on the HUD.</p><p>Progress saves at level transitions. Continue restarts the saved level; it does not restore every mid-level action.</p>
         <button class="gs-btn gs-pill" id="gs-how-back">Back</button>
       </div></div>`);
-    n.querySelector('#gs-how-back').addEventListener('click', () => this.show('menu'));
+    n.querySelector('#gs-how-back').addEventListener('click', () => this.show(this._guideFrom === 'pause' ? 'pause' : 'menu'));
     this._addScreen('howto', n);
   }
 
@@ -677,13 +691,18 @@ export class GameShell {
     const n = el(`<div>
       <div class="gs-sheet">
         <h2 class="gs-h">Settings</h2>
+        <div class="gs-set"><label for="gs-camera">Exploration view</label><select id="gs-camera"><option value="first">First-person</option><option value="third">Third-person</option></select></div>
+        <p class="gs-faint">Press V while exploring to switch views. Your choice is saved. Photography and story scenes temporarily use their required view.</p>
         <div class="gs-set"><label for="gs-music">Music</label><input id="gs-music" type="range" min="0" max="100"><output id="gs-music-v"></output></div>
         <div class="gs-set"><label for="gs-sfx">Sound effects</label><input id="gs-sfx" type="range" min="0" max="100"><output id="gs-sfx-v"></output></div>
         <div class="gs-set"><label for="gs-mute">Mute everything</label><input id="gs-mute" type="checkbox"></div>
         <button class="gs-btn gs-pill" id="gs-set-back">Back</button>
       </div></div>`);
+    const view = n.querySelector('#gs-camera');
+    view.addEventListener('change', () => this.setCameraMode(view.value));
     const m = n.querySelector('#gs-music'), s = n.querySelector('#gs-sfx'), mu = n.querySelector('#gs-mute');
     const paint = () => {
+      view.value = this.settings.cameraMode;
       m.value = Math.round(this.settings.music * 100);
       s.value = Math.round(this.settings.sfx * 100);
       mu.checked = this.settings.muted;
@@ -731,12 +750,14 @@ export class GameShell {
         <nav class="gm-nav">
           <button class="gs-btn gm-row primary" id="gs-resume"><span class="gm-n">Resume</span></button>
           <button class="gs-btn gm-row" id="gs-restart"><span class="gm-n">Restart level</span></button>
+          <button class="gs-btn gm-row" id="gs-pguide"><span class="gm-n">Controls &amp; mission guide</span></button>
           <button class="gs-btn gm-row" id="gs-pset"><span class="gm-n">Settings</span></button>
           <button class="gs-btn gm-row" id="gs-quit"><span class="gm-n">Quit to menu</span></button>
         </nav>
       </div></div>`);
     n.querySelector('#gs-resume').addEventListener('click', () => this.cb.onResume && this.cb.onResume());
     n.querySelector('#gs-restart').addEventListener('click', () => this.cb.onRestartLevel && this.cb.onRestartLevel());
+    n.querySelector('#gs-pguide').addEventListener('click', () => { this._guideFrom = 'pause'; this.show('howto'); });
     n.querySelector('#gs-pset').addEventListener('click', () => this.openSettings('pause'));
     n.querySelector('#gs-quit').addEventListener('click', () => this.cb.onQuitToMenu && this.cb.onQuitToMenu());
     this._addScreen('pause', n);

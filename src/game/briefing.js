@@ -4,7 +4,7 @@
 // types each line, and hands the mouse back on dismiss.
 //   Space / Enter / click = next (finishes typing first)   Esc = skip all
 // ============================================================
-export function showBriefing({ kicker = 'DISPATCH', stamp = '', speaker = '', lines = [], accent = '#f2b84b', onDone } = {}) {
+export function showBriefing({ kicker = 'DISPATCH', stamp = '', speaker = '', lines = [], accent = '#f2b84b', objective = '', onDone } = {}) {
   let dead = false, root = null, poll = 0, typeT = 0;
   let idx = 0, typing = false, full = '';
   let lineEl = null, nextEl = null;
@@ -25,13 +25,6 @@ export function showBriefing({ kicker = 'DISPATCH', stamp = '', speaker = '', li
     if (dead) return;
     teardown();
     window.__uiCapture = false;
-    try {
-      const cv = document.querySelector('body > canvas');
-      if (cv && cv.requestPointerLock) {
-        const p = cv.requestPointerLock();
-        if (p && p.catch) p.catch(() => {});
-      }
-    } catch (e) { /* needs a user gesture; the click-to-capture prompt covers it */ }
     if (onDone) onDone();
   };
   const type = (text) => {
@@ -40,7 +33,7 @@ export function showBriefing({ kicker = 'DISPATCH', stamp = '', speaker = '', li
     let i = 0;
     lineEl.textContent = '';
     nextEl.style.visibility = 'hidden';
-    nextEl.textContent = idx >= lines.length - 1 ? '[ Space ] to work' : '[ Space ] continue';
+    nextEl.textContent = `${idx + 1}/${lines.length} · ` + (idx >= lines.length - 1 ? '[ Space / Enter ] begin' : '[ Space / Enter ] continue');
     typeT = setInterval(() => {
       i += 1;
       lineEl.textContent = text.slice(0, i);
@@ -80,6 +73,7 @@ export function showBriefing({ kicker = 'DISPATCH', stamp = '', speaker = '', li
           <b style="letter-spacing:4px;color:${accent};font-size:13px">${kicker}</b>
           <span style="opacity:.55;font-size:12px;letter-spacing:2px">${stamp}</span>
         </div>
+        ${objective ? `<div style="padding:12px 16px;margin-bottom:18px;border-left:3px solid ${accent};background:rgba(255,255,255,.07);font-size:14px;line-height:1.6"><b>OBJECTIVE:</b> ${objective}</div>` : ''}
         ${speaker ? `<div style="opacity:.7;font-size:12px;letter-spacing:2px;margin-bottom:8px">${speaker}</div>` : ''}
         <p id="br-line" style="font-size:19px;line-height:1.65;min-height:5.2em;margin:0 0 16px"></p>
         <div style="display:flex;justify-content:space-between;font-size:12px;opacity:.7">

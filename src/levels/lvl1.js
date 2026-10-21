@@ -7,10 +7,9 @@
 // investigator logging the evidence and heading for the next lead.
 //
 // NOTE ABOUT THE CAMERA / CONTROLS
-//   This level is purely first-person: the player is never seen, and the view
-//   carries no hands, torch or feet. It only takes over window.__camera (see
-//   _applyFirstPerson) so the game reads as first person from Level 1 alone,
-//   however the host was driving it.
+//   Evidence is aimed from eye height. The host can render a trailing
+//   third-person view on the same sightline after this level updates.
+//   Photography stays at eye height; V toggles the exploration view.
 //
 // Controls used by this level
 //   mouse      look (needs pointer lock)
@@ -58,7 +57,7 @@ export const CASE = {
   ],
   lastSeenPlace: 'The Staff Common Room (3rd floor)',
   nextLevel: 2,
-  nextPlace: 'the City',
+  nextPlace: 'Central Police Station',
   // Shown as a short cutscene once every clue is logged: the investigator bags
   // the evidence for the lab, then heads for the city contact the diary names.
   outro: [
@@ -357,21 +356,22 @@ export class StreetLevel {
 
     this._onKey = (e) => this._handleKey(e);
     window.addEventListener('keydown', this._onKey);
-
     this._toast('INCIDENT — LECTURER FOUND DEAD', `Photograph everything before you lift it. [Q] camera · [1] bags · [2] tweezers · [3] swab · [E] collect · [F] UV lamp · [C] file`, 11000);
-    // Opening: a typed dispatch over the radio, then the controls reminder.
+    // Opening: a typed dispatch over the radio, then the evidence reminder.
     this._briefing = showBriefing({
       kicker: 'POLICE RADIO',
       stamp: '00:58  \u2014  FACULTY OF COMPUTING, 3RD FLOOR',
       speaker: 'DISPATCH \u2192 INVESTIGATOR',
+      objective: 'Photograph and collect all 6 exhibits. Review the case file [C], then take the sealed evidence to the police station.',
       lines: [
-        'All units, one-nine. A body in Office 3.14. Dr. Thabo Nkosi, lecturer. The night cleaner found him at 00:50 and has not stopped shaking since.',
-        'Single gunshot to the chest. The door was shut, nothing forced, and the building has been locked since midnight. Whoever did this knew the stairs.',
-        'Photograph first, lift second, and wrong tool means contamination. The defence will read your notes before the jury does. Everything you do in that room is evidence.',
-        'Head of Department wants this quiet. Captain Mabaso wants it closed. You are the only one standing in that office. Go.',
+        'DISPATCH: Detective, you are in Dr. Thabo Nkosi’s office at the Faculty of Computing. The night cleaner found him dead at 00:50. He suffered a single gunshot wound.',
+        'DETECTIVE: I will secure the room and document what happened. We have five possible suspects, but no finding identifies the killer yet.',
+        'DISPATCH: Start with the visible objects on the desk and beside the body. Look at an exhibit, raise your camera with Q and click to photograph it. Lower the camera with Q, then press E to collect it.',
+        'DISPATCH: Use 1 for evidence bags, 2 for tweezers and 3 for the blood swab. The camera suggests the correct tool after a sharp photo. F turns on UV: use it to find and photograph the wiped trail.',
+        'CAPTAIN MABASO: Log all six exhibits. Open your case file with C, review the conclusions and seal the evidence. Then come to Central Police Station: reception will direct you to my office before you enter the lab.',
       ],
       onDone: () => {
-        if (this.ui) this._toast('INCIDENT \u2014 LECTURER FOUND DEAD', `Photograph everything before you lift it. [Q] camera · [1] bags · [2] tweezers · [3] swab · [E] collect · [F] UV torch · [C] file · [Esc] free the mouse`, 9000);
+        if (this.ui) this._toast('INCIDENT \u2014 LECTURER FOUND DEAD', `Photograph everything before you lift it.`, 9000);
       },
     });
   }
@@ -626,21 +626,16 @@ export class StreetLevel {
     this.level.add(new THREE.HemisphereLight(0xbcd0f2, 0x544c3e, 1.15));
     this.level.add(new THREE.AmbientLight(0xdfe8ff, 0.5));
 
-    // two large cool fills so every corner of the bigger room reads clearly
-    this.roomFill = new THREE.PointLight(0xeaf0ff, 2.6, 34, 1.7);
-    this.roomFill.position.set(-3.5, 3.7, -2.5);
+    // One central ceiling fill replaces the three overlapping point lights.
+    // Sky and ambient light retain the soft illumination in the corners.
+    this.roomFill = new THREE.PointLight(0xeaf0ff, 8.0, 34, 1.7);
+    this.roomFill.position.set(this.CX, this.H - 0.5, this.CZ);
     this.level.add(this.roomFill);
-
-    this.backFill = new THREE.PointLight(0xe6edff, 2.4, 32, 1.7);
-    this.backFill.position.set(5.5, 3.7, 1.5);
-    this.level.add(this.backFill);
 
     // desk lamp — the warm focal light over the desk (steady, no flicker)
     this.lamp = new THREE.PointLight(0xffc27a, 11, 15, 1.5);
     this.lamp.position.set(-2.6, 1.5, -3.4);
-    this.lamp.castShadow = true;
-    this.lamp.shadow.mapSize.set(1024, 1024);
-    this.lamp.shadow.bias = -0.0035;
+    this.lamp.castShadow = false;
     this.level.add(this.lamp);
 
     // moonlight through BOTH windows — steady night light, no lightning
@@ -669,9 +664,6 @@ export class StreetLevel {
       t.userData.noShadow = true;
       this.level.add(t);
     }
-    this.tube = new THREE.PointLight(0xeaf1ff, 3.0, 28, 1.8);
-    this.tube.position.set(this.CX, this.H - 0.5, this.CZ);
-    this.level.add(this.tube);
 
     // light leaking in from the corridor through the door
     const leak = new THREE.PointLight(0x9fc0ff, 1.6, 8, 2);
@@ -988,7 +980,7 @@ g.add(lay);
 new FBXLoader().load(professorFBX, (object) => {
   object.scale.setScalar(0.01);
   object.traverse((o) => {
-    if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; }
+    if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; }
   });
   lay.add(object);
 
@@ -1006,6 +998,10 @@ new FBXLoader().load(professorFBX, (object) => {
     action.paused = true;          // and hold it there
     this.mixer.update(0);          // apply that pose now
   }
+
+  // Cull skinned meshes against the final lying pose, not the FBX bind pose.
+  g.updateMatrixWorld(true);
+  object.traverse(o => { if (o.isSkinnedMesh) o.computeBoundingSphere(); });
 
   // measure the LYING pose, then centre over the blood pool
   g.updateMatrixWorld(true);
@@ -1409,7 +1405,6 @@ new FBXLoader().load(professorFBX, (object) => {
 
   _openCaseFile() {
     if (!this.caseOpen) {
-      this._lockEl = document.pointerLockElement || null;
       this.caseOpen = true;
     }
     if (document.exitPointerLock) document.exitPointerLock();
@@ -1506,11 +1501,10 @@ new FBXLoader().load(professorFBX, (object) => {
   _closeCaseFile() {
     this.caseOpen = false;
     this.ui.case.style.display = 'none';
-    if (this._lockEl && this._lockEl.requestPointerLock) { try { this._lockEl.requestPointerLock(); } catch (e) { /* needs user gesture */ } }
   }
 
   // End-of-level cutscene: the investigator logs the evidence, takes it to the
-  // lab, and sets off for the city contact the diary named -> Level 2.
+  // police station for the captain’s receipt and hands-on lab work -> Level 2.
   _openOutro() {
     if (this.outroOpen) return;
     this.outroOpen = true;
@@ -1529,7 +1523,7 @@ new FBXLoader().load(professorFBX, (object) => {
       </div>
       <div style="display:flex;flex-direction:column;justify-content:center">${lines}</div>
       <div style="position:absolute;bottom:9%;left:0;right:0">
-        <button id="outro-continue" style="font:inherit;letter-spacing:1px;padding:12px 28px;background:#a1241c;color:#fff;border:0;cursor:pointer;opacity:0;animation:outroFade .7s ${(CASE.outro.length * 1.2).toFixed(2)}s forwards">Seal the evidence and send it to the lab &rarr;</button>
+        <button id="outro-continue" style="font:inherit;letter-spacing:1px;padding:12px 28px;background:#a1241c;color:#fff;border:0;cursor:pointer;opacity:0;animation:outroFade .7s ${(CASE.outro.length * 1.2).toFixed(2)}s forwards">Seal the evidence for Central Police Station &rarr;</button>
       </div>`;
     this.ui.outro.style.display = 'flex';
 
@@ -1538,19 +1532,19 @@ new FBXLoader().load(professorFBX, (object) => {
   }
 
   // Second outro stage: the screen cuts to black while the evidence goes to
-  // the lab, then offers the jump to the city (Level 2).
+  // the station, then offers the next-morning arrival (Level 2).
   _showLabScreen() {
     this.ui.outro.innerHTML = `
       <style>@keyframes labFadeIn{from{opacity:0}to{opacity:1}}</style>
       <div style="position:absolute;inset:0;background:#000;animation:labFadeIn 1.4s forwards"></div>
       <div style="position:relative;max-width:min(720px,88vw);font-size:15px;letter-spacing:4px;color:#f2b84b;opacity:0;animation:labFadeIn 1.2s 1.6s forwards">
-        FORENSIC LAB — CENTRAL CITY
+        NEXT MORNING — CENTRAL POLICE STATION
       </div>
       <p style="position:relative;max-width:min(680px,86vw);margin:26px auto 0;font-size:19px;line-height:1.7;color:#d7dde8;opacity:0;animation:labFadeIn 1.4s 2.4s forwards">
-        The evidence has been sent to the lab. The results will be available in a few days.
+        The room is sealed and the exhibits are packed. Take them to Central Police Station, check in at reception and hand them to Captain Mabaso. You will examine the evidence yourself in the station lab.
       </p>
       <div style="position:relative;margin-top:48px;opacity:0;animation:labFadeIn 1s 4s forwards">
-        <button id="outro-city" style="font:inherit;letter-spacing:1px;padding:12px 28px;background:#1f6f5c;color:#fff;border:0;cursor:pointer">Go to the City to continue the investigation &rarr;</button>
+        <button id="outro-city" style="font:inherit;letter-spacing:1px;padding:12px 28px;background:#1f6f5c;color:#fff;border:0;cursor:pointer">Travel to Central Police Station — Level 2 &rarr;</button>
       </div>`;
 
     const btn = this.ui.outro.querySelector('#outro-city');
@@ -1570,7 +1564,10 @@ new FBXLoader().load(professorFBX, (object) => {
       const ok = this.solved.has(d.id);
       return `<div style="color:${ok ? '#7fd4a8' : '#f2d9a0'};opacity:${ok ? 1 : 0.8}">${ok ? '&#10003;' : '&#9744;'} ${d.prompt} <span style="opacity:.6">${ok ? '' : got + '/' + d.needs.length}</span></div>`;
     }).join('');
-    this.ui.quest.innerHTML = `<div style="opacity:.55;letter-spacing:2px;margin-bottom:2px">OPEN QUESTIONS</div>${rows}`;
+    const found = this.clues.filter(c => c.found).length;
+    const next = found === this.clues.length ? 'All exhibits logged. Open [C], review the conclusions and seal the evidence for the police station.'
+      : 'Photograph [Q + click], lower camera [Q], then collect [E]. Use [F] to reveal the wiped trail.';
+    this.ui.quest.innerHTML = `<div style="margin-bottom:8px;line-height:1.6"><b>SECURE THE OFFICE — ${found}/${this.clues.length}</b><br>${next}</div><div style="opacity:.55;letter-spacing:2px;margin-bottom:2px">OPEN QUESTIONS</div>${rows}`;
   }
 
   _hint() {
