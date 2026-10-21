@@ -4,16 +4,14 @@
 import * as THREE from 'three';
 import { StreetLevel } from './levels/lvl1.js';
 import { LabLevel }    from './levels/LabLevel.js';
-import { CityLevel }   from './levels/CityLevel.js';
-import { DepotLevel }  from './levels/DepotLevel.js';
+import { ChaseLevel }  from './levels/ChaseLevel.js';
 import { GameShell } from './ui/GameShell.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { loadAllAudio } from './audio/loadAudio.js';
 import { getStats } from './game/stats.js';
-import { PlayerCamera } from './game/PlayerCamera.js';
 import { MouseLook } from './game/MouseLook.js';
 
-const LEVELS = { 1: StreetLevel, 2: LabLevel, 3: CityLevel, depot: DepotLevel };
+const LEVELS = { 1: StreetLevel, 2: LabLevel, 3: ChaseLevel };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
@@ -38,7 +36,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1200);
 camera.rotation.order = 'YXZ';
 window.__camera = camera;
-const playerCamera = new PlayerCamera(scene, camera);
+let cameraMode = 'first';
 
 const player = {
   pos: new THREE.Vector3(0, 0, 55),
@@ -82,7 +80,8 @@ addEventListener('keydown', e => {
   if (levelUiOpen() || paused || appState !== 'playing') return;
 
   if (e.code === 'KeyV') {
-    if (!e.repeat) shell.setCameraMode(playerCamera.mode === 'first' ? 'third' : 'first');
+    e.stopImmediatePropagation();
+    if (!e.repeat) shell.setCameraMode(cameraMode === 'first' ? 'third' : 'first');
     return;
   }
 
@@ -171,7 +170,11 @@ window.addEventListener('keydown', unlockAudio);
 
 const shell = new GameShell({
   audio,
-  onCameraMode: mode => playerCamera.setMode(mode),
+  onCameraMode: mode => {
+    cameraMode = mode;
+    level?._view?.setMode(mode);
+    if (current === 3 && level) level.view = mode;
+  },
   onNewGame,
   onContinue,
   onResume: () => { setPaused(false); },
@@ -247,7 +250,6 @@ function disposeLevel() {
   if (level.sky && scene.children.includes(level.sky)) scene.remove(level.sky);
   if (level.stars && scene.children.includes(level.stars)) scene.remove(level.stars);
   level = null;
-  playerCamera.avatar.visible = false;
   if (window.__dialogue) {
     try { window.__dialogue.dispose(); } catch (e) {}
     window.__dialogue = null;
@@ -331,10 +333,12 @@ async function switchLevel(n, opts = {}) {
   await shell.transition(() => buildLevel(n), useCard && typeof n === 'number' ? n : 0);
   paused = false;
   window.__paused = false;
+  level?._view?.setMode(cameraMode);
+  if (n === 3 && level) level.view = cameraMode;
   try { audio.playLevelMusic(n); } catch (e) {}
   try {
     audio.stopAmbience();
-    if (n === 2 || n === 3 || n === 'depot') audio.playAmbience('city_ambience');
+    if (n === 2 || n === 3) audio.playAmbience('city_ambience');
   } catch (e) {}
   try { shell.saveGame({ level: n, caseProgress: window.__caseProgress || null }); } catch (e) {}
   _lastHudString = '';
@@ -379,6 +383,8 @@ function quitToMenu() {
 window.__switchLevel = (n) => { if (appState === 'playing') switchLevel(n, { fade: true, card: typeof n === 'number' }); };
 window.__showMenu = () => quitToMenu();
 window.__restartLevel = () => { if (appState === 'playing') switchLevel(current, { fade: true, card: true }); };
+// console helper: __level() is the level you are in, e.g. __level()._openOutro() previews Level 1's ending
+window.__level = () => level;
 window.__saveRun = () => { try { shell.saveGame({ level: current, caseProgress: window.__caseProgress || null }); } catch (e) {} };
 
 const mini = new THREE.OrthographicCamera(-55, 55, 55, -55, 1, 300);
@@ -513,7 +519,7 @@ function tick() {
       || (p.x >= 10.3 && p.x < 20.3 && p.z > 7 && p.z < 17.2);
     audio.playAmbience(indoors ? (workspace ? 'station_workspace' : 'station_office') : 'city_ambience');
   }
-  playerCamera.prepare(player);
+
   if (typeof level.update === 'function') {
     try { level.update(dt, t, player); }
     catch (e) { console.warn('level.update error', e); }
@@ -526,7 +532,6 @@ function tick() {
     camera.rotation.set(player.pitch, player.yaw, 0);
   }
 
-  playerCamera.present(player, level, t, levelUiOpen());
 
   marker.position.set(player.pos.x, player.pos.y + 2, player.pos.z);
   marker.rotation.set(-Math.PI / 2, player.yaw, 0);
@@ -562,7 +567,6 @@ if (import.meta.hot) {
     shellObserver.disconnect();
     stopDiagnostics?.();
     try {
-      playerCamera.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
       if (renderer.domElement?.parentNode) {

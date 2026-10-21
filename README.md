@@ -1,6 +1,6 @@
 # GENESIS — Read the Room. Close the Case.
 
-A 3D browser-based murder mystery built with Three.js. Dr. Thabo Nkosi has been found dead in his university office — one gunshot, close range. You are the investigator. Work four levels — the office, the lab, the city, the depot stakeout — question five witnesses, log the evidence, and close the case.
+A 3D browser-based murder mystery built with Three.js. Dr. Thabo Nkosi has been found dead in his university office — one gunshot, close range. You are the investigator. Work three levels — the office, the lab and the chase through Genesis — log the evidence and catch the suspect.
 
 ---
 
@@ -10,7 +10,7 @@ Central City, October. Rain for three days straight.
 
 Dr. Nkosi is found dead at his desk. No witnesses, no confession — only what the room remembers: a handkerchief with someone else's blood, a 9mm casing, brown hair on the wrong chair, a torn note naming three people, and a diary pointing at the city.
 
-Five people around the waterfront know something about that night. Three of them are lying. Question all five, then seal the list — whoever you bring in goes to the cells, and whoever you leave off walks free. In the cells, show each prisoner the right evidence, then accuse the one who pulled the trigger.
+The lab names the suspect, and the trail leads to Genesis — an abandoned beachfront city the criminals have made their own. He sees you coming and runs. Catch him before the bridge.
 
 ---
 
@@ -37,24 +37,15 @@ Five people around the waterfront know something about that night. Three of them
 - Name two people from eight objects; confirm the city depot 14:00 appointment
 - File the dossier to hand the case to the city
 
-### Level 3 — "The City" 🚧 Still in progress
+### Level 3 — "Genesis" ✅ Playable
 
-**Vibe:** Waterfront street at last light, passing traffic, café terrace, orchestral music + traffic ambience.
-
-**How to play:**
-- Move with WASD + mouse, E to question / collect, C for the case file, B for the evidence board, F for UV
-- Question all five witnesses (E while facing them), each with follow-ups unlocked by office and street evidence
-- Collect three city clues: an unregistered pistol, a UV-only scrawl, a timestamped parking stub
-- Ambient life: moving cars, a café terrace with a lit shop sign, benches, a quay railing, boats on the water, street lamps
-- Link evidence on the board (B), ask the captain for a warrant (Y accept / N keep investigating) — authorises the depot stakeout
-- _Note: this level is still being built — questioning, board links and the warrant flow may change._
-
-### Level 4 — "The Depot Stakeout" ✅ Finale (needs City warrant)
-
-**Vibe:** 14:00, dockside depot parking bays — finale.
+**Vibe:** GENESIS, the beachfront city that was never finished. The money ran out before the cave could be brought down, so criminals took over the construction site and turned it into a trap for police.
 
 **How to play:**
-- Arrive via the City warrant (Y), hold the sightline, follow prompts to close the case
+- The suspect runs; you chase him on foot down the construction street and into the old mine cave
+- A / D change lane, Space jump, V switch first / third person
+- Cones get knocked over, barriers and bags trip you, skips, pipes, drums and rocks stop you until you change lane
+- Catch him before he crosses the cave bridge, or he cuts it down behind him
 
 ---
 
@@ -68,8 +59,8 @@ Five people around the waterfront know something about that night. Three of them
 | Office kit          | Q camera, 1 bags, 2 tweezers, 3 swab |
 | UV torch            | F                |
 | Case file           | C                |
-| Evidence board (city) | B              |
-| Warrant accept / decline | Y / N       |
+| First / third person | V               |
+| Chase: lane / jump | A, D / Space     |
 | Pause               | P, Esc, or ⏸ button |
 | Restart level       | R                |
 

@@ -2,7 +2,7 @@
 // briefing.js — typed radio/dispatch briefing shown at the start of a level.
 // Waits for the level card to clear, freezes the player (window.__uiCapture),
 // types each line, and hands the mouse back on dismiss.
-//   Space / Enter / click = next (finishes typing first)   Esc = skip all
+//   Enter / click = next (finishes typing first)   Esc = skip all
 // ============================================================
 export function showBriefing({ kicker = 'DISPATCH', stamp = '', speaker = '', lines = [], accent = '#f2b84b', objective = '', onDone } = {}) {
   let dead = false, root = null, poll = 0, typeT = 0;
@@ -33,7 +33,7 @@ export function showBriefing({ kicker = 'DISPATCH', stamp = '', speaker = '', li
     let i = 0;
     lineEl.textContent = '';
     nextEl.style.visibility = 'hidden';
-    nextEl.textContent = `${idx + 1}/${lines.length} · ` + (idx >= lines.length - 1 ? '[ Space / Enter ] begin' : '[ Space / Enter ] continue');
+    nextEl.textContent = `${idx + 1}/${lines.length} · ` + (idx >= lines.length - 1 ? '[ Enter ] begin' : '[ Enter ] continue');
     typeT = setInterval(() => {
       i += 1;
       lineEl.textContent = text.slice(0, i);
@@ -55,7 +55,7 @@ export function showBriefing({ kicker = 'DISPATCH', stamp = '', speaker = '', li
     if (!root) return;
     e.stopImmediatePropagation();      // nothing leaks through to the level or the pause handler
     if (e.code === 'Escape') { finish(); return; }
-    if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); advance(); }
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); advance(); }
   }
 
   const build = () => {

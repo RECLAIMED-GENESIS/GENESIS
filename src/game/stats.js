@@ -2,7 +2,7 @@
 // stats.js — per-run performance counters that feed the end rank.
 // Lives inside window.__caseProgress so it piggybacks on the
 // existing save/Continue flow for free. Levels mutate the
-// returned object; JailLevel reads it to compute the rank.
+// returned object.
 // ============================================================
 
 const DEFAULTS = () => ({

@@ -43,6 +43,7 @@ import { showBriefing } from '../game/briefing.js';
 import { installLabExtras } from './LabExtras.js';
 import { installPoliceStation } from './PoliceStation.js';
 import { buildStationEnvironment, updateStationEnvironment, disposeStationEnvironment } from './StationEnvironment.js';
+import { attachPlayerView } from '../game/DetectiveAvatar.js';
 
 const EYE = 1.7;
 const REACH = 3.4;
@@ -252,6 +253,10 @@ export class LabLevel {
     });
 
     window.__firstPerson = true;
+    // the detective's body + [V] first / third person (runs after this level's own update)
+    this._view = attachPlayerView(this, { tag: true, forceFirst: () => this._uiBusy() });
+    const labUpdate = this.update.bind(this);
+    this.update = (dt, t, player) => { labUpdate(dt, t, player); this._view.update(dt, player); };
     this._onKey = (e) => this._handleKey(e);
     window.addEventListener('keydown', this._onKey);
     this._onMouseMove = (e) => this._handleKnobDrag(e);
@@ -1820,6 +1825,7 @@ export class LabLevel {
 
   dispose() {
     disposeStationEnvironment(this);
+    if (this._view) { this._view.dispose(); this._view = null; }
     clearTimeout(this._toastTimer);
     if (this._briefing) { this._briefing.cancel(); this._briefing = null; }
     if (this._termStop) this._termStop();
