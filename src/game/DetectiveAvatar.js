@@ -1,9 +1,9 @@
 // ============================================================
 // DetectiveAvatar.js — the main character, in every level.
 //
-//   loadDetective(height)  -> the team's characters/detective.fbx,
+//   loadDetective(height)  -> the team's detective (characters/detective.glb),
 //                             matte materials, feet on y = 0, facing +z.
-//                             The 54 MB file is loaded once and shared.
+//                             The file is loaded once and shared.
 //   DetectiveRig           -> poses that model in code (idle, walk,
 //                             run, jump, arrest) because the file has
 //                             no animations of its own.
@@ -13,14 +13,14 @@
 //                             the few seconds the model is loading.
 // ============================================================
 import * as THREE from 'three';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import detectiveURL from '../characters/detective.fbx?url';
+import detectiveURL from '../characters/detective.glb?url';
 
 let basePromise = null;
 function loadBase() {
   if (!basePromise) {
-    basePromise = new Promise((resolve, reject) => new FBXLoader().load(detectiveURL, resolve, undefined, reject));
+    basePromise = new GLTFLoader().loadAsync(detectiveURL).then((gltf) => gltf.scene);
     basePromise.catch(() => { basePromise = null; });
   }
   return basePromise;
@@ -33,6 +33,7 @@ function makeMatte(obj) {
     const list = Array.isArray(o.material) ? o.material : [o.material];
     const out = list.map((m) => new THREE.MeshStandardMaterial({
       map: m.map || null, normalMap: m.normalMap || null,
+      normalScale: m.normalScale ? m.normalScale.clone() : new THREE.Vector2(1, 1),
       color: m.color ? m.color.clone() : new THREE.Color(0xffffff),
       roughness: 0.8, metalness: 0, transparent: m.transparent, opacity: m.opacity, alphaTest: m.alphaTest, side: m.side,
     }));

@@ -30,9 +30,11 @@ import { play as sfx } from '../audio/sfx.js';
 import { getCase, killerOf } from '../game/case.js';
 import { loadDetective, retargetClip } from '../game/DetectiveAvatar.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-import suspectRunURL from '../characters/SuspectRunning.fbx?url';
-import suspectJumpURL from '../characters/SuspectRunningJump.fbx?url';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import suspectURL from '../characters/suspect.glb?url';
+import suspectRunURL from '../characters/suspect_run.json?url';
+import suspectJumpURL from '../characters/suspect_jump.json?url';
 
 // ---------------- tuning ----------------
 const LANES = [-3.2, 0, 3.2];
@@ -42,6 +44,7 @@ const PLAYER_SPEED = 10.5;    // m/s running
 const STUMBLE_SPEED = 6;      // m/s after hitting something
 const PUDDLE_SPEED = 7;       // m/s while splashing through water
 const CRIMINAL_SPEED = 9.6;   // m/s (a bit slower than you)
+const PACE_GAIN = 0.35;       // both of you are 35% faster by the time you reach the bridge
 const START_GAP = 26;         // m between you and him at GO
 const CATCH_GAP = 1.7;        // m: close enough to tackle
 const PLAYER_START_Z = 100;
@@ -230,6 +233,33 @@ const STORY = [
   `Inside the old cave they strung a rope bridge across the chasm. It was built to be cut the moment anyone follows them over it.`,
   `Your suspect is here, and he has seen you. Catch him before he reaches the bridge.`,
 ];
+
+// =============================================================
+// SUSPECT FILES — loaded once per page and reused on every replay / restart.
+// =============================================================
+function stripRootMotion(clip, keepY) {
+  for (const tr of clip.tracks) {
+    if (!/Hips\.position$/.test(tr.name)) continue;
+    const v = tr.values, x0 = v[0], y0 = v[1], z0 = v[2];
+    for (let i = 0; i < v.length; i += 3) { v[i] = x0; v[i + 2] = z0; if (!keepY) v[i + 1] = y0; }
+  }
+  return clip;
+}
+let suspectFiles = null;
+function loadSuspectFiles() {
+  if (!suspectFiles) {
+    const clip = (url, keepY) => fetch(url).then((r) => r.json())
+      .then((j) => stripRootMotion(THREE.AnimationClip.parse(j), keepY))
+      .catch((e) => { console.warn('[chase] clip not loaded', url, e); return null; });
+    suspectFiles = Promise.all([
+      new GLTFLoader().loadAsync(suspectURL).then((g) => g.scene),
+      clip(suspectRunURL, true),
+      clip(suspectJumpURL, false),
+    ]).then(([base, run, jump]) => ({ base, run, jump }));
+    suspectFiles.catch(() => { suspectFiles = null; });
+  }
+  return suspectFiles;
+}
 
 // =============================================================
 // ENDING — after the arrest: why Dr. Nkosi was killed (shown on the win screen).
@@ -496,6 +526,7 @@ export class ChaseLevel {
     this._buildBridge();
     this._buildObstacles();
     this._buildAvatars();
+    this._ready = { suspect: false, cop: false };
     this._loadSuspect();
     this._loadCop();
     this._buildUI();
@@ -1489,7 +1520,9 @@ export class ChaseLevel {
     this.ui.hint.style.display = '';
     const cam = window.__camera;
     if (cam) this.camPos.copy(cam.position);
-    this.state = 'intro'; this.stateT = 0;
+    this.state = this._ready.suspect && this._ready.cop ? 'intro' : 'loading';
+    this.stateT = 0;
+    if (this.state === 'loading') this._setCenter('loading', '<div class="ch-card"><h2 style="margin:0">LOADING THE CHASE…</h2></div>');
     this._grabKeys();
   }
 
@@ -1560,6 +1593,10 @@ export class ChaseLevel {
 
     if (this.story) this._updateStory(dt);
     if (this.state === 'story') { this.px = LANES[1]; this.pz = PLAYER_START_Z; }
+    else if (this.state === 'loading') {
+      this.px = LANES[1]; this.pz = PLAYER_START_Z;
+      if ((this._ready.suspect && this._ready.cop) || this.stateT > 30) { this._setCenter('', null); this.state = 'intro'; this.stateT = 0; }
+    }
     else if (this.state === 'intro') this._updateIntro();
     else if (this.state === 'run') this._updateRun(dt, py, grounded);
     else if (this.state === 'escaped') this._updateEscaped(dt);
@@ -1604,9 +1641,10 @@ export class ChaseLevel {
     this.slow = Math.max(0, this.slow - dt);
     this.shake = Math.max(0, this.shake - dt);
 
-    let target = PLAYER_SPEED;
-    if (this.slow > 0) target = PUDDLE_SPEED;
-    if (this.stumble > 0) target = STUMBLE_SPEED;
+    const pace = this._pace();
+    let target = PLAYER_SPEED * pace;
+    if (this.slow > 0) target = PUDDLE_SPEED * pace;
+    if (this.stumble > 0) target = STUMBLE_SPEED * pace;
     this.speed = damp(this.speed, target, this.stumble > 0 ? 14 : 3, dt);
 
     // bridge is down: stop at the edge, unless you jumped
@@ -1661,6 +1699,14 @@ export class ChaseLevel {
       sfx('wrong');
       this.ui.fade.style.opacity = '1';
     }
+  }
+
+  // The chase speeds up as it goes: 1.0 at the start line, rising to
+  // 1 + PACE_GAIN at the bridge. You and the suspect speed up together,
+  // so who wins is still down to mistakes, but there is less time to react.
+  _pace() {
+    const k = clamp((PLAYER_START_Z - this.pz) / (PLAYER_START_Z - BRIDGE_NEAR), 0, 1);
+    return 1 + PACE_GAIN * k;
   }
 
   _hit(o) {
@@ -1762,8 +1808,9 @@ export class ChaseLevel {
   _updateCriminal(dt) {
     const c = this.crim;
     if (c.gone) return;
-    c.z -= CRIMINAL_SPEED * dt;
-    c.phase += dt * CRIMINAL_SPEED * 0.95;
+    const pace = this._pace();
+    c.z -= CRIMINAL_SPEED * pace * dt;
+    c.phase += dt * CRIMINAL_SPEED * pace * 0.95;
 
     if (c.z < NARROW_Z + 4) c.lane = 1;
     else {
@@ -1898,21 +1945,14 @@ export class ChaseLevel {
   }
 
   // =========================================================
-  // SUSPECT AVATAR — the team's Mixamo model (characters/*.fbx)
+  // SUSPECT AVATAR — the team's Mixamo model (characters/suspect.glb)
   // The jointed stand-in above is shown until the model has loaded.
   // =========================================================
   _loadSuspect() {
-    const loader = new FBXLoader();
-    const stripRootMotion = (clip, keepY) => {
-      for (const tr of clip.tracks) {
-        if (!/Hips\.position$/.test(tr.name)) continue;
-        const v = tr.values, x0 = v[0], y0 = v[1], z0 = v[2];
-        for (let i = 0; i < v.length; i += 3) { v[i] = x0; v[i + 2] = z0; if (!keepY) v[i + 1] = y0; }
-      }
-      return clip;
-    };
-    loader.load(suspectRunURL, (obj) => {
+    loadSuspectFiles().then(({ base, run, jump }) => {
       if (this._disposed) return;
+      const obj = cloneSkinned(base);
+      obj.animations = [];
       obj.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(obj);
       const h = Math.max(0.01, box.max.y - box.min.y);
@@ -1935,35 +1975,27 @@ export class ChaseLevel {
         lUp: bone('LeftUpLeg'), lLeg: bone('LeftLeg'), lFoot: bone('LeftFoot'),
         rUp: bone('RightUpLeg'), rLeg: bone('RightLeg'), rFoot: bone('RightFoot'),
       };
-      const runClip = obj.animations && obj.animations[0];
-      if (runClip) {
-        S.run = S.mixer.clipAction(stripRootMotion(runClip, true));
-        S.run.play();
-        this._runClip = runClip;
+      if (run) { S.run = S.mixer.clipAction(run); S.run.play(); this._runClip = run; }
+      if (jump) {
+        S.jump = S.mixer.clipAction(jump);
+        S.jump.setLoop(THREE.LoopOnce, 1);
+        S.jump.clampWhenFinished = false;
+        this._jumpClip = jump;
       }
       this.crook.root.add(obj);
       this.crook.body.visible = false;                 // hide the stand-in
       this.suspect = S;
+      this._ready.suspect = true;
       this._wireCop();
-      // the running-jump clip lives in a second file with the same skeleton
-      loader.load(suspectJumpURL, (jobj) => {
-        const clip = jobj.animations && jobj.animations[0];
-        jobj.traverse((m) => {
-          if (m.geometry) m.geometry.dispose();
-          if (m.material) (Array.isArray(m.material) ? m.material : [m.material]).forEach((mm) => { if (mm.map) mm.map.dispose(); mm.dispose(); });
-        });
-        if (this._disposed || !clip || !this.suspect) return;
-        S.jump = S.mixer.clipAction(stripRootMotion(clip, false));
-        this._jumpClip = clip;
-        this._wireCop();
-        S.jump.setLoop(THREE.LoopOnce, 1);
-        S.jump.clampWhenFinished = false;
-      }, undefined, (err) => console.warn('[chase] jump clip not loaded', err));
-    }, undefined, (err) => console.warn('[chase] suspect model not loaded, using stand-in', err));
+      this._prewarm();
+    }).catch((err) => {
+      console.warn('[chase] suspect model not loaded, using stand-in', err);
+      this._ready.suspect = true;
+    });
   }
 
   // =========================================================
-  // THE DETECTIVE (player) — the team's detective.fbx. It has no
+  // THE DETECTIVE (player) — the team's detective model. It has no
   // animations of its own, so it borrows the suspect's run and jump
   // clips (same Mixamo skeleton) and is posed in code for standing,
   // falling and the arrest.
@@ -1974,8 +2006,21 @@ export class ChaseLevel {
       this.cop.root.add(d.root);
       this.cop.body.visible = false;              // hide the stand-in
       this.copFBX = Object.assign(d, { mixer: new THREE.AnimationMixer(d.model), mode: 'pose', jumpT: 0 });
+      this._ready.cop = true;
       this._wireCop();
-    }).catch((err) => console.warn('[chase] detective model not loaded, using stand-in', err));
+      this._prewarm();
+    }).catch((err) => { console.warn('[chase] detective model not loaded, using stand-in', err); this._ready.cop = true; });
+  }
+
+  // Prepare the characters' shaders on the graphics card while the story is
+  // still on screen, so the first frames of the chase do not stutter.
+  _prewarm() {
+    if (this._warmed || !this._ready.suspect || !this._ready.cop || !this.renderer || !window.__camera) return;
+    this._warmed = true;
+    const shown = [this.cop.root.visible, this.crook.root.visible];
+    this.cop.root.visible = this.crook.root.visible = true;
+    try { this.renderer.compile(this.scene, window.__camera); } catch (e) {}
+    [this.cop.root.visible, this.crook.root.visible] = shown;
   }
 
   _wireCop() {
@@ -2033,7 +2078,7 @@ export class ChaseLevel {
       return;
     }
     const running = this.state === 'run' || this.state === 'escaped' || this.state === 'fell';
-    if (S.run) S.run.timeScale = running ? 1.25 : 0;
+    if (S.run) S.run.timeScale = running ? 1.25 * this._pace() : 0;
     // jump: play the running-jump clip, and let the clip lift him instead of the code
     if (c.vy > 6 && S.jump && !S.jump.isRunning()) {
       S.jump.reset().setEffectiveWeight(1).fadeIn(0.08).play();
@@ -2118,7 +2163,7 @@ export class ChaseLevel {
 
     // ---- the suspect ----
     crook.root.position.set(c.x, c.y, c.z);
-    if (this.state === 'intro' || this.state === 'story') {
+    if (this.state === 'intro' || this.state === 'story' || this.state === 'loading') {
       poseIdle(crook, this.time + 1);
       crook.headG.rotation.set(0, 2.4, 0);          // glancing back at you
     } else if (this.state === 'caught') {
