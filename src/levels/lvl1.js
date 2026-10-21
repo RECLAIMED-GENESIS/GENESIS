@@ -34,8 +34,9 @@
 //                       (3) rainy night window shader (two windows, steady)
 // ============================================================
 import * as THREE from 'three';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-import professorFBX from '../characters/professor.fbx?url';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import professorURL from '../characters/professor.glb?url';
+import professorPoseURL from '../characters/professor_pose.json?url';
 import { getStats } from '../game/stats.js';
 import { applyCaseToStory, getCase, killerOf } from '../game/case.js';
 import { PhotoCamera } from '../game/photoCamera.js';
@@ -924,7 +925,7 @@ export class StreetLevel {
 
   // =========================================================
   // THE BODY — Dr. Thabo Nkosi, single entry wound, left chest
-  // Now the rigged characters/professor.fbx model (laid on his back over the
+  // Now the rigged characters/professor.glb model (laid on his back over the
   // blood pool) instead of the old segment-by-segment primitive build.
   // =========================================================
   _buildBody() {
@@ -942,13 +943,18 @@ export class StreetLevel {
     //   rotation.x -> tips him flat (head toward -z)
     //   rotation.z -> rolls him about his long axis (face down vs face up)
 
-    // ---- the victim, Dr. Thabo Nkosi, loaded from characters/professor.fbx ----
+    // ---- the victim, Dr. Thabo Nkosi, loaded from characters/professor.glb ----
     //      Shadows are enabled in the callback because the constructor's shadow
     //      pass has already run by the time this async load lands.
 const lay = new THREE.Group();   // no rotation any more
 g.add(lay);
 
-new FBXLoader().load(professorFBX, (object) => {
+Promise.all([
+  new GLTFLoader().loadAsync(professorURL),
+  fetch(professorPoseURL).then((r) => r.json()),
+]).then(([gltf, pose]) => {
+  const object = gltf.scene;
+  object.animations = [THREE.AnimationClip.parse(pose)];   // his lying-down pose
   object.scale.setScalar(0.01);
   object.traverse((o) => {
     if (o.isMesh) { o.castShadow = false; o.receiveShadow = true; }
@@ -956,7 +962,7 @@ new FBXLoader().load(professorFBX, (object) => {
   lay.add(object);
 
   const clips = object.animations || [];
-  console.log('[lvl1] professor.fbx clips:',
+  console.log('[lvl1] professor clips:',
     clips.map((c) => `${c.name} (${c.duration.toFixed(2)}s)`));
 
   if (clips.length) {
@@ -981,7 +987,7 @@ new FBXLoader().load(professorFBX, (object) => {
   g.position.x += -1.45 - cen.x;
   g.position.z += -2.35 - cen.z;
   g.position.y += -box.min.y;
-}, undefined, (err) => console.error('Error loading professor FBX:', err));
+}).catch((err) => console.error('Error loading professor model:', err));
 
     // ---- pooled blood under the chest + a hand print ----
     const pool = new THREE.Mesh(new THREE.CircleGeometry(0.42, 28),
