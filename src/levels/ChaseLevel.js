@@ -8,7 +8,7 @@
 // behind him and he is gone.
 //
 // NEW FILE ONLY. Reuses the Level2 street scene (the same way
-// CityLevel does) and adds the construction site, the cave, the
+// the old city level did) and adds the construction site, the cave, the
 // bridge, the two avatars and the chase rules on top of it.
 //
 // Controls:  A / D (or arrows) change lane · SPACE jump
@@ -27,11 +27,17 @@
 import * as THREE from 'three';
 import { Level2 } from './Level2.js';
 import { play as sfx } from '../audio/sfx.js';
+import { getCase, killerOf } from '../game/case.js';
+import { loadDetective, retargetClip } from '../game/DetectiveAvatar.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import suspectRunURL from '../characters/SuspectRunning.fbx?url';
+import suspectJumpURL from '../characters/SuspectRunningJump.fbx?url';
 
 // ---------------- tuning ----------------
 const LANES = [-3.2, 0, 3.2];
-const EYE = 1.7;
+const CHAR_SCALE = 1.3;       // the detective and suspect, larger so they read against the city
+const EYE = 1.7 * CHAR_SCALE;
 const PLAYER_SPEED = 10.5;    // m/s running
 const STUMBLE_SPEED = 6;      // m/s after hitting something
 const PUDDLE_SPEED = 7;       // m/s while splashing through water
@@ -226,6 +232,21 @@ const STORY = [
 ];
 
 // =============================================================
+// ENDING — after the arrest: why Dr. Nkosi was killed (shown on the win screen).
+// The killer is whoever the case picked this run (see game/case.js).
+// =============================================================
+function endingStory() {
+  let k = null;
+  try { k = killerOf(getCase()); } catch (e) {}
+  const name = k ? k.name : 'The killer';
+  const role = k ? k.role.toLowerCase() : 'insider';
+  return {
+    name,
+    summary: `Dr. Thabo Nkosi secretly hid money for the crew behind ${GEN}. When he tried to quit and go to the police, they sent ${name}, the ${role}, to silence him.`,
+  };
+}
+
+// =============================================================
 // AVATAR — a jointed humanoid (same simple style as the city
 // NPCs) whose arms and legs swing, so it can run, jump, kneel
 // and be handcuffed without any downloaded model.
@@ -409,7 +430,7 @@ export class ChaseLevel {
     this.scene = (sceneOrRenderer && sceneOrRenderer.isScene) ? sceneOrRenderer : new THREE.Scene();
     this.renderer = rendererMaybe || (sceneOrRenderer && sceneOrRenderer.isWebGLRenderer ? sceneOrRenderer : null) || window.__renderer || null;
 
-    // ---- the street scene, hoisted into our scene (same as CityLevel) ----
+    // ---- the street scene, hoisted into our scene (same way the old city level did) ----
     this.inner = new Level2();
     this._prevBg = this.scene.background;
     this._prevFog = this.scene.fog;
@@ -462,6 +483,9 @@ export class ChaseLevel {
     this.camPos = new THREE.Vector3(LANES[1], 3, PLAYER_START_Z + 6);
     this._pb = new THREE.Box3();
     this._kb = new THREE.Box3();
+    this._av1 = new THREE.Vector3(); this._av2 = new THREE.Vector3(); this._av3 = new THREE.Vector3();
+    this._av4 = new THREE.Vector3(); this._av5 = new THREE.Vector3(); this._av6 = new THREE.Vector3();
+    this._aq1 = new THREE.Quaternion(); this._aq2 = new THREE.Quaternion(); this._aq3 = new THREE.Quaternion();
     this._v = new THREE.Vector3();
     this._v2 = new THREE.Vector3();
 
@@ -472,9 +496,13 @@ export class ChaseLevel {
     this._buildBridge();
     this._buildObstacles();
     this._buildAvatars();
+    this._loadSuspect();
+    this._loadCop();
     this._buildUI();
     this._mainHud = document.getElementById('hud');
     if (this._mainHud) { this._mainHudVis = this._mainHud.style.visibility; this._mainHud.style.visibility = 'hidden'; }
+    this._mainMsg = document.getElementById('msg');      // "click to play · WASD · E · F · C" line from main.js
+    if (this._mainMsg) { this._mainMsgVis = this._mainMsg.style.visibility; this._mainMsg.style.visibility = 'hidden'; }
     this._buildLights();
     this._buildStory();
 
@@ -533,7 +561,30 @@ export class ChaseLevel {
     return this._box(this.chase, x1 - x0, y1 - y0, z1 - z0, m, (x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
   }
 
+  // Paint three lanes: hide the street's single centre dash (this level's copy
+  // only) and add two dashed dividers between the lanes, the whole way to the cave.
+  _paintLanes() {
+    let neon = null;
+    this.inner.level.traverse((o) => {
+      if (!o.isMesh || !o.geometry || o.geometry.type !== 'BoxGeometry') return;
+      const p = o.geometry.parameters || {};
+      if (Math.abs(o.position.x) < 0.01 && Math.abs(p.width - 0.16) < 0.01 && Math.abs(p.depth - 5) < 0.01) {
+        o.visible = false; neon = o.material;
+      }
+    });
+    neon = neon || new THREE.MeshStandardMaterial({ color: 0x00d9ff, emissive: 0x00d9ff, emissiveIntensity: 3.5 });
+    const dash = new THREE.BoxGeometry(0.14, 0.06, 3.2);
+    for (const x of [(LANES[0] + LANES[1]) / 2, (LANES[1] + LANES[2]) / 2]) {
+      for (let z = 98; z > CAVE_Z + 2; z -= 9) {
+        const d = new THREE.Mesh(dash, neon);
+        d.position.set(x, 0.05, z); d.userData.noShadow = true;
+        this.chase.add(d);
+      }
+    }
+  }
+
   _buildRoadEnd() {
+    this._paintLanes();
     const asphalt = mat(0x2a2e36, { roughness: 0.7, metalness: 0.15 });
     this._block(asphalt, -8, 8, -0.5, 0, CAVE_Z - 0.5, -130);
     const dirt = mat(0x4a3b2c, { roughness: 1 });
@@ -1181,7 +1232,7 @@ export class ChaseLevel {
   _buildAvatars() {
     this.cop = makeRunner({ kind: 'cop', skin: 0x6b4630, top: 0x1d2c4f, pants: 0x121a2c, shoes: 0x0a0a0a, sleeves: true });
     this.crook = makeRunner({ kind: 'crook', skin: 0x8a5a3c, top: 0x2b2b2e, pants: 0x2c3e66, shoes: 0xdedede, sleeves: true });
-    for (const r of [this.cop, this.crook]) { r.root.rotation.y = Math.PI; this.chase.add(r.root); }
+    for (const r of [this.cop, this.crook]) { r.root.rotation.y = Math.PI; r.root.scale.setScalar(CHAR_SCALE); this.chase.add(r.root); }
     this.cop.root.position.set(this.px, 0, this.pz);
     this.crook.root.position.set(this.crim.x, 0, this.crim.z);
 
@@ -1190,7 +1241,7 @@ export class ChaseLevel {
     this.cuffs = new THREE.Group();
     this.cuffRings = [];
     for (let i = 0; i < 2; i++) {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.016, 8, 18), steel);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.065 * CHAR_SCALE, 0.016 * CHAR_SCALE, 8, 18), steel);
       this.cuffs.add(ring); this.cuffRings.push(ring);
     }
     this.cuffChain = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 1, 6), steel);
@@ -1234,6 +1285,24 @@ export class ChaseLevel {
       .ch-end h2{font-size:clamp(24px,5vw,44px);letter-spacing:6px;margin:0 0 14px}
       .ch-end p{max-width:min(640px,90vw);line-height:1.7;font-size:16px;margin:4px 0}
       .ch-end button{font:inherit;padding:12px 24px;margin:18px 8px 0;border:0;cursor:pointer;letter-spacing:2px}
+      .ch-end.win{background:radial-gradient(ellipse at 50% 40%,rgba(40,30,8,.82),rgba(0,0,0,.9));animation:chWinIn .5s ease}
+      .ch-win-kick{font-size:clamp(14px,2.4vw,20px);letter-spacing:12px;color:#f2b84b;margin-bottom:6px;
+        text-shadow:0 0 18px rgba(242,184,75,.8);animation:chGlow 1.6s ease-in-out infinite alternate}
+      .ch-stamp{display:inline-block;font-size:clamp(34px,8vw,78px);font-weight:bold;letter-spacing:6px;color:#e0362a;
+        border:6px solid #e0362a;padding:4px 22px;margin:6px 0 16px;transform:rotate(-6deg);
+        text-shadow:0 0 14px rgba(224,54,42,.5);animation:chSlam .55s cubic-bezier(.2,1.6,.4,1) .15s both}
+      .ch-congrats{font-size:clamp(20px,3.4vw,30px)!important;letter-spacing:3px!important;color:#ffe08a;margin:4px 0 10px!important;
+        animation:chUp .6s ease .6s both}
+      .ch-motive{animation:chUp .6s ease .85s both}
+      .ch-theend{margin-top:10px;letter-spacing:8px;color:#9fb0c6;font-size:13px;animation:chUp .6s ease 1.1s both}
+      .ch-confetti{position:fixed;inset:0;pointer-events:none;z-index:19995;overflow:hidden}
+      .ch-confetti i{position:absolute;top:-24px;display:block;border-radius:2px;opacity:.95;
+        animation-name:chFall;animation-timing-function:linear;animation-iteration-count:infinite}
+      @keyframes chFall{0%{transform:translate(0,0) rotate(0)}100%{transform:translate(var(--dx),110vh) rotate(var(--r))}}
+      @keyframes chSlam{0%{opacity:0;transform:rotate(-6deg) scale(2.6)}70%{opacity:1;transform:rotate(-6deg) scale(.94)}100%{transform:rotate(-6deg) scale(1)}}
+      @keyframes chUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+      @keyframes chGlow{from{text-shadow:0 0 8px rgba(242,184,75,.4)}to{text-shadow:0 0 26px rgba(242,184,75,1)}}
+      @keyframes chWinIn{from{opacity:0}to{opacity:1}}
       .ch-flash{position:fixed;inset:0;pointer-events:none;z-index:59;opacity:0;
         box-shadow:inset 0 0 140px 40px rgba(200,20,20,.85);transition:opacity .25s}
       .ch-fade{position:fixed;inset:0;pointer-events:none;z-index:62;background:#000;opacity:0;transition:opacity .9s}
@@ -1297,9 +1366,16 @@ export class ChaseLevel {
     const t = this.runTime.toFixed(1);
     let html;
     if (kind === 'win') {
-      html = `<h2 style="color:#5fe08a">SUSPECT IN CUSTODY</h2>
-        <p>You caught the criminal.</p>
-        <p style="color:#9fb0c6">Time ${t} s &nbsp;·&nbsp; hits ${this.hits}</p>`;
+      const e = endingStory();
+      this.ui.end.classList.add('win');
+      this._confetti();
+      html = `<div class="ch-win-kick">YOU WIN</div>
+        <div class="ch-stamp">CASE CLOSED</div>
+        <h2 class="ch-congrats">Congratulations, Detective</h2>
+        <p class="ch-motive">${e.summary}</p>
+        <p><b style="color:#5fe08a">${e.name} is in custody.</b></p>
+        <p style="color:#9fb0c6;font-size:13px">Chase ${t} s &nbsp;·&nbsp; hits ${this.hits}</p>
+        <div class="ch-theend">— THE END —</div>`;
     } else if (kind === 'fell') {
       html = `<h2 style="color:#e0533a">YOU FELL</h2>
         <p>The bridge was gone. You jumped after him and fell into the chasm.</p>
@@ -1310,7 +1386,7 @@ export class ChaseLevel {
         <p style="color:#9fb0c6">Hits ${this.hits} &nbsp;·&nbsp; dodge more to close the gap.</p>`;
     }
     html += `<div>
-        <button data-a="again" style="background:#f2b84b;color:#111">PLAY AGAIN [ENTER]</button>
+        <button data-a="again" style="background:#f2b84b;color:#111">${kind === 'win' ? 'REPLAY THE CHASE' : 'PLAY AGAIN'} [ENTER]</button>
         <button data-a="menu" style="background:#2a3342;color:#f2e6c8">MAIN MENU</button>
       </div>`;
     this.ui.end.innerHTML = html;
@@ -1319,9 +1395,26 @@ export class ChaseLevel {
     this.ui.end.querySelector('[data-a="menu"]').addEventListener('click', () => this._menu());
   }
 
+  // gold and white paper falling over the win screen
+  _confetti() {
+    const box = document.createElement('div');
+    box.className = 'ch-confetti';
+    const cols = ['#f2b84b', '#ffe08a', '#ffffff', '#5fe08a', '#e0362a'];
+    for (let i = 0; i < 90; i++) {
+      const p = document.createElement('i');
+      const w = 5 + Math.random() * 7;
+      p.style.cssText = `left:${Math.random() * 100}%;width:${w}px;height:${w * (1.4 + Math.random())}px;` +
+        `background:${cols[i % cols.length]};animation-duration:${2.6 + Math.random() * 2.4}s;` +
+        `animation-delay:${Math.random() * 1.6}s;--dx:${(Math.random() - 0.5) * 220}px;--r:${(Math.random() - 0.5) * 1440}deg`;
+      box.appendChild(p);
+    }
+    document.body.appendChild(box);
+    this.ui.confetti = box;
+  }
+
   _again() {
     if (typeof window.__restartLevel === 'function') window.__restartLevel();
-    else if (typeof window.__switchLevel === 'function') window.__switchLevel('chase');
+    else if (typeof window.__switchLevel === 'function') window.__switchLevel(3);
   }
 
   _menu() {
@@ -1331,7 +1424,7 @@ export class ChaseLevel {
   // =========================================================
   // STORY (before the countdown)
   // =========================================================
-  _buildStory() {
+  _buildStory(lines = STORY, heading = `LEVEL 3 &nbsp;·&nbsp; THE CITY OF ${GEN}`) {
     const css = document.createElement('style');
     css.textContent = `
       .ch-bars:before,.ch-bars:after{content:'';position:fixed;left:0;right:0;height:11vh;background:#000;z-index:63}
@@ -1348,12 +1441,12 @@ export class ChaseLevel {
     `;
     const bars = document.createElement('div'); bars.className = 'ch-bars';
     const title = document.createElement('div'); title.className = 'ch-title';
-    title.innerHTML = `LEVEL 3 &nbsp;·&nbsp; THE CITY OF ${GEN}`;
+    title.innerHTML = heading;
     const box = document.createElement('div'); box.className = 'ch-story';
     box.innerHTML = `<div class="t"></div><div class="f"><span class="d"></span><span class="n"></span></div>`;
     box.addEventListener('click', () => this._storyNext());
     for (const el of [css, bars, title, box]) document.body.appendChild(el);
-    this.story = { css, bars, title, box, text: box.querySelector('.t'), dots: box.querySelector('.d'), next: box.querySelector('.n'), idx: 0, shown: 0, t: 0 };
+    this.story = { css, bars, title, box, lines, text: box.querySelector('.t'), dots: box.querySelector('.d'), next: box.querySelector('.n'), idx: 0, shown: 0, t: 0 };
     this.ui.hud.style.display = 'none';
     this.ui.hint.style.display = 'none';
     this._showStoryPanel(0);
@@ -1362,11 +1455,11 @@ export class ChaseLevel {
   _showStoryPanel(i) {
     const s = this.story;
     s.idx = i; s.shown = 0;
-    s.plain = STORY[i].replace(/<[^>]+>/g, '');
-    s.dots.innerHTML = STORY.map((_, k) => `<span class="${k === i ? '' : 'dim'}">●</span>`).join('');
-    s.next.innerHTML = i === STORY.length - 1
-      ? '<span class="ch-k">A</span> <span class="ch-k">D</span> lane &nbsp; <span class="ch-k w">SPACE</span> jump &nbsp;&nbsp; [ENTER] START THE CHASE ▸'
-      : '[ENTER] NEXT ▸';
+    const L = s.lines, last = i === L.length - 1;
+    s.plain = L[i].replace(/<[^>]+>/g, '');
+    s.dots.innerHTML = L.map((_, k) => `<span class="${k === i ? '' : 'dim'}">●</span>`).join('');
+    s.next.innerHTML = !last ? '[ENTER] NEXT ▸'
+      : '<span class="ch-k">A</span> <span class="ch-k">D</span> lane &nbsp; <span class="ch-k w">SPACE</span> jump &nbsp;&nbsp; [ENTER] START THE CHASE ▸';
     s.text.textContent = '';
   }
 
@@ -1376,22 +1469,22 @@ export class ChaseLevel {
     s.t += dt;
     if (s.shown < s.plain.length) {
       s.shown = Math.min(s.plain.length, s.shown + dt * 55);       // typewriter
-      if (s.shown >= s.plain.length) s.text.innerHTML = STORY[s.idx];
+      if (s.shown >= s.plain.length) s.text.innerHTML = s.lines[s.idx];
       else s.text.textContent = s.plain.slice(0, Math.floor(s.shown));
     }
   }
 
   _storyNext() {
     const s = this.story;
-    if (!s || this.state !== 'story') return;
+    if (!s) return;
     if (s.shown < s.plain.length) {                                 // finish the line first
-      s.shown = s.plain.length; s.text.innerHTML = STORY[s.idx]; return;
+      s.shown = s.plain.length; s.text.innerHTML = s.lines[s.idx]; return;
     }
     sfx('chip');
-    if (s.idx < STORY.length - 1) { this._showStoryPanel(s.idx + 1); return; }
-    // story done -> countdown
+    if (s.idx < s.lines.length - 1) { this._showStoryPanel(s.idx + 1); return; }
     for (const k of ['css', 'bars', 'title', 'box']) s[k].remove();
     this.story = null;
+    // intro done -> countdown
     this.ui.hud.style.display = '';
     this.ui.hint.style.display = '';
     const cam = window.__camera;
@@ -1465,7 +1558,8 @@ export class ChaseLevel {
     const on = Math.sin(this.time * 6) > 0;
     for (const m of this.blinkMats) m.emissiveIntensity = on ? 2.4 : 0.15;
 
-    if (this.state === 'story') { this._updateStory(dt); this.px = LANES[1]; this.pz = PLAYER_START_Z; }
+    if (this.story) this._updateStory(dt);
+    if (this.state === 'story') { this.px = LANES[1]; this.pz = PLAYER_START_Z; }
     else if (this.state === 'intro') this._updateIntro();
     else if (this.state === 'run') this._updateRun(dt, py, grounded);
     else if (this.state === 'escaped') this._updateEscaped(dt);
@@ -1553,7 +1647,7 @@ export class ChaseLevel {
         if (!o.splashed) { o.splashed = true; this.slow = 0.55; sfx('chip'); }
         continue;
       }
-      if (o.type === 'cone' || o.type === 'barrels') this._hit(o);   // light: knocked over
+      if (o.type === 'cone') this._hit(o);                             // light: knocked over
       else if (o.low) this._trip(o);                                   // low + heavy: you trip over it
       else this._blockedBy(o);                                         // tall + heavy: it stops you
     }
@@ -1574,7 +1668,7 @@ export class ChaseLevel {
     o.kt = 0;
     o.tip = 0;
     const side = (o.x - this.px) >= 0 ? 1 : -1;
-    const light = o.type === 'cone' || o.type === 'barrels';
+    const light = o.type === 'cone';
     o.topple = light;
     if (light) {
       // light things tip over forward and slide
@@ -1645,10 +1739,14 @@ export class ChaseLevel {
       this.cuffs.visible = true;
       sfx('correct');
     }
-    if (this.stateT > 1.1 && this._centerKey !== 'cuffed') {
+    if (this.stateT > 1.1 && this._centerKey !== 'cuffed' && !this._endingStarted) {
       this._setCenter('cuffed', '<h2 style="position:absolute;bottom:16vh;left:0;right:0">YOU ARE UNDER ARREST</h2>');
     }
-    if (this.stateT > 3.0 && !this.endOpen) { sfx('rank'); this._end('win'); }
+    if (this.stateT > 2.6 && !this._endingStarted) {
+      this._endingStarted = true;
+      sfx('rank');
+      this._end('win');
+    }
   }
 
   _updateEscaped(dt) {
@@ -1670,28 +1768,35 @@ export class ChaseLevel {
     if (c.z < NARROW_Z + 4) c.lane = 1;
     else {
       // nearest obstacle ahead of him in his lane
+      const inLane = (o, l) => o.wide || Math.abs(o.x - LANES[l]) < o.halfW + 0.45;
+      const live = (o) => !o.puddle && !o.knocked && o.state === 'down';
+      // nearest obstacle ahead in his lane
       let next = null, nd = Infinity;
       for (const o of this.obstacles) {
-        if (o.puddle || o.knocked || o.drop) continue;
-        const d = c.z - o.box.max.z;
-        if (d < -0.5 || d > 11) continue;
-        if (!o.wide && Math.abs(o.x - c.x) > o.halfW + 0.35) continue;
+        if (!live(o) || !inLane(o, c.lane)) continue;
+        const d = c.z - 0.35 - o.box.max.z;
+        if (d < -0.6 || d > 12) continue;
         if (d < nd) { nd = d; next = o; }
       }
       if (next) {
-        if (next.low) {
-          if (nd < 1.4 && c.y <= 0.001) c.vy = 10;
-        } else {
-          const blocked = (l) => this.obstacles.some((o) => !o.low && !o.wide && !o.puddle && !o.drop &&
-            Math.abs(o.x - LANES[l]) < o.halfW + 0.35 && Math.abs(o.z - next.z) < 3.5);
-          let best = c.lane, bestD = Infinity;
-          for (let l = 0; l < 3; l++) {
-            if (blocked(l)) continue;
-            const dl = Math.abs(l - c.lane) + Math.random() * 0.1;
-            if (dl < bestD) { bestD = dl; best = l; }
-          }
-          c.lane = best;
+        // a lane is free if nothing stands in it from here to just past this obstacle
+        const free = (l) => !this.obstacles.some((o) => live(o) && inLane(o, l) &&
+          o.box.max.z > next.box.min.z - 2.5 && o.box.min.z < c.z - 0.2);
+        let best = -1, bestD = Infinity;
+        for (let l = 0; l < 3; l++) {
+          if (l === c.lane || !free(l)) continue;
+          if (Math.abs(l - c.lane) === 2 && !free(1)) continue;      // can't cut through the middle
+          const dl = Math.abs(l - c.lane) + Math.random() * 0.1;
+          if (dl < bestD) { bestD = dl; best = l; }
         }
+        // otherwise step into a lane that only has things he can jump
+        const noTall = (l) => !this.obstacles.some((o) => live(o) && !o.low && inLane(o, l) &&
+          o.box.max.z > next.box.min.z - 2.5 && o.box.min.z < c.z - 0.2);
+        if (best < 0 && !next.low) {
+          for (const l of [c.lane - 1, c.lane + 1]) if (l >= 0 && l < 3 && noTall(l)) { best = l; break; }
+        }
+        if (best >= 0 && nd > 0.9) c.lane = best;                    // side-step it
+        else if (next.low && nd < 1.4 && c.y <= 0.001) c.vy = 10;    // nowhere to go: jump it
       }
     }
     c.x = damp(c.x, LANES[c.lane], 10, dt);
@@ -1792,6 +1897,209 @@ export class ChaseLevel {
     }
   }
 
+  // =========================================================
+  // SUSPECT AVATAR — the team's Mixamo model (characters/*.fbx)
+  // The jointed stand-in above is shown until the model has loaded.
+  // =========================================================
+  _loadSuspect() {
+    const loader = new FBXLoader();
+    const stripRootMotion = (clip, keepY) => {
+      for (const tr of clip.tracks) {
+        if (!/Hips\.position$/.test(tr.name)) continue;
+        const v = tr.values, x0 = v[0], y0 = v[1], z0 = v[2];
+        for (let i = 0; i < v.length; i += 3) { v[i] = x0; v[i + 2] = z0; if (!keepY) v[i + 1] = y0; }
+      }
+      return clip;
+    };
+    loader.load(suspectRunURL, (obj) => {
+      if (this._disposed) return;
+      obj.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(obj);
+      const h = Math.max(0.01, box.max.y - box.min.y);
+      const s = 1.95 / h;
+      obj.scale.setScalar(s);
+      obj.position.y = -box.min.y * s;
+      obj.traverse((m) => {
+        if (!m.isMesh) return;
+        m.castShadow = true; m.receiveShadow = true;
+        m.frustumCulled = false;                       // skinned: bounds lag the animation
+      });
+      const bone = (n) => { let b = null; obj.traverse((o) => { if (!b && o.isBone && o.name.endsWith(n)) b = o; }); return b; };
+      const S = {
+        obj, baseY: obj.position.y,
+        mixer: new THREE.AnimationMixer(obj),
+        head: bone('Head'), spine: bone('Spine1'),
+        hips: bone('Hips'),
+        lArm: bone('LeftArm'), lFore: bone('LeftForeArm'), lHand: bone('LeftHand'),
+        rArm: bone('RightArm'), rFore: bone('RightForeArm'), rHand: bone('RightHand'),
+        lUp: bone('LeftUpLeg'), lLeg: bone('LeftLeg'), lFoot: bone('LeftFoot'),
+        rUp: bone('RightUpLeg'), rLeg: bone('RightLeg'), rFoot: bone('RightFoot'),
+      };
+      const runClip = obj.animations && obj.animations[0];
+      if (runClip) {
+        S.run = S.mixer.clipAction(stripRootMotion(runClip, true));
+        S.run.play();
+        this._runClip = runClip;
+      }
+      this.crook.root.add(obj);
+      this.crook.body.visible = false;                 // hide the stand-in
+      this.suspect = S;
+      this._wireCop();
+      // the running-jump clip lives in a second file with the same skeleton
+      loader.load(suspectJumpURL, (jobj) => {
+        const clip = jobj.animations && jobj.animations[0];
+        jobj.traverse((m) => {
+          if (m.geometry) m.geometry.dispose();
+          if (m.material) (Array.isArray(m.material) ? m.material : [m.material]).forEach((mm) => { if (mm.map) mm.map.dispose(); mm.dispose(); });
+        });
+        if (this._disposed || !clip || !this.suspect) return;
+        S.jump = S.mixer.clipAction(stripRootMotion(clip, false));
+        this._jumpClip = clip;
+        this._wireCop();
+        S.jump.setLoop(THREE.LoopOnce, 1);
+        S.jump.clampWhenFinished = false;
+      }, undefined, (err) => console.warn('[chase] jump clip not loaded', err));
+    }, undefined, (err) => console.warn('[chase] suspect model not loaded, using stand-in', err));
+  }
+
+  // =========================================================
+  // THE DETECTIVE (player) — the team's detective.fbx. It has no
+  // animations of its own, so it borrows the suspect's run and jump
+  // clips (same Mixamo skeleton) and is posed in code for standing,
+  // falling and the arrest.
+  // =========================================================
+  _loadCop() {
+    loadDetective(1.95).then((d) => {
+      if (this._disposed) return;
+      this.cop.root.add(d.root);
+      this.cop.body.visible = false;              // hide the stand-in
+      this.copFBX = Object.assign(d, { mixer: new THREE.AnimationMixer(d.model), mode: 'pose', jumpT: 0 });
+      this._wireCop();
+    }).catch((err) => console.warn('[chase] detective model not loaded, using stand-in', err));
+  }
+
+  _wireCop() {
+    const C = this.copFBX;
+    if (!C) return;
+    if (this._runClip && !C.run) C.run = C.mixer.clipAction(retargetClip(this._runClip, C.prefix));
+    if (this._jumpClip && !C.jump) {
+      C.jump = C.mixer.clipAction(retargetClip(this._jumpClip, C.prefix));
+      C.jump.setLoop(THREE.LoopOnce, 1);
+    }
+  }
+
+  _updateCop(dt, grounded) {
+    const C = this.copFBX;
+    if (!C) return;
+    const toPose = () => { if (C.mode !== 'pose') { C.mixer.stopAllAction(); C.mode = 'pose'; C.jumpT = 0; } };
+    if (this.state === 'caught') { toPose(); C.rig.arrest(this._arrestK || 0); return; }
+    if (this.state === 'fell') { toPose(); C.rig.pose(0, 0, true); return; }
+    if (this.state !== 'run' || this.speed < 0.3) { toPose(); C.rig.pose(this.copPhase, 0, false); return; }
+    if (!C.run) { C.rig.pose(this.copPhase, 2, !grounded); return; }   // clips not loaded yet
+    if (C.mode !== 'clip') { C.run.reset().play(); C.mode = 'clip'; }
+    if (!grounded && C.jump && C.jumpT <= 0) {
+      C.jump.reset().setEffectiveWeight(1).fadeIn(0.08).play();
+      C.run.fadeOut(0.08);
+      C.jumpT = C.jump.getClip().duration;
+    }
+    if (C.jumpT > 0) {
+      C.jumpT -= dt;
+      if (C.jumpT <= 0.12 && C.jump.isRunning()) { C.jump.fadeOut(0.12); C.run.reset().fadeIn(0.12).play(); C.jumpT = 0; }
+    }
+    C.run.timeScale = this.stumble > 0 ? 0.8 : 0.45 + this.speed / 12;
+    C.mixer.update(dt);
+  }
+
+  // point a bone so the line to its child bone faces `dir` (world space)
+  _aimBone(bone, child, dir) {
+    if (!bone || !child) return;
+    bone.updateMatrixWorld(true);
+    const a = bone.getWorldPosition(this._av1), b = child.getWorldPosition(this._av2);
+    const cur = b.sub(a).normalize();
+    const q = this._aq1.setFromUnitVectors(cur, this._av3.copy(dir).normalize());
+    const world = bone.getWorldQuaternion(this._aq2).premultiply(q);
+    const parentQ = bone.parent.getWorldQuaternion(this._aq3);
+    bone.quaternion.copy(parentQ.invert().multiply(world));
+    bone.updateMatrixWorld(true);
+  }
+
+  _updateSuspect(dt) {
+    const S = this.suspect;
+    if (!S) return;
+    const c = this.crim;
+    if (this.state === 'caught') {
+      if (!S.posed) { S.mixer.stopAllAction(); S.posed = true; S.obj.position.y = S.baseY; }
+      this._poseSuspectArrest(this._arrestK || 0);
+      return;
+    }
+    const running = this.state === 'run' || this.state === 'escaped' || this.state === 'fell';
+    if (S.run) S.run.timeScale = running ? 1.25 : 0;
+    // jump: play the running-jump clip, and let the clip lift him instead of the code
+    if (c.vy > 6 && S.jump && !S.jump.isRunning()) {
+      S.jump.reset().setEffectiveWeight(1).fadeIn(0.08).play();
+      S.run.fadeOut(0.08);
+      S.jumpT = S.jump.getClip().duration;
+    }
+    if (S.jumpT > 0) {
+      S.jumpT -= dt * (S.jump ? S.jump.timeScale : 1);
+      if (S.jumpT <= 0.12 && S.jump.isRunning()) { S.jump.fadeOut(0.12); S.run.reset().fadeIn(0.12).play(); }
+    }
+    S.obj.position.y = S.baseY;
+    S.mixer.update(dt);
+    // glance back over his shoulder now and then
+    if (S.head) S.head.rotateY(c.look * 1.1);
+    if (this.state === 'story' || this.state === 'intro') { if (S.head) S.head.rotateY(1.0); }
+  }
+
+  // kneeling, hands behind his back
+  _poseSuspectArrest(k) {
+    const S = this.suspect;
+    this.crook.root.updateMatrixWorld(true);
+    // his facing in the world (root faces -z), his right, down
+    const f = this._av4.set(0, 0, 1).applyQuaternion(this.crook.root.getWorldQuaternion(this._aq1)).normalize();
+    const down = this._av5.set(0, -1, 0);
+    const right = this._av6.crossVectors(f, down).normalize().negate();
+    const mix = (x, y, z) => new THREE.Vector3().addScaledVector(f, x).addScaledVector(right, y).addScaledVector(down, z);
+    const L = (a, b, t) => a.clone().lerp(b, t).normalize();
+    // legs: thighs down, shins back along the ground
+    this._aimBone(S.lUp, S.lLeg, L(mix(0.05, -0.08, 1), mix(0.15, -0.12, 1), k));
+    this._aimBone(S.rUp, S.rLeg, L(mix(0.05, 0.08, 1), mix(0.15, 0.12, 1), k));
+    this._aimBone(S.lLeg, S.lFoot, L(mix(0, -0.05, 1), mix(-1, -0.05, 0.12), k));
+    this._aimBone(S.rLeg, S.rFoot, L(mix(0, 0.05, 1), mix(-1, 0.05, 0.12), k));
+    // arms pulled behind: elbows back, both forearms aimed at one point at
+    // the small of his back. Try a few elbow widths and keep the one where
+    // the wrists end up closest, so they meet for the cuffs.
+    const sc = this.crook.root.scale.y;
+    const poseArms = (w, back) => {
+      this._aimBone(S.lArm, S.lFore, L(mix(0, -0.35, 1), mix(-back, -w, 0.8), k));
+      this._aimBone(S.rArm, S.rFore, L(mix(0, 0.35, 1), mix(-back, w, 0.8), k));
+      if (!S.hips) return 0;
+      const meet = S.hips.getWorldPosition(new THREE.Vector3()).addScaledVector(f, -0.24 * sc);
+      meet.y += 0.05 * sc;
+      for (const [fore, hand] of [[S.lFore, S.lHand], [S.rFore, S.rHand]]) {
+        if (!fore || !hand) continue;
+        const elbow = fore.getWorldPosition(new THREE.Vector3());
+        this._aimBone(fore, hand, L(mix(0.1, 0, 1), meet.clone().sub(elbow).normalize(), k));
+      }
+      return S.lHand.getWorldPosition(this._av1).distanceTo(S.rHand.getWorldPosition(this._av2));
+    };
+    let best = k >= 1 ? S.armBest : null;
+    if (!best) {
+      for (const w of [0.3, 0.2, 0.12, 0.06, 0.0]) for (const back of [0.35, 0.55, 0.8]) {
+        const gap = poseArms(w, back);
+        if (!best || gap < best.gap) best = { w, back, gap };
+      }
+      if (k >= 1) S.armBest = best;
+    }
+    poseArms(best.w, best.back);
+    if (S.head) { S.head.rotation.x = 0.35 * k; }
+    // lower him until the knees touch the ground
+    S.obj.position.y = S.baseY;
+    this.crook.root.updateMatrixWorld(true);
+    const kn = Math.min(S.lLeg.getWorldPosition(this._av1).y, S.rLeg.getWorldPosition(this._av2).y);
+    S.obj.position.y = S.baseY - (kn - 0.08) * k / this.crook.root.scale.y;
+  }
+
   _updateAvatars(dt, py, grounded) {
     const cop = this.cop, crook = this.crook, c = this.crim;
 
@@ -1821,13 +2129,17 @@ export class ChaseLevel {
       if (c.y > 0.02) poseJump(crook); else poseRun(crook, c.phase, 0.25);
       crook.headG.rotation.set(0, c.look * 2, 0);
     }
+    this._updateSuspect(dt);
+    this._updateCop(dt, grounded);
+    if (this.state === 'caught') this._placeCuffs();
   }
 
   _placeCuffs() {
     if (!this.cuffs.visible) return;
     this.crook.root.updateMatrixWorld(true);
-    const a = this.crook.hands[0].getWorldPosition(this._v);
-    const b = this.crook.hands[1].getWorldPosition(this._v2);
+    const S = this.suspect;
+    const a = (S && S.lHand ? S.lHand : this.crook.hands[0]).getWorldPosition(this._v);
+    const b = (S && S.rHand ? S.rHand : this.crook.hands[1]).getWorldPosition(this._v2);
     this.cuffRings[0].position.copy(a);
     this.cuffRings[1].position.copy(b);
     for (const r of this.cuffRings) r.rotation.set(Math.PI / 2, 0, 0);
@@ -1860,10 +2172,10 @@ export class ChaseLevel {
     if (this.state === 'caught') {
       const c = this.caughtAt;
       const side = c.x > 0 ? -1 : 1;
-      const want = this._v.set(c.x + side * (3.3 - this.stateT * 0.15), 1.7, c.z + 2.6);
+      const want = this._v.set(c.x + side * (3.6 - this.stateT * 0.15), 2.0, c.z + 2.9);
       this.camPos.lerp(want, 1 - Math.exp(-4 * dt));
       cam.position.copy(this.camPos);
-      cam.lookAt(c.x, 0.75, c.z + 0.35);
+      cam.lookAt(c.x, 1.0, c.z + 0.45);
       return;
     }
     if (this.state === 'fell') {
@@ -1879,10 +2191,10 @@ export class ChaseLevel {
       cam.rotation.set(p ? p.pitch : 0, p ? p.yaw : 0, roll);
       this.camPos.copy(cam.position);
     } else {
-      const want = this._v.set(this.px * 0.75, py + 3.0, this.pz + 6.2);
+      const want = this._v.set(this.px * 0.8, py + 3.3, this.pz + 5.2);
       this.camPos.lerp(want, 1 - Math.exp(-10 * dt));
       cam.position.set(this.camPos.x + sx, this.camPos.y + sy, this.camPos.z);
-      cam.lookAt(this.px * 0.85, py + 1.3, this.pz - 8);
+      cam.lookAt(this.px * 0.9, py + 1.9, this.pz - 8);
     }
   }
 
@@ -1890,14 +2202,18 @@ export class ChaseLevel {
   // DISPOSE
   // =========================================================
   dispose() {
+    this._disposed = true;
+    if (this.suspect) { this.suspect.mixer.stopAllAction(); this.suspect = null; }
+    if (this.copFBX) { this.copFBX.mixer.stopAllAction(); this.copFBX = null; }
     clearTimeout(this._flashT);
     window.removeEventListener('keydown', this._onKey);
     window.__firstPerson = false;
     window.__uiCapture = false;
     if (this.story) { for (const k of ['css', 'bars', 'title', 'box']) this.story[k].remove(); this.story = null; }
     if (this._mainHud) this._mainHud.style.visibility = this._mainHudVis || '';
+    if (this._mainMsg) this._mainMsg.style.visibility = this._mainMsgVis || '';
     if (this.ui) {
-      for (const k of ['css', 'hud', 'hint', 'center', 'end', 'flash', 'fade']) if (this.ui[k]) this.ui[k].remove();
+      for (const k of ['css', 'hud', 'hint', 'center', 'end', 'flash', 'fade', 'confetti']) if (this.ui[k]) this.ui[k].remove();
       this.ui = null;
     }
     if (this.scene) {

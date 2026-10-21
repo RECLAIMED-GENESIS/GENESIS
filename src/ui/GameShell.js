@@ -22,14 +22,13 @@ const SETTINGS_KEY = 'genesis.settings.v1';
 export const LEVEL_CARDS = {
   1: { title: 'Level 1', sub: "The victim's office", line: 'Dr. Nkosi is dead. The room remembers everything.' },
   2: { title: 'Level 2', sub: 'The forensic lab', line: 'Eight objects. Two names. The lab cannot say which is which.' },
-  3: { title: 'Level 3', sub: 'The city', line: 'Two names walked out of that room. Find them both.' },
+  3: { title: 'Level 3', sub: 'Genesis', line: 'The suspect is running. Catch him before the bridge.' },
 };
 
 const LEVEL_NAMES = {
   1: "The victim's office",
   2: 'The forensic lab',
-  3: 'The city',
-  depot: 'The depot stakeout',
+  3: 'Genesis: the chase',
 };
 
 const FONT_HREF = 'https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800;900&family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap';
@@ -661,11 +660,11 @@ export class GameShell {
           <dt><kbd>Q</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></dt><dd>Office kit: camera, bags, tweezers, swab. Photograph first, lift second.</dd>
           <dt><kbd>F</kbd></dt><dd>Switch on the UV torch.</dd>
           <dt><kbd>C</kbd></dt><dd>Open the case file.</dd>
-          <dt><kbd>B</kbd></dt><dd>Open the evidence board in the city.</dd>
-          <dt><kbd>Y</kbd><kbd>N</kbd></dt><dd>Accept / decline the depot stakeout warrant.</dd>
+          <dt><kbd>V</kbd></dt><dd>Switch between first and third person.</dd>
+          <dt><kbd>A</kbd><kbd>D</kbd> <kbd>Space</kbd></dt><dd>In the chase: change lane, jump.</dd>
           <dt><kbd>P</kbd><kbd>R</kbd></dt><dd>Pause, or restart the level.</dd>
         </dl>
-        <p>The case runs in four stages. <b>1 — Office:</b> work the crime scene with the right tool for each clue; wrong tool means contamination. <b>2 — Lab:</b> sign evidence in, wear gloves, shield the phone and read the microscope yourself to name two people. <b>3 — City:</b> question all five witnesses, link evidence to them on the board and ask the captain for a warrant. <b>4 — Depot:</b> run the 14:00 stakeout and close it.</p>
+        <p>The case runs in three stages. <b>1 — Office:</b> work the crime scene with the right tool for each clue; wrong tool means contamination. <b>2 — Lab:</b> sign evidence in, wear gloves, shield the phone and read the microscope yourself to name two people. <b>3 — Genesis:</b> the suspect runs through the abandoned beachfront city. Catch him before he crosses the cave bridge.</p>
         <p>Progress saves every time you change level.</p>
         <button class="gs-btn gs-pill" id="gs-how-back">Back</button>
       </div></div>`);
@@ -704,7 +703,7 @@ export class GameShell {
     const n = el(`<div>
       <div class="gs-sheet gs-cr">
         <h2 class="gs-h">Credits</h2>
-        <p><b>GENESIS — Read the Room. Close the Case.</b><br>A murder mystery in four stages: the office, the lab, the city and the depot stakeout.</p>
+        <p><b>GENESIS — Read the Room. Close the Case.</b><br>A murder mystery in three stages: the office, the lab and the chase through Genesis.</p>
         <h3>Made by 404 Found Us</h3>
         <p>Banele Mjali — UI &amp; Polish<br>Busisiwe Mnguni — Shaders &amp; Effects<br>Pumelela Mapukata — Environment &amp; Art<br>Sibusiso Ndunge — Player &amp; Physics</p>
         <h3>This pass</h3>
@@ -771,7 +770,7 @@ export class GameShell {
             <button class="gs-btn gs-pill solid" id="gs-next">Next</button>
           </div>
         </div>
-        <p id="gs-hint">SPACE next &nbsp;·&nbsp; ESC skip</p>
+        <p id="gs-hint">ENTER next &nbsp;·&nbsp; ESC skip</p>
       </div></div>`);
     this._addScreen('intro', n);
     this._art = n.querySelector('#gs-art');
@@ -797,7 +796,7 @@ export class GameShell {
     this._introKey = (e) => {
       if (!document.querySelector('.gs-screen[data-screen="intro"].on')) return;
       if (e.code === 'Escape') { e.preventDefault(); this._finishIntro(); return; }
-      if (e.code === 'Space' || e.code === 'Enter' || e.code === 'ArrowRight') {
+      if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'ArrowRight') {
         e.preventDefault();
         if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
         this._next.click();

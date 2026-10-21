@@ -41,6 +41,7 @@ import { PhotoCamera, PHOTO } from '../game/photoCamera.js';
 import { play as sfx } from '../audio/sfx.js';
 import { showBriefing } from '../game/briefing.js';
 import { installLabExtras } from './LabExtras.js';
+import { attachPlayerView } from '../game/DetectiveAvatar.js';
 
 const EYE = 1.7;
 const REACH = 3.4;
@@ -247,6 +248,10 @@ export class LabLevel {
     });
 
     window.__firstPerson = true;
+    // the detective's body + [V] first / third person (runs after this level's own update)
+    this._view = attachPlayerView(this, { tag: true, forceFirst: () => this._uiBusy() });
+    const labUpdate = this.update.bind(this);
+    this.update = (dt, t, player) => { labUpdate(dt, t, player); this._view.update(dt, player); };
     this._onKey = (e) => this._handleKey(e);
     window.addEventListener('keydown', this._onKey);
     this._onMouseMove = (e) => this._handleKnobDrag(e);
@@ -1642,7 +1647,7 @@ export class LabLevel {
     if (typeof window.__saveRun === 'function') window.__saveRun();
     let st = {}; try { st = getStats(); } catch (e) {}
     this._toast('HANDOFF \u2014 FILED ' + this._labClock(),
-      'The captain signs the folder. Contamination: ' + (st.contamination || 0) + ' \u00b7 wipes: ' + (st.wipes || 0) + ' \u00b7 film wasted: ' + (st.wastedFilm || 0) + '. City \u2014 find both names.', 3600);
+      'The captain signs the folder. Contamination: ' + (st.contamination || 0) + ' \u00b7 wipes: ' + (st.wipes || 0) + ' \u00b7 film wasted: ' + (st.wastedFilm || 0) + '. One of those names was seen at GENESIS, the abandoned beachfront site. Go now.', 3600);
     setTimeout(() => { if (typeof window.__switchLevel === 'function') window.__switchLevel(3); }, 3600);
   }
 
@@ -1841,6 +1846,7 @@ export class LabLevel {
   }
 
   dispose() {
+    if (this._view) { this._view.dispose(); this._view = null; }
     clearTimeout(this._toastTimer);
     if (this._briefing) { this._briefing.cancel(); this._briefing = null; }
     if (this._termStop) this._termStop();

@@ -4,16 +4,13 @@
 import * as THREE from 'three';
 import { StreetLevel } from './levels/lvl1.js';
 import { LabLevel }    from './levels/LabLevel.js';
-import { CityLevel }   from './levels/CityLevel.js';
-import { DepotLevel }  from './levels/DepotLevel.js';
-import { ChaseLevel }  from './levels/ChaseLevel.js';   // Level 3 police chase (new)
+import { ChaseLevel }  from './levels/ChaseLevel.js';
 import { GameShell } from './ui/GameShell.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { loadAllAudio } from './audio/loadAudio.js';
 import { getStats } from './game/stats.js';
 
-const LEVELS = { 1: StreetLevel, 2: LabLevel, 3: CityLevel, depot: DepotLevel };
-LEVELS.chase = ChaseLevel;   // police chase level (new)
+const LEVELS = { 1: StreetLevel, 2: LabLevel, 3: ChaseLevel };
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(innerWidth, innerHeight);
@@ -273,7 +270,7 @@ async function switchLevel(n, opts = {}) {
   try { audio.playLevelMusic(n); } catch (e) {}
   try {
     audio.stopAmbience();
-    if (n === 3 || n === 'depot') audio.playAmbience('city_ambience');
+    if (n === 3) audio.playAmbience('city_ambience');
   } catch (e) {}
   try { shell.saveGame({ level: n, caseProgress: window.__caseProgress || null }); } catch (e) {}
   _lastHudString = '';
@@ -318,9 +315,9 @@ function quitToMenu() {
 window.__switchLevel = (n) => { if (appState === 'playing') switchLevel(n, { fade: true, card: typeof n === 'number' }); };
 window.__showMenu = () => quitToMenu();
 window.__restartLevel = () => { if (appState === 'playing') switchLevel(current, { fade: true, card: true }); };
+// console helper: __level() is the level you are in, e.g. __level()._openOutro() previews Level 1's ending
+window.__level = () => level;
 window.__saveRun = () => { try { shell.saveGame({ level: current, caseProgress: window.__caseProgress || null }); } catch (e) {} };
-// test the chase straight from the menu: open the browser console and type  __playChase()
-window.__playChase = () => { appState = 'playing'; paused = false; shell.hideAll(); switchLevel('chase', { fade: true, card: false }); };
 
 const mini = new THREE.OrthographicCamera(-55, 55, 55, -55, 1, 300);
 mini.layers.enable(0);

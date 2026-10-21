@@ -42,6 +42,9 @@ import { applyCaseToStory, getCase, killerOf } from '../game/case.js';
 import { PhotoCamera } from '../game/photoCamera.js';
 import { play as sfx } from '../audio/sfx.js';
 import { showBriefing } from '../game/briefing.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
+import { attachPlayerView } from '../game/DetectiveAvatar.js';
 
 // ------------------------------------------------------------
 // CASE DATA  — edit the story here
@@ -64,9 +67,9 @@ export const CASE = {
   outro: [
     'That is everything this room has to say. One gunshot, a guest who never finished his drink, and a meeting nobody was meant to know about.',
     'I am bagging the casing, the glasses, the fibres and the rest — the lab will confirm what I already suspect.',
-    'The diary points somewhere else: a rendezvous in the city, booked for tomorrow afternoon.',
-    'Whoever he was going to meet is the one who benefits from him never keeping that appointment.',
-    'Evidence to the lab first. Then I follow the trail into the city.',
+    'His diary has one more entry: a meeting he was afraid of. Whoever he was going to see did not want him to make it.',
+    'This room has given me everything it can. The rest is in the evidence.',
+    'It all goes to the forensic lab. In the morning I run the tests myself, and by the end of the day I want a name.',
   ],
   body: {
     name: 'The body',
@@ -282,7 +285,7 @@ export class StreetLevel {
     const L = -6, R = 8.5, B = -7, F = 2.5;
     this.W = R - L; 
     this.D = F - B; 
-    this.H = 4.2;
+    this.H = 3.3;   // was 4.2 — a real office ceiling, so the room feels its size
     this.CX = (L + R) / 2;                        // room centre on X
     this.CZ = (B + F) / 2;                       // room centre on Z
     this.HALF_W = this.W / 2;
@@ -350,6 +353,7 @@ export class StreetLevel {
       if (o.isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; }
     });
     this.level.updateMatrixWorld(true);
+    this._look = applyLevel1Look(this);
 
     // the third-person avatar is no longer part of this game
     this._hideAvatar();
@@ -1538,19 +1542,19 @@ new FBXLoader().load(professorFBX, (object) => {
   }
 
   // Second outro stage: the screen cuts to black while the evidence goes to
-  // the lab, then offers the jump to the city (Level 2).
+  // the lab, then takes you there (Level 2).
   _showLabScreen() {
     this.ui.outro.innerHTML = `
       <style>@keyframes labFadeIn{from{opacity:0}to{opacity:1}}</style>
       <div style="position:absolute;inset:0;background:#000;animation:labFadeIn 1.4s forwards"></div>
       <div style="position:relative;max-width:min(720px,88vw);font-size:15px;letter-spacing:4px;color:#f2b84b;opacity:0;animation:labFadeIn 1.2s 1.6s forwards">
-        FORENSIC LAB — CENTRAL CITY
+        NEXT MORNING &nbsp;—&nbsp; FORENSIC LAB, CENTRAL CITY
       </div>
       <p style="position:relative;max-width:min(680px,86vw);margin:26px auto 0;font-size:19px;line-height:1.7;color:#d7dde8;opacity:0;animation:labFadeIn 1.4s 2.4s forwards">
-        The evidence has been sent to the lab. The results will be available in a few days.
+        The evidence is sealed and signed over. Eight bags wait on your bench in the basement lab, and there is no time to wait for anyone else's results.
       </p>
       <div style="position:relative;margin-top:48px;opacity:0;animation:labFadeIn 1s 4s forwards">
-        <button id="outro-city" style="font:inherit;letter-spacing:1px;padding:12px 28px;background:#1f6f5c;color:#fff;border:0;cursor:pointer">Go to the City to continue the investigation &rarr;</button>
+        <button id="outro-city" style="font:inherit;letter-spacing:1px;padding:12px 28px;background:#1f6f5c;color:#fff;border:0;cursor:pointer">Go to the lab &rarr;</button>
       </div>`;
 
     const btn = this.ui.outro.querySelector('#outro-city');
@@ -1900,6 +1904,7 @@ new FBXLoader().load(professorFBX, (object) => {
   // DISPOSE
   // =========================================================
   dispose() {
+    if (this._look) { this._look.dispose(); this._look = null; }
     clearTimeout(this._toastTimer);
     clearTimeout(this._caseTimer);
     clearTimeout(this._scareTimer);
@@ -1936,4 +1941,601 @@ new FBXLoader().load(professorFBX, (object) => {
 
   // legacy arity compat
   _updateLegacy(deltaTime) { return this.update(deltaTime, 0, null); }
+}
+
+
+// ============================================================
+// HOW LEVEL 1 LOOKS (applied once from the constructor via
+// applyLevel1Look(this); nothing below changes the gameplay)
+//   * textures + surface bumps made in code: oak floor, plaster
+//     walls, ceiling tiles, wood grain, carpet, fabric, leather,
+//     brushed metal, paper; soft reflections
+//   * night lighting: ceiling fittings with soft area light,
+//     darker corners, warm desk lamp, cold moonlight
+//   * the victim's model made matte, blood pool under his chest
+//   * furniture on the bare walls
+//   * a visible detective with [V] first / third person
+//   * one tidy controls bar at the bottom
+// ============================================================
+// ---------- small seeded noise ----------
+let seed = 9001;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+function hash(x, y, s) {
+  let h = Math.imul(x | 0, 374761393) ^ Math.imul(y | 0, 668265263) ^ Math.imul(s | 0, 1274126177);
+  h = Math.imul(h ^ (h >>> 13), 1103515245);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+// tileable value noise (period P cells)
+function pnoise(x, y, P, s) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+  const w = (i) => ((i % P) + P) % P;
+  const c = (i, j) => hash(w(xi + i), w(yi + j), s);
+  const a = c(0, 0) + (c(1, 0) - c(0, 0)) * u, b = c(0, 1) + (c(1, 1) - c(0, 1)) * u;
+  return (a + (b - a) * v) * 2 - 1;
+}
+function pfbm(x, y, P, s, oct = 4) {
+  let a = 0.5, f = 1, sum = 0, n = 0;
+  for (let i = 0; i < oct; i++) { sum += a * pnoise(x * f, y * f, P * f, s + i); n += a; a *= 0.5; f *= 2; }
+  return sum / n;
+}
+
+// Build colour / normal / roughness textures from one function that returns,
+// for each pixel (u, v in 0..1): { r, g, b, h (height 0..1), rough (0..1) }
+function makeMaps(size, sample, bump, opts = {}) {
+  const N = size * size;
+  const col = new Uint8ClampedArray(N * 4), hgt = new Float32Array(N), rgh = new Uint8ClampedArray(N * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const p = sample(x / size, y / size, x, y);
+    const i = y * size + x;
+    col[i * 4] = p.r; col[i * 4 + 1] = p.g; col[i * 4 + 2] = p.b; col[i * 4 + 3] = 255;
+    hgt[i] = p.h;
+    const r = clamp(p.rough * 255, 0, 255);
+    rgh[i * 4] = r; rgh[i * 4 + 1] = r; rgh[i * 4 + 2] = r; rgh[i * 4 + 3] = 255;
+  }
+  const nrm = new Uint8ClampedArray(N * 4);
+  const at = (x, y) => hgt[((y + size) % size) * size + ((x + size) % size)];
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    let nx = (at(x - 1, y) - at(x + 1, y)) * bump, ny = (at(x, y - 1) - at(x, y + 1)) * bump;
+    const l = Math.hypot(nx, ny, 1);
+    const i = (y * size + x) * 4;
+    nrm[i] = (nx / l * 0.5 + 0.5) * 255; nrm[i + 1] = (ny / l * 0.5 + 0.5) * 255; nrm[i + 2] = (1 / l * 0.5 + 0.5) * 255; nrm[i + 3] = 255;
+  }
+  const tex = (data, srgb) => {
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    c.getContext('2d').putImageData(new ImageData(data, size, size), 0, 0);
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 8;
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    if (opts.repeat) t.repeat.set(opts.repeat[0], opts.repeat[1]);
+    return t;
+  };
+  return { map: tex(col, true), normalMap: tex(nrm, false), roughnessMap: tex(rgh, false) };
+}
+
+// ---------- the surfaces ----------
+
+// varnished oak planks: 4 planks across, staggered ends, grain, worn varnish
+function oakFloor() {
+  const planks = 4, len = 2;      // tile = 4 planks wide, plank ends staggered twice
+  const shade = [];
+  for (let i = 0; i < planks * len * 2; i++) shade.push(0.75 + rnd() * 0.4);
+  return makeMaps(512, (u, v) => {
+    const px = u * planks, col = Math.floor(px), fx = px - col;
+    const off = (col % 2) * 0.5;
+    const pv = (v + off) * len, row = Math.floor(pv), fy = pv - row;
+    const k = shade[(col * len + (row % len)) % shade.length];
+    const gap = (fx < 0.02 || fx > 0.98 || fy < 0.006 || fy > 0.994) ? 1 : 0;
+    const grain = pfbm(fx * 3 + col * 7.1, (v + off) * 40, 4096, 3 + col, 3);
+    const ring = 0.5 + 0.5 * Math.sin((fx * 9 + grain * 2.5) * 3.1);
+    const t = k * (0.62 + 0.22 * ring + 0.1 * grain);
+    const wear = pfbm(u * 6, v * 6, 6, 77, 3);
+    const base = [118, 74, 44];
+    const g = gap ? 0.28 : t;
+    return {
+      r: base[0] * g, g: base[1] * g, b: base[2] * g,
+      h: gap ? 0 : 0.6 + 0.08 * ring,
+      rough: gap ? 1 : clamp(0.32 + 0.25 * (wear * 0.5 + 0.5) + 0.08 * ring, 0, 1),
+    };
+  }, 2.2);
+}
+
+// painted plaster: soft roller texture, faint scuffs low down
+function plasterWall() {
+  return makeMaps(512, (u, v) => {
+    const n = pfbm(u * 16, v * 16, 16, 11, 4);
+    const fine = pnoise(u * 128, v * 128, 128, 5);
+    const k = 0.92 + 0.05 * n + 0.02 * fine;
+    return { r: 236 * k, g: 236 * k, b: 232 * k, h: 0.5 + 0.35 * n + 0.15 * fine, rough: 0.82 + 0.1 * n };
+  }, 1.1);
+}
+
+// suspended ceiling tiles (2 x 2 per texture), speckled acoustic surface
+function ceilingTiles() {
+  return makeMaps(512, (u, v) => {
+    const fx = (u * 2) % 1, fy = (v * 2) % 1;
+    const edge = Math.min(fx, 1 - fx, fy, 1 - fy);
+    const groove = edge < 0.012;
+    const dot = hash(Math.floor(u * 512), Math.floor(v * 512), 21) > 0.93;
+    const n = pfbm(u * 8, v * 8, 8, 31, 3);
+    const k = groove ? 0.45 : (dot ? 0.72 : 0.9 + 0.05 * n);
+    return { r: 150 * k, g: 150 * k, b: 146 * k, h: groove ? 0 : (dot ? 0.4 : 0.6 + 0.05 * n), rough: 0.95 };
+  }, 2.5);
+}
+
+// straight wood grain for desk tops, doors, cabinets
+function woodGrain(rgb) {
+  return makeMaps(512, (u, v) => {
+    const warp = pfbm(u * 2, v * 6, 64, 41, 3);
+    const lines = 0.5 + 0.5 * Math.sin((v * 46 + warp * 5) * Math.PI);
+    const fine = pnoise(u * 256, v * 24, 256, 43);
+    const k = 0.7 + 0.22 * lines + 0.08 * fine;
+    return { r: rgb[0] * k, g: rgb[1] * k, b: rgb[2] * k, h: 0.5 + 0.12 * lines + 0.05 * fine, rough: 0.42 + 0.15 * (1 - lines) };
+  }, 1.4);
+}
+
+// carpet / rug: dense fibre, a darker border band
+function carpet(rgb) {
+  return makeMaps(512, (u, v) => {
+    const fib = hash(Math.floor(u * 512), Math.floor(v * 512), 61);
+    const n = pfbm(u * 10, v * 10, 10, 63, 3);
+    const e = Math.min(u, 1 - u, v, 1 - v);
+    const border = e < 0.06 ? 0.62 : (e < 0.075 ? 1.18 : 1);
+    const k = (0.78 + 0.18 * fib + 0.08 * n) * border;
+    return { r: rgb[0] * k, g: rgb[1] * k, b: rgb[2] * k, h: 0.3 + 0.7 * fib, rough: 1 };
+  }, 3.0);
+}
+
+// woven upholstery
+function weave(rgb) {
+  return makeMaps(256, (u, v, x, y) => {
+    const w = ((x >> 1) + (y >> 1)) % 2 ? 0.9 : 1.0;
+    const n = pfbm(u * 8, v * 8, 8, 71, 2);
+    const k = w * (0.9 + 0.08 * n);
+    return { r: rgb[0] * k, g: rgb[1] * k, b: rgb[2] * k, h: w, rough: 0.95 };
+  }, 1.2);
+}
+
+// leather: pebbled grain with a slight sheen
+function leather(rgb) {
+  return makeMaps(256, (u, v) => {
+    const cell = 1 - Math.abs(pfbm(u * 24, v * 24, 24, 81, 2));
+    const k = 0.8 + 0.2 * cell;
+    return { r: rgb[0] * k, g: rgb[1] * k, b: rgb[2] * k, h: cell, rough: 0.5 + 0.2 * (1 - cell) };
+  }, 2.0);
+}
+
+// brushed steel
+function brushed() {
+  return makeMaps(256, (u, v) => {
+    const s = pnoise(u * 4, v * 256, 4, 91);
+    const k = 0.85 + 0.1 * s;
+    return { r: 170 * k, g: 176 * k, b: 184 * k, h: 0.5 + 0.2 * s, rough: 0.32 + 0.12 * s };
+  }, 0.6);
+}
+
+// paper: faint fibres
+function paper() {
+  return makeMaps(256, (u, v) => {
+    const n = pnoise(u * 64, v * 64, 64, 95);
+    const k = 0.95 + 0.04 * n;
+    return { r: 236 * k, g: 230 * k, b: 214 * k, h: 0.5 + 0.2 * n, rough: 0.9 };
+  }, 0.5);
+}
+
+// swap a material's look in place (every mesh that shares it updates)
+function dress(m, maps, extra = {}) {
+  if (!m) return;
+  if (m.map && m.map.dispose) m.map.dispose();
+  m.map = maps.map; m.normalMap = maps.normalMap; m.roughnessMap = maps.roughnessMap;
+  m.color.set(0xffffff);
+  Object.assign(m, extra);
+  if (extra.normalScale !== undefined) m.normalScale = new THREE.Vector2(extra.normalScale, extra.normalScale);
+  m.needsUpdate = true;
+}
+
+// FBX models arrive with shiny Phong "plastic"; make them matte cloth/skin
+function matteModel(root) {
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const list = Array.isArray(o.material) ? o.material : [o.material];
+    const out = list.map((m) => {
+      if (!m || m.isMeshStandardMaterial || m.userData.l1matte) return m;
+      const s = new THREE.MeshStandardMaterial({
+        map: m.map || null, normalMap: m.normalMap || null, color: m.color ? m.color.clone() : new THREE.Color(0xffffff),
+        roughness: 0.82, metalness: 0, transparent: m.transparent, opacity: m.opacity, alphaTest: m.alphaTest,
+        side: m.side,
+      });
+      s.userData.l1matte = true;
+      m.dispose();
+      return s;
+    });
+    o.material = Array.isArray(o.material) ? out : out[0];
+  });
+}
+
+// =============================================================
+// LIGHTING — a real office at night instead of flat, even light:
+//   * the bare white tube sticks become proper recessed ceiling
+//     fittings (aluminium frame + louvred diffuser) that give soft
+//     area light from above
+//   * much less "fill everywhere" light, so corners go darker
+//   * the desk lamp becomes the warm focus, with soft shadows
+//   * cold blue moonlight from the rainy windows
+// =============================================================
+function louvreTexture() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  const g = c.getContext('2d');
+  g.fillStyle = '#f4f7ff'; g.fillRect(0, 0, 256, 64);
+  g.fillStyle = 'rgba(120,130,150,0.55)';
+  for (let x = 0; x <= 256; x += 16) g.fillRect(x, 0, 2, 64);   // louvre blades
+  g.fillRect(0, 31, 256, 2);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function relight(level) {
+  RectAreaLightUniformsLib.init();
+  const root = level.level;
+  // 1) turn the flat fills down
+  root.children.forEach((o) => {
+    if (o.isHemisphereLight) o.intensity = 0.32;
+    if (o.isAmbientLight) o.intensity = 0.08;
+  });
+  if (level.roomFill) { level.roomFill.intensity = 0.7; level.roomFill.position.y = (level.H || 4.2) - 0.4; }
+  if (level.backFill) { level.backFill.intensity = 0.6; level.backFill.position.y = (level.H || 4.2) - 0.4; }
+  if (level.tube) level.tube.intensity = 0.5;
+
+  // 2) ceiling fittings where the bare tubes were
+  const H = level.H || 4.2;
+  const frameM = new THREE.MeshStandardMaterial({ color: 0xc8ccd2, metalness: 0.7, roughness: 0.35 });
+  const diffM = new THREE.MeshStandardMaterial({ map: louvreTexture(), emissive: 0xffffff, emissiveIntensity: 1.25, roughness: 0.6 });
+  diffM.emissiveMap = diffM.map;
+  const tubes = [];
+  root.traverse((o) => { if (o.isMesh && o.material === level.tubeMat) tubes.push(o); });
+  for (const t of tubes) {
+    t.visible = false;
+    const x = t.position.x, z = t.position.z;
+    const g = new THREE.Group(); g.position.set(x, H, z); root.add(g);
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(2.9, 0.07, 0.68), frameM);
+    frame.position.y = -0.035; g.add(frame);
+    const diff = new THREE.Mesh(new THREE.PlaneGeometry(2.76, 0.56), diffM);
+    diff.rotation.x = Math.PI / 2; diff.position.y = -0.072; g.add(diff);
+    frame.userData.noShadow = diff.userData.noShadow = true;
+    const area = new THREE.RectAreaLight(0xeef3ff, 4.2, 2.7, 0.55);
+    area.position.set(x, H - 0.08, z);
+    area.lookAt(x, 0, z);
+    root.add(area);
+  }
+
+  // 3) the desk lamp: warm pool of light with soft shadow edges
+  if (level.lamp) {
+    level.lamp.color.set(0xffb366);
+    level.lamp.intensity = 14;
+    level.lamp.distance = 9;
+    level.lamp.decay = 2;
+    level.lamp.shadow.radius = 4;
+  }
+  // 4) cold moonlight from the windows
+  for (const m of [level.moon, level.moon2]) {
+    if (!m) continue;
+    m.color.set(0x6f8fd6);
+    m.position.y = Math.min(m.position.y, (level.H || 4.2) - 0.25);
+    m.penumbra = 1;
+    if (m.shadow) m.shadow.radius = 5;
+  }
+}
+
+// =============================================================
+// THE BODY — slide the blood pool (and its drops and the hand
+// smear) under his chest, so the wound lines up with the blood.
+// =============================================================
+function bloodUnderChest(level) {
+  const g = level.bodyGroup;
+  if (!g) return;
+  let chest = null;
+  g.traverse((o) => { if (!chest && o.isBone && /Spine2$/.test(o.name)) chest = o; });
+  if (!chest) g.traverse((o) => { if (!chest && o.isBone && /Spine1?$/.test(o.name)) chest = o; });
+  if (!chest) return;
+  g.updateMatrixWorld(true);
+  const c = chest.getWorldPosition(new THREE.Vector3());
+  const POOL = new THREE.Vector3(-1.28, 0, -2.2);           // where lvl1.js put the pool
+  const dx = c.x - POOL.x, dz = c.z - POOL.z;
+  if (Math.hypot(dx, dz) < 0.05) return;
+  level.level.children.forEach((o) => {
+    if (!o.isMesh || o.position.y > 0.03) return;
+    const isPool = o.geometry.type === 'CircleGeometry' && Math.hypot(o.position.x - POOL.x, o.position.z - POOL.z) < 1.0;
+    const isSmear = o.geometry.type === 'PlaneGeometry' && Math.abs(o.position.x + 1.9) < 0.01 && Math.abs(o.position.z + 1.95) < 0.01;
+    if (isPool || isSmear) { o.position.x += dx; o.position.z += dz; }
+  });
+}
+
+// =============================================================
+// FURNISHING — fill the bare walls with what a lecturer's office
+// really has. Everything stands against a wall, away from the
+// clues, and gets a collider so you can't walk through it.
+// =============================================================
+function furnish(level) {
+  const root = level.level, m = level.m || {};
+  const wood = m.woodDark || new THREE.MeshStandardMaterial({ color: 0x3a2618 });
+  const metal = m.metal || new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.7, roughness: 0.4 });
+  const card = m.cardboard || new THREE.MeshStandardMaterial({ color: 0x9a7448 });
+  const box = (p, w, h, d, mt, x, y, z) => {
+    const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mt);
+    o.position.set(x, y, z); o.castShadow = o.receiveShadow = true; p.add(o); return o;
+  };
+  const solid = (x0, x1, z0, z1, h) => level.colliders.push(new THREE.Box3(new THREE.Vector3(x0, 0, z0), new THREE.Vector3(x1, h, z1)));
+  const bookCols = [0x6b1f1f, 0x1f3b5c, 0x2f4a2a, 0x7a5a1e, 0x3a2a4a, 0x8a7a64, 0x222222, 0x5c2c1c, 0x1c4a4a];
+  const bookMats = bookCols.map((c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.75 }));
+
+  // ---- bookcases on the left wall ----
+  const L = level.LEFT;
+  for (const zc of [-3.9, -2.8, -1.7]) {
+    const g = new THREE.Group(); g.position.set(L + 0.19, 0, zc); root.add(g);
+    box(g, 0.36, 2.2, 0.03, wood, 0, 1.1, -0.5); box(g, 0.36, 2.2, 0.03, wood, 0, 1.1, 0.5);
+    box(g, 0.02, 2.2, 1.0, wood, -0.17, 1.1, 0);
+    for (let s = 0; s < 6; s++) {
+      const y = 0.06 + s * 0.42;
+      box(g, 0.36, 0.03, 1.0, wood, 0, y, 0);
+      if (s === 5) continue;
+      let z = -0.46;
+      while (z < 0.44) {
+        const t = 0.025 + rnd() * 0.04, h = 0.24 + rnd() * 0.12;
+        if (rnd() < 0.08) { z += 0.08; continue; }                    // a gap
+        const b = box(g, 0.24 + rnd() * 0.06, h, t, bookMats[Math.floor(rnd() * bookMats.length)], 0.02, y + 0.015 + h / 2, z + t / 2);
+        if (rnd() < 0.06) b.rotation.x = 0.18;                        // one leaning
+        z += t + 0.004;
+      }
+    }
+    solid(L, L + 0.38, zc - 0.52, zc + 0.52, 2.2);
+  }
+
+  // ---- radiators under both windows ----
+  const B = level.BACK;
+  const radM = new THREE.MeshStandardMaterial({ color: 0xe8e8e2, roughness: 0.5, metalness: 0.2 });
+  for (const wx of [-4.0, 3.0]) {
+    const g = new THREE.Group(); g.position.set(wx, 0, B + 0.12); root.add(g);
+    for (let i = 0; i < 16; i++) box(g, 0.07, 0.6, 0.09, radM, -0.75 + i * 0.1, 0.42, 0);
+    box(g, 1.6, 0.04, 0.05, radM, 0, 0.16, 0); box(g, 1.6, 0.04, 0.05, radM, 0, 0.7, 0);
+    solid(wx - 0.8, wx + 0.8, B, B + 0.2, 0.75);
+  }
+
+  // ---- a wall clock above the door side: stopped at 00:50 ----
+  {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const q = c.getContext('2d');
+    q.fillStyle = '#f2efe6'; q.beginPath(); q.arc(128, 128, 124, 0, 7); q.fill();
+    q.strokeStyle = '#222'; q.lineWidth = 10; q.stroke();
+    q.fillStyle = '#222';
+    for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; q.fillRect(124 + Math.sin(a) * 96, 124 - Math.cos(a) * 96, 8, 8); }
+    const hand = (a, len, w) => { q.lineWidth = w; q.lineCap = 'round'; q.beginPath(); q.moveTo(128, 128); q.lineTo(128 + Math.sin(a) * len, 128 - Math.cos(a) * len); q.stroke(); };
+    hand((50 / 60) * Math.PI * 2, 92, 6);                  // minutes: 50
+    hand(((0 + 50 / 60) / 12) * Math.PI * 2, 60, 9);       // hours: just before 1
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    const face = new THREE.Mesh(new THREE.CircleGeometry(0.2, 32), new THREE.MeshStandardMaterial({ map: t, roughness: 0.4 }));
+    face.position.set(5.3, 2.55, B + 0.03); root.add(face);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.02, 8, 32), metal);
+    rim.position.copy(face.position); root.add(rim);
+  }
+
+  // ---- coat stand by the door, his jacket still on it ----
+  {
+    const g = new THREE.Group(); g.position.set(8.05, 0, -4.7); root.add(g);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.8, 10), wood); pole.position.y = 0.9; g.add(pole);
+    for (let i = 0; i < 3; i++) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.4, 8), wood);
+      leg.position.set(Math.cos(i * 2.1) * 0.15, 0.08, Math.sin(i * 2.1) * 0.15); leg.rotation.z = Math.cos(i * 2.1) * 1.1; leg.rotation.x = -Math.sin(i * 2.1) * 1.1; g.add(leg);
+    }
+    const jacket = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.55, 4, 10), new THREE.MeshStandardMaterial({ color: 0x4a4038, roughness: 0.95 }));
+    jacket.scale.set(1, 1, 0.55); jacket.position.set(0, 1.3, 0.1); g.add(jacket);
+    g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    solid(7.8, 8.3, -4.95, -4.45, 1.9);
+  }
+
+  // ---- a potted plant in the front-left corner ----
+  {
+    const g = new THREE.Group(); g.position.set(L + 0.5, 0, level.FRONT - 0.5); root.add(g);
+    const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.17, 0.42, 16), new THREE.MeshStandardMaterial({ color: 0x8a4a32, roughness: 0.9 }));
+    pot.position.y = 0.21; g.add(pot);
+    const leafM = new THREE.MeshStandardMaterial({ color: 0x2f5a2a, roughness: 0.7, side: THREE.DoubleSide });
+    for (let i = 0; i < 14; i++) {
+      const leaf = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.6), leafM);
+      const a = rnd() * Math.PI * 2, tilt = 0.3 + rnd() * 0.6;
+      leaf.position.set(Math.cos(a) * 0.08, 0.7 + rnd() * 0.25, Math.sin(a) * 0.08);
+      leaf.rotation.set(Math.sin(a) * tilt, -a, Math.cos(a) * tilt);
+      g.add(leaf);
+    }
+    g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    solid(L, L + 0.75, level.FRONT - 0.75, level.FRONT, 1.1);
+  }
+
+  // ---- archive boxes stacked against the front wall ----
+  {
+    const F = level.FRONT;
+    const lidM = new THREE.MeshStandardMaterial({ color: 0x8a6a42, roughness: 0.9 });
+    const spots = [[0.3, 0, 0.05], [0.82, 0, -0.08], [0.55, 1, 0.2], [1.34, 0, 0.12]];
+    for (const [x, layer, r] of spots) {
+      const g = new THREE.Group(); g.position.set(x, layer * 0.32, F - 0.22); g.rotation.y = r; root.add(g);
+      box(g, 0.45, 0.28, 0.34, card, 0, 0.14, 0);
+      box(g, 0.47, 0.04, 0.36, lidM, 0, 0.3, 0);
+    }
+    solid(0.05, 1.6, F - 0.45, F, 0.66);
+  }
+
+  // ---- whiteboard on the front wall, his last lecture still on it ----
+  {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+    const q = c.getContext('2d');
+    q.fillStyle = '#f4f6f6'; q.fillRect(0, 0, 512, 256);
+    q.strokeStyle = 'rgba(40,70,140,0.85)'; q.fillStyle = 'rgba(40,70,140,0.85)';
+    q.font = '22px "Comic Sans MS", cursive';
+    q.fillText('INFS2041  -  Graph search', 24, 40);
+    q.fillText('BFS: queue      DFS: stack', 24, 82);
+    q.fillText('A*:  f(n) = g(n) + h(n)', 24, 124);
+    q.lineWidth = 3;
+    const nodes = [[360, 150], [430, 110], [440, 200], [300, 210]];
+    q.beginPath(); q.moveTo(...nodes[0]); q.lineTo(...nodes[1]); q.moveTo(...nodes[0]); q.lineTo(...nodes[2]); q.moveTo(...nodes[0]); q.lineTo(...nodes[3]); q.stroke();
+    for (const n of nodes) { q.beginPath(); q.arc(n[0], n[1], 14, 0, 7); q.stroke(); }
+    q.fillStyle = 'rgba(170,40,40,0.8)'; q.fillText('exam: 2 Dec', 24, 222);
+    q.fillStyle = 'rgba(0,0,0,0.05)'; for (let i = 0; i < 40; i++) q.fillRect(rnd() * 512, rnd() * 256, 60, 6);   // old wipe marks
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    const g = new THREE.Group(); g.position.set(4.4, 1.6, level.FRONT - 0.03); g.rotation.y = Math.PI; root.add(g);
+    const bd = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 1.0), new THREE.MeshStandardMaterial({ map: t, roughness: 0.25 }));
+    g.add(bd);
+    box(g, 2.06, 0.04, 0.03, metal, 0, 0.52, -0.01); box(g, 2.06, 0.04, 0.03, metal, 0, -0.52, -0.01);
+    box(g, 0.04, 1.06, 0.03, metal, 1.02, 0, -0.01); box(g, 0.04, 1.06, 0.03, metal, -1.02, 0, -0.01);
+    box(g, 1.2, 0.03, 0.08, metal, 0, -0.55, 0.04);                    // marker tray
+  }
+}
+
+// =============================================================
+// CONTROLS BAR — one tidy bar at the bottom instead of three lines
+// of overlapping text. Shows key caps, lights up the tool in your
+// hand, the UV lamp when it is on and the camera when it is raised.
+// The old lines (main.js #hud / #msg and lvl1's hint) are hidden
+// while Level 1 runs and put back afterwards.
+// =============================================================
+function controlsBar(level, getThird) {
+  const css = document.createElement('style');
+  css.textContent = `
+    .l1bar{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:55;display:flex;gap:10px;align-items:stretch;
+      font-family:'Courier New',monospace;pointer-events:none;max-width:calc(100vw - 32px);flex-wrap:wrap;justify-content:center}
+    .l1grp{display:flex;gap:4px;align-items:center;background:rgba(8,10,16,.72);border:1px solid #2c3442;border-radius:8px;
+      padding:6px 8px;backdrop-filter:blur(3px)}
+    .l1lab{font-size:9px;letter-spacing:2px;color:#7d8798;margin-right:4px;writing-mode:vertical-rl;transform:rotate(180deg)}
+    .l1k{display:flex;align-items:center;gap:6px;padding:3px 7px 3px 3px;border-radius:5px;color:#c9c2b0;font-size:11px;
+      letter-spacing:1px;transition:background .15s,color .15s}
+    .l1k b{display:inline-block;min-width:20px;padding:2px 5px;text-align:center;border:1px solid #5a5040;border-bottom-width:3px;
+      border-radius:4px;background:#14171e;color:#f2d9a0;font-size:11px}
+    .l1k.on{background:rgba(242,184,75,.18);color:#fff}
+    .l1k.on b{border-color:#f2b84b;color:#f2b84b}
+    .l1k.uv.on{background:rgba(138,43,255,.25)} .l1k.uv.on b{border-color:#b58cff;color:#d7c2ff}
+    .l1click{position:fixed;left:50%;top:62%;transform:translateX(-50%);z-index:55;pointer-events:none;font-family:'Courier New',monospace;
+      font-size:12px;letter-spacing:3px;color:#f2d9a0;background:rgba(8,10,16,.6);border:1px solid rgba(242,217,160,.35);
+      border-radius:20px;padding:7px 16px;display:none}
+  `;
+  const bar = document.createElement('div'); bar.className = 'l1bar';
+  const k = (id, key, label, extra = '') => `<span class="l1k ${extra}" data-k="${id}"><b>${key}</b>${label}</span>`;
+  bar.innerHTML =
+    `<div class="l1grp"><span class="l1lab">KIT</span>${k('bag', '1', 'Bags')}${k('tweezers', '2', 'Tweezers')}${k('swab', '3', 'Swab')}${k('cam', 'Q', 'Camera')}</div>` +
+    `<div class="l1grp"><span class="l1lab">DO</span>${k('e', 'E', 'Collect')}${k('uv', 'F', 'UV lamp', 'uv')}${k('c', 'C', 'Case file')}${k('v', 'V', '1st person')}</div>` +
+    `<div class="l1grp">${k('p', 'P', 'Pause')}${k('esc', 'Esc', 'Mouse')}</div>`;
+  const click = document.createElement('div'); click.className = 'l1click'; click.textContent = 'CLICK TO LOOK AROUND';
+  for (const el of [css, bar, click]) document.body.appendChild(el);
+  const chips = {}; bar.querySelectorAll('[data-k]').forEach((e) => { chips[e.dataset.k] = e; });
+  const vLabel = chips.v;
+
+  const hidden = [];
+  const hide = (el) => { if (el) { hidden.push([el, el.style.visibility]); el.style.visibility = 'hidden'; } };
+  hide(document.getElementById('hud'));
+  hide(document.getElementById('msg'));
+  if (level.ui && level.ui.hint) hide(level.ui.hint);
+
+  let last = '';
+  return {
+    update() {
+      const tool = level.tool, cam = !!(level.photoCam && level.photoCam.isUp), uv = !!level.uvOn, third = getThird();
+      const overlay = !!(level.caseOpen || level.outroOpen || level.reconOpen || window.__uiCapture);
+      const free = !document.pointerLockElement && !overlay && !window.__paused;
+      const key = [tool, cam, uv, third, overlay, free].join('|');
+      if (key === last || !chips.bag) return;
+      last = key;
+      for (const t of ['bag', 'tweezers', 'swab']) chips[t].classList.toggle('on', tool === t && !cam);
+      chips.cam.classList.toggle('on', cam);
+      chips.uv.classList.toggle('on', uv);
+      vLabel.innerHTML = `<b>V</b>${third ? '3rd person' : '1st person'}`;
+      bar.style.display = overlay ? 'none' : 'flex';
+      click.style.display = free ? 'block' : 'none';
+    },
+    dispose() {
+      for (const [el, v] of hidden) el.style.visibility = v || '';
+      css.remove(); bar.remove(); click.remove();
+    },
+  };
+}
+
+function applyLevel1Look(level) {
+  const m = level.m || {};
+  seed = 9001;
+
+  // ---- surfaces ----
+  const W = level.W || 14.5, D = level.D || 9.5;
+  dress(m.floor, oakFloor(), { roughness: 1, metalness: 0, normalScale: 0.9 });
+  m.floor && [m.floor.map, m.floor.normalMap, m.floor.roughnessMap].forEach((t) => t.repeat.set(W / 0.72, D / 2.4));
+  dress(m.wall, plasterWall(), { roughness: 1, normalScale: 0.35 });
+  m.wall && [m.wall.map, m.wall.normalMap, m.wall.roughnessMap].forEach((t) => t.repeat.set(5, 1.4));
+  dress(m.ceil, ceilingTiles(), { roughness: 1, normalScale: 0.6 });
+  m.ceil && [m.ceil.map, m.ceil.normalMap, m.ceil.roughnessMap].forEach((t) => t.repeat.set(W / 1.2, D / 1.2));
+  dress(m.wood, woodGrain([120, 76, 46]), { roughness: 1, normalScale: 0.5 });
+  dress(m.woodDark, woodGrain([74, 46, 30]), { roughness: 1, normalScale: 0.5 });
+  dress(m.rug, carpet([112, 46, 58]), { roughness: 1, normalScale: 1.2 });
+  dress(m.fabric, weave([52, 66, 84]), { roughness: 1, normalScale: 0.8 });
+  m.fabric && [m.fabric.map, m.fabric.normalMap, m.fabric.roughnessMap].forEach((t) => t.repeat.set(3, 3));
+  dress(m.leather, leather([70, 44, 34]), { roughness: 1, normalScale: 0.7 });
+  dress(m.metal, brushed(), { roughness: 1, metalness: 0.85, normalScale: 0.3 });
+  dress(m.paper, paper(), { roughness: 1, normalScale: 0.3 });
+  if (m.cardboard) { m.cardboard.roughness = 0.95; }
+  if (m.brass) { m.brass.roughness = 0.3; }
+
+  // ---- lighting ----
+  relight(level);
+
+  // ---- soft reflections from a neutral room environment ----
+  let envTarget = null;
+  const scene = level.scene;
+  const prevEnv = scene ? scene.environment : null;
+  const prevEnvI = scene ? scene.environmentIntensity : 1;
+  if (scene && level.renderer) {
+    try {
+      const pm = new THREE.PMREMGenerator(level.renderer);
+      envTarget = pm.fromScene(new RoomEnvironment(), 0.04);
+      pm.dispose();
+      scene.environment = envTarget.texture;
+      scene.environmentIntensity = 0.18;      // night office: reflections only, not daylight
+    } catch (e) { console.warn('[Level1Look] no environment', e); }
+  }
+
+  // ---- the victim model loads later: make it matte when it arrives ----
+  let tries = 0;
+  const timer = setInterval(() => {
+    tries++;
+    const g = level.bodyGroup;
+    let found = false;
+    if (g) g.traverse((o) => { if (o.isSkinnedMesh || o.isMesh) found = true; });
+    if (found) { matteModel(g); bloodUnderChest(level); clearInterval(timer); }
+    else if (tries > 120) clearInterval(timer);
+  }, 250);
+
+  // ---- start like you just came in: inside the door, behind the police
+  //      tape, looking across the room at the body and the desk ----
+  level.spawn.set(6.3, 0, -5.5);
+  level.spawnYaw = Math.atan2(6.3 - (-1.45), -5.5 - (-2.35));   // face the body
+
+  // ---- fill the empty office ----
+  furnish(level);
+
+  // ---- the player: visible detective + [V] first / third person ----
+  const view = attachPlayerView(level, {
+    forceFirst: () => !!(level.photoCam && level.photoCam.isUp) || level.caseOpen || level.outroOpen || level.reconOpen,
+    bounds: { L: level.LEFT, R: level.RIGHT, B: level.BACK, F: level.FRONT, H: level.H },
+  });
+  const bar = controlsBar(level, view.isThird);
+  const baseUpdate = level.update.bind(level);
+  level.update = (dt, t, player) => {           // lvl1 runs first, unchanged
+    baseUpdate(dt, t, player);
+    view.update(dt, player);
+    bar.update();
+  };
+
+  return {
+    dispose() {
+      view.dispose();
+      bar.dispose();
+      clearInterval(timer);
+      if (scene) { scene.environment = prevEnv; scene.environmentIntensity = prevEnvI; }
+      if (envTarget) envTarget.dispose();
+    },
+  };
 }
