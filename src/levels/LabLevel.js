@@ -277,13 +277,13 @@ export class LabLevel {
       kicker: 'CENTRAL POLICE STATION',
       stamp: '08:15 — THE MORNING AFTER',
       speaker: 'DETECTIVE / ARRIVAL',
-      objective: 'Reception → captain’s evidence receipt → four lab examinations → signed reports → private briefing → front exit.',
+      objective: 'Greet reception → examine the evidence in the lab → sign the file → deliver it to the captain.',
       lines: [
         'DETECTIVE: It is 08:15, the morning after Nkosi’s murder. I am outside Central Police Station with the exhibits collected from his office. The lab must establish what they can actually prove.',
-        'MOKOENA — FRONT DESK: Walk through the main entrance and speak to me at reception on the left. Captain Mabaso’s office is on the right. Follow the central corridor right and leave her door open to hand in the sealed evidence before starting lab work.',
-        'CAPTAIN MABASO: Once I authorise the examination, enter the marked lab on the left. Sign its intake sheet and put on gloves. Examine four groups: the phone, hair and glass, blood, and a reconstruction from the casing and UV trail.',
+        'MOKOENA — FRONT DESK: Greet me at reception on the left, then head straight to the marked lab.',
+        'CAPTAIN MABASO: Enter the marked lab on the left. Sign its intake sheet and put on gloves. Examine four groups: the phone, hair and glass, blood, and a reconstruction from the casing and UV trail.',
         'LAB INSTRUCTIONS: Shield the phone in the Faraday box, connect it to the cradle and crack its lock on the examiner laptop. Enter the recovered PIN on the handset and enable airplane mode. Follow the work-order HUD for the remaining benches.',
-        'CAPTAIN MABASO: Photograph your findings, file all four reports and sign every page at the report table. Return to my office, close the door and brief me. I will authorise your next destination; then leave through reception’s front entrance.',
+        'CAPTAIN MABASO: Photograph your findings, file all four reports and sign every page at the report table. Bring the completed file to my office on the right. Delivering it will begin your next assignment.',
       ],
       onDone: () => {
         this.elapsed = 0;
@@ -724,9 +724,8 @@ export class LabLevel {
   }
   _nextStep() {
     const c = this.cyber, r = this.reports, b = this.bio, d = this.docs;
-    if (this.station.departureReady) return { text: 'Open the office door and leave through reception’s front entrance for GENESIS.' };
-    if (!this.station.checkedIn) return { text: 'Walk inside the station and speak to Mokoena at reception on the left.' };
-    if (!this.station.evidenceHanded) return { text: 'Follow the central corridor right to the captain. Leave her door open for the evidence receipt.' };
+    if (this.station.departureReady) return { text: 'Evidence delivered. Preparing the GENESIS assignment.' };
+    if (!this.station.checkedIn) return { text: 'Greet Mokoena at reception on the left, then head to the lab.' };
     if (!this.signedIn) return { text: 'Enter the lab through the left doorway. Sign the intake sheet.' };
     if (!this.gloves) return { text: 'Glove up \u2014 the dispenser is on the intake table.' };
     const opts = [];
@@ -758,22 +757,21 @@ export class LabLevel {
     if (act) return act;
     const unsigned = ['digital', 'micro', 'dna', 'docs'].filter((k) => r[k] && !r[k].signed).length;
     if (unsigned) return { text: 'Sign every page of the folder at the report table (' + unsigned + ' left).' };
-    if (!this.dossier.depot) return { text: this.cyber.wiped ? 'The phone was wiped before the destination was recovered. Press R to retry the level; shield it and enable airplane mode immediately after unlocking.' : 'Read and flag the phone’s map pin, then file the digital report for the destination lead.' };
-    return { text: 'Return to the captain’s office, close the door and deliver all four signed reports.' };
+    if (!r.digital && !this.dossier.depot) return { text: this.cyber.wiped ? 'The phone was wiped before the destination was recovered. Press R to retry the level; shield it and enable airplane mode immediately after unlocking.' : 'Read and flag the phone’s map pin, then file the digital report for the destination lead.' };
+    return { text: 'Take the completed file to the captain’s office on the right.' };
   }
   _refreshQuest() {
     const r = this.reports;
     const signedAll = ['digital', 'micro', 'dna', 'docs'].every((k) => r[k] && r[k].signed);
     const rows = [
-      ['Reception check-in', this.station.checkedIn],
-      ['Captain’s evidence receipt', this.station.evidenceHanded],
+      ['Greet reception', this.station.checkedIn],
       ['Sign in + gloves', this.signedIn && this.gloves],
       ['CYBER \u2014 the phone', !!r.digital],
       ['BIOLOGY \u2014 handkerchief DNA', !!r.dna],
       ['TRACE \u2014 hair vs references', !!r.micro],
       ['RECONSTRUCTION \u2014 casing + UV trail', !!r.docs],
       ['Sign every page', signedAll],
-    ].map(([t, ok]) => '<div style="' + (ok ? 'color:#1f6f5c' : '') + '">' + (ok ? '&#10003; ' : '&#9744; ') + t + '</div>').join('');
+    ].map(([t, ok]) => '<div style="' + (ok ? 'color:#8ecbb0' : '') + '">' + (ok ? '&#10003; ' : '&#9744; ') + t + '</div>').join('');
     const left = SHIFT_END - this._labMinutes();
     const shift = left <= 0 ? 'SHIFT OVER \u2014 every minute is on your record'
       : 'Shift ends 17:00 \u00b7 ' + Math.floor(left / 60) + 'h ' + String(Math.floor(left % 60)).padStart(2, '0') + 'm left';
@@ -807,6 +805,7 @@ export class LabLevel {
 
   // ================= INPUT =================
   _handleKey(e) {
+    if (window.__loading || window.__paused) return;
     if (e.repeat) return;
     if (this.heldKnob) {                       // turning a physical knob owns E/Esc
       if (e.code === 'KeyE' || e.code === 'Escape') this._releaseKnob();
@@ -821,7 +820,7 @@ export class LabLevel {
       return;
     }
     if (this.ui.captain.style.display === 'flex') {
-      if (e.code === 'Escape') this._closeCaptain();
+      if (e.code === 'Escape' && !this._handoffTimer) this._closeCaptain();
       return;
     }
     if (e.code === 'KeyE' && this.focus) this._interact(this.focus);
@@ -873,7 +872,7 @@ export class LabLevel {
     if (this._stationInteract(it)) return;
     if (it.kind === 'captain') return this._openCaptain();
     if (!this.station.evidenceHanded) {
-      this._toast('EVIDENCE HANDOVER REQUIRED', 'Speak to reception, then hand the sealed exhibits to Captain Mabaso in her office before starting lab work.', 5000); return;
+      this._toast('GREET RECEPTION', 'Greet Mokoena at reception, then go straight to the lab.', 5000); return;
     }
     if (this._interactFlavor(it)) return;   // decor you can poke at any time
     if (!this.signedIn && it.kind !== 'intake' && it.kind !== 'gloves') {
@@ -1582,49 +1581,16 @@ export class LabLevel {
     }
   }
   _openCaptain() {
-    if (!this.station.evidenceHanded) return this._stationCaptainIntro();
-    if (this.station.departureReady) { this._toast('CAPT. MABASO', 'Your dispatch is signed. Leave through the front entrance for GENESIS.', 5000); return; }
-    if (this.station.doorOpen) { this._toast('CAPT. MABASO', 'Close the office door. This briefing stays between us.', 4000); return; }
-    if (!['digital', 'micro', 'dna', 'docs'].every(k => this.reports[k])) { this._toast('LAB WORK OUTSTANDING', 'Complete all four bench reports, then sign each page at the report table.', 5000); return; }
+    if (this.station.departureReady) return;
+    if (!this._stationCanDepart()) {
+      this._toast('FILE NOT READY', 'Greet reception, examine the evidence at all four benches and sign each report at the report table. Then bring the file here.', 5000);
+      return;
+    }
     this.ui.captain.style.display = 'flex';
     window.__uiCapture = true;
     if (document.exitPointerLock) document.exitPointerLock();
-    const names = [...this.dossier.names];
-    const unsigned = Object.keys(this.reports).filter((k) => !this.reports[k].signed);
-    const line = names.length >= 2
-      ? '“Two people were in that room. Both had a reason to lie. One of them is your killer. Find them.”'
-      : names.length === 1
-        ? '“You\'ve got one name — ' + names[0] + '. I want two. Go back and finish.”'
-        : '“Nothing I can act on yet. Go back and finish.”';
-    const missing = [];
-    if (!this.dossier.weapon) missing.push('weapon profile');
-    if (!this.dossier.window) missing.push('time window');
-    if (!this.dossier.depot) missing.push('the depot appointment');
-    if (!this.dossier.temperament) missing.push('a temperament read');
-    if (names.length < 2) missing.push('a second name');
-    if (unsigned.length) missing.push('signatures (' + unsigned.join(', ') + ')');
-    const canGo = this._stationCanDepart();
-    this.ui.captainInner.innerHTML =
-      '<div style="font-size:12px;letter-spacing:4px;color:#7fd4ff;opacity:.8;margin-bottom:8px">CAPT. R. MABASO — CASE #001</div>' +
-      '<div style="font-size:18px;line-height:1.6;margin-bottom:20px">' + line + '</div>' +
-      '<div style="text-align:left;background:rgba(6,8,12,.7);border:1px solid #2a3440;padding:16px 20px;margin:0 auto 20px;max-width:560px;font-size:13px;line-height:1.7">' +
-      '<b style="color:#f2b84b;letter-spacing:2px">DOSSIER</b><br>' +
-      'NAMES: ' + (names.length ? names.join(', ') : '—') + '<br>' +
-      'WEAPON: ' + (this.dossier.weapon || '—') + '<br>' +
-      'WINDOW: ' + (this.dossier.window || '—') + '<br>' +
-      'DEPOT: ' + (this.dossier.depot || '—') + '<br>' +
-      'TEMPERAMENT: ' + (this.dossier.temperament || '—') + '<br>' +
-      'MEMO: ' + (this.dossier.memo || '—') + '</div>' +
-      '<div style="font-size:12px;opacity:.75;margin-bottom:14px">' + (missing.length ? 'Still missing: ' + missing.join(' · ') : 'The dossier is complete.') + '</div>' +
-      (canGo ? '<p style="text-align:left;line-height:1.7">“The recovered phone’s depot pin matches the municipal GENESIS file on my wall. That depot serves the unfinished beachfront development. Funding collapsed before contractors could blast the cave away. A criminal crew now uses the abandoned works and has rigged a service bridge inside the cave to cut loose when police follow.”</p>' +
-        '<p style="text-align:left;line-height:1.7">“Start with ' + this.killer.name + ', the owner named by the monogram on the bloodied linen. Bring ' + this.killer.him + ' in for questioning. The blood donor, ' + this.witness.name + ', remains a separate lead. Go quietly: if the suspect recognises you and runs, reach ' + this.killer.him + ' before the cave crossing. This is an inquiry, not a conviction.”</p>' : '') +
-      (canGo
-        ? '<button id="cap-go" style="font:inherit;padding:12px 26px;background:#a1241c;color:#fff;border:0;cursor:pointer">Accept the GENESIS assignment →</button>'
-        : '<button id="cap-close" style="font:inherit;padding:10px 22px;background:#1a2028;color:#c8d8e8;border:1px solid #2a3440;cursor:pointer">Back to the lab</button>');
-    const go = this.ui.captainInner.querySelector('#cap-go');
-    if (go) go.addEventListener('click', () => this._handoffToCity());
-    const close = this.ui.captainInner.querySelector('#cap-close');
-    if (close) close.addEventListener('click', () => this._closeCaptain());
+    this.ui.captainInner.innerHTML = '<h2>CAPT. R. MABASO</h2><p>You have brought the evidence.</p><p>Continuing to Level 3…</p>';
+    this._handoffTimer = setTimeout(() => this._handoffToCity(), 2200);
   }
   _closeCaptain() { this.ui.captain.style.display = 'none'; window.__uiCapture = false; }
   _handoffToCity() {
@@ -1653,7 +1619,7 @@ export class LabLevel {
     this.station.departureReady = true;
     if (typeof window.__saveRun === 'function') window.__saveRun();
     this._refreshCounter();
-    this._toast('DISPATCH AUTHORISED', 'Your vehicle is cleared. Leave through reception’s front entrance for GENESIS.', 6500);
+    window.__switchLevel?.(3);
   }
 
   // ================= FRAME =================
@@ -1709,7 +1675,7 @@ export class LabLevel {
     if (it.kind === 'gloves') return this.gloves ? 'Gloves on ✓' : '[E] Pull on gloves';
     if (it.kind === 'intake') return '[E] Read intake sheet';
     if (it.kind === 'folder') return '[E] Open case folder';
-    if (it.kind === 'captain') return !this.station.evidenceHanded ? '[E] Hand evidence to Captain Mabaso' : '[E] Brief Captain Mabaso';
+    if (it.kind === 'captain') return '[E] Deliver the evidence file';
     if (it.kind === 'phone') return this.carried ? '' : '[E] Lift the phone out (gloves!)';
     if (it.kind === 'faraday') {
       if (this.carried && this.carried.id === 'phone') return '[E] Lay the phone in the faraday box';
@@ -1827,6 +1793,7 @@ export class LabLevel {
     disposeStationEnvironment(this);
     if (this._view) { this._view.dispose(); this._view = null; }
     clearTimeout(this._toastTimer);
+    clearTimeout(this._handoffTimer);
     if (this._briefing) { this._briefing.cancel(); this._briefing = null; }
     if (this._termStop) this._termStop();
     window.removeEventListener('keydown', this._onKey);

@@ -21,7 +21,7 @@ const SETTINGS_KEY = 'genesis.settings.v1';
 
 export const LEVEL_CARDS = {
   1: { title: 'Level 1', sub: "The victim's office", line: 'Dr. Nkosi is dead. The room remembers everything.' },
-  2: { title: 'Level 2', sub: 'The police station', line: 'Check in. Hand over the evidence. Follow what the lab reveals.' },
+  2: { title: 'Level 2', sub: 'The police station', line: 'Greet reception. Examine the evidence. Bring the file to the captain.' },
   3: { title: 'Level 3', sub: 'Genesis', line: 'The suspect is running. Catch him before the bridge.' },
 };
 
@@ -129,6 +129,7 @@ const CSS = `
 .gs-sheet input[type=checkbox]{-webkit-appearance:none;appearance:none;width:26px;height:26px;margin:0;border:2px solid var(--ink);background:transparent;position:relative;cursor:pointer}
 .gs-sheet input[type=checkbox]:checked::after{content:"";position:absolute;inset:3px;background:var(--stamp)}
 .gs-sheet :focus-visible{outline-color:var(--stamp)}
+.gs-credit-list{margin:12px 0 28px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 24px}.gs-credit-list dt{font-weight:bold}.gs-credit-list dd{margin:0;overflow-wrap:anywhere}
 .gs-cr h3{margin:0;font-weight:700;font-size:15px}
 .gs-faint{opacity:.72}
 
@@ -140,7 +141,7 @@ const CSS = `
 .gp-sub{margin:10px 0 0;color:var(--mist);font-size:15px}
 
 /* ---------- level card ---------- */
-.gs-screen[data-screen="card"]{align-items:center;justify-content:flex-start;background:#02060a;padding-left:clamp(24px,10vw,170px)}
+.gs-screen[data-screen="card"]{align-items:center;justify-content:flex-start;background:linear-gradient(90deg,rgba(7,17,26,.86),rgba(7,17,26,.54));padding-left:clamp(24px,10vw,170px)}
 #gs-card-title{margin:0 0 6px;font-size:18px;letter-spacing:.06em;color:var(--sodium)}
 #gs-card-sub{margin:0;font-family:var(--disp);font-weight:900;text-transform:uppercase;
   font-size:clamp(56px,10.5vw,160px);line-height:.88}
@@ -573,7 +574,7 @@ export class GameShell {
       console.error('[GENESIS] level swap failed:', err);
       await this.fade(false);
       this.showError(err);
-      return;
+      return false;
     }
     if (cardN && LEVEL_CARDS[cardN]) {
       this.showCard(cardN);
@@ -677,7 +678,7 @@ export class GameShell {
           <dt><kbd>Esc</kbd></dt><dd>Release the mouse. Click the game view to lock it again. Looking stops while unlocked.</dd>
           <dt><kbd>P</kbd><kbd>R</kbd></dt><dd>Pause, or restart the level.</dd>
         </dl>
-        <h3>Your investigation</h3><p>The case runs in three stages. <b>1 — Office:</b> photograph all six exhibits with Q and left click before collecting them with E. Use 1 for bags, 2 for tweezers and 3 for a swab; F reveals the UV trail. Open C after all evidence is logged and seal the file to travel to the station.</p><p><b>2 — Police station:</b> start outside, speak to Mokoena at reception, leave the captain’s office door open and hand in your evidence. Enter the lab, sign intake and wear gloves. Examine the phone, trace evidence, blood, and the casing / UV-trail reconstruction. Crack the phone on the laptop, then enter its PIN on the handset. Sign all four reports, brief the captain behind a closed door, and leave through the front entrance. Closed wings are not accessible.</p><p> <b>3 — Genesis:</b> chase the suspect through the abandoned beachfront city. Change lanes and jump obstacles to catch the suspect before the cave bridge.</p>
+        <h3>Your investigation</h3><p>The case runs in three stages. <b>1 — Office:</b> photograph all six exhibits with Q and left click before collecting them with E. Use 1 for bags, 2 for tweezers and 3 for a swab; F reveals the UV trail. Open C after all evidence is logged and seal the file to travel to the station.</p><p><b>2 — Police station:</b> start outside, greet Mokoena at reception, then head straight to the lab. Enter the lab, sign intake and wear gloves. Examine the phone, trace evidence, blood, and the casing / UV-trail reconstruction. Crack the phone on the laptop, then enter its PIN on the handset. Sign all four reports and bring the completed file to the captain. The evidence handoff takes you directly to Level 3. Closed wings are not accessible.</p><p> <b>3 — Genesis:</b> chase the suspect through the abandoned beachfront city. Change lanes and jump obstacles to catch the suspect before the cave bridge.</p>
         <p><b>Briefings:</b> Enter or click finishes the current line, then advances. Esc skips. Your current objective stays on the HUD.</p><p>Progress saves at level transitions. Continue restarts the saved level; it does not restore every mid-level action.</p>
         <button class="gs-btn gs-pill" id="gs-how-back">Back</button>
       </div></div>`);
@@ -723,13 +724,19 @@ export class GameShell {
         <h2 class="gs-h">Credits</h2>
         <p><b>GENESIS — Read the Room. Close the Case.</b><br>A murder mystery in three stages: the office, the lab and the chase through Genesis.</p>
         <h3>Made by 404 Found Us</h3>
-        <p>Banele Mjali — UI &amp; Polish<br>Busisiwe Mnguni — Shaders &amp; Effects<br>Pumelela Mapukata — Environment &amp; Art<br>Sibusiso Ndunge — Player &amp; Physics</p>
-        <h3>This pass</h3>
-        <p>Forensic-sim rebuild: tool-based office kit (photograph first, lift second), physical lab benches with sign-in / gloves / phone-shield / microscope reads, blood-soaked monogram + UV-trail deduction chain, city arrival ride, depot-stakeout finale, rain-streaked menu art, paper case-file sheets, level cards, pointer-lock + pause polish, direct Open-the-Case start.</p>
+        <p>Banele Mjali<br>Busisiwe Mnguni<br>Pumelela Mapukata<br>Sibusiso Ndunge</p>
         <h3>Story</h3>
         <p>Dr. T. Nkosi, the five witnesses and the case behind them. Procedural killer, clues and alibis — different every run.</p>
-        <h3>Music</h3>
-        <p>All tracks from OpenGameArt.org: menu theme, office chiptune, city orchestral, cells electronic, city traffic ambience.</p>
+        <h3>Level 2 — The police station</h3>
+        <dl class="gs-credit-list">
+          <dt>Bricks, wall, carpet, wood floor, road &amp; painted plaster</dt><dd>struffelproductions</dd>
+          <dt>Police vehicle</dt><dd>low-poly.com</dd>
+          <dt>Furniture</dt><dd>Sketchfab</dd>
+          <dt>Music</dt><dd>freemusic</dd>
+          <dt>Sky</dt><dd>CGTrader</dd>
+        </dl>
+        <h3>Other music &amp; audio</h3>
+        <p>OpenGameArt.org. The Level 2 music credit is listed separately above.</p>
         <h3>Tools</h3>
         <p>Three.js, Howler.js and Vite. Type set in Big Shoulders Display and Courier Prime.</p>
         <p class="gs-faint">Thanks for playing detective.</p>

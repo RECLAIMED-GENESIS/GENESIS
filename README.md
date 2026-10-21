@@ -21,21 +21,24 @@ The lab names the suspect, and the trail leads to Genesis — an abandoned beach
 **Vibe:** Night-time crime scene, first-person, UV torch, chiptune music.
 
 **How to play:**
-- Move with W/S, turn with A/D + mouse (click the scene once to capture the mouse), Shift to sprint, Space to jump
+- Move with WASD, look with the mouse (click the scene once to capture the mouse), Shift to sprint, Space to jump
 - Work the kit: Q camera, 1 bags, 2 tweezers, 3 swab, E to collect, F for the UV torch, C for the case file
 - Photograph first, lift second — wrong tool means contamination
 - Log every clue: handkerchief (blood-soaked monogram), casing, hair, note, diary, wiped UV trail and more
-- Logging everything triggers the outro: evidence to the lab
+- Pickup notes are the detective’s tentative thoughts; conclusions are left for the Level 2 examinations
+- Photograph and collect every exhibit, then open the case file and seal it to travel to the station — no timeline-ordering puzzle
 
 ### Level 2 — "The Forensic Lab" ✅ Playable
 
 **Vibe:** Benches, sign-in desk and comparison scope, lab-camera work.
 
 **How to play:**
-- Move with WASD + mouse, E to use benches, C for the case file, F for UV where needed
-- Sign evidence in, wear gloves, shield the phone and read the microscope yourself
-- Name two people from eight objects; confirm the city depot 14:00 appointment
-- File the dossier to hand the case to the city
+- Greet Mokoena at reception with E, then go straight to the lab; there is no reception conversation or initial captain handover
+- Sign the intake sheet and put on gloves
+- Examine the phone, trace evidence, blood, and the casing / UV-trail reconstruction at the four benches
+- Shield the phone, recover its PIN on the examiner laptop, unlock the handset and enable airplane mode
+- Photograph findings, file all four reports, and sign each page at the report table
+- Bring the completed file to Captain Mabaso’s office. “You have brought the evidence” appears, then Level 3 loads automatically
 
 ### Level 3 — "Genesis" ✅ Playable
 
@@ -53,7 +56,7 @@ The lab names the suspect, and the trail leads to Genesis — an abandoned beach
 
 | Action              | Key              |
 |---------------------|------------------|
-| Walk / turn         | W, S / A, D, mouse |
+| Walk / look         | WASD / mouse |
 | Sprint / jump       | Shift / Space    |
 | Examine / question / collect | E |
 | Office kit          | Q camera, 1 bags, 2 tweezers, 3 swab |
@@ -61,10 +64,11 @@ The lab names the suspect, and the trail leads to Genesis — an abandoned beach
 | Case file           | C                |
 | First / third person | V               |
 | Chase: lane / jump | A, D / Space     |
-| Pause               | P, Esc, or ⏸ button |
+| Pause               | P or pause button |
+| Release mouse       | Esc |
 | Restart level       | R                |
 
-Progress auto-saves on every level change — **Continue** on the main menu picks up where you left off.
+Progress auto-saves on every level change. **Continue** restarts the saved level; it does not restore every mid-level action.
 
 ---
 
@@ -74,7 +78,7 @@ Progress auto-saves on every level change — **Continue** on the main menu pick
 - **Vite** — Bundler (base set to `'./'` in vite.config.js for subdirectory hosting)
 - **Cannon-es** — Physics
 - **Howler.js** — Audio (menu theme, per-level music, city traffic ambience, UI clicks)
-- Music from **OpenGameArt.org** (credited in-game)
+- Audio sources are listed in the in-game Credits; Level 2 music is credited to **freemusic**.
 
 ---
 
@@ -127,22 +131,34 @@ Progress auto-saves on every level change — **Continue** on the main menu pick
 
 ---
 
+## HUD, UI and loading
+
+The office, station and chase share a dark-blue panel style, warm paper text, amber accents, consistent typography, and common positions for status, objectives and controls. The contents remain specific to each level: evidence and tools in the office, reports and lab tasks in the station, and suspect distance during the chase. File panels use the paper styling of the menus.
+
+Every level loads over a dimmed view of its actual scene. The room or environment appears as soon as its geometry is constructed, and models and textures fill in while resources load. Movement and gameplay updates stay suspended until assets and shader preparation finish. The level title appears over the same scene before play begins. Initial application startup uses the GENESIS loading screen before a level exists.
+
+HUD elements are hidden during loading and shell menus. Compact layouts reduce panel size and omit the minimap on smaller windows. Loading animation respects reduced-motion preferences. Walking and sprinting have consistent speed in straight and diagonal directions.
+
 ## 🧑‍💻 Team — 404 Found Us
 
-| Person | Role |
-| :--- | :--- |
-| Banele Mjali | UI & Polish |
-| Busisiwe Mnguni | Shaders & Effects |
-| Pumelela Mapukata | Environment & Art |
-| Sibusiso Ndunge | Player & Physics |
-
-### This pass
-- Forensic-sim rebuild: tool-based office kit, physical lab benches, blood-soaked monogram + UV-trail deduction, city arrival ride, depot-stakeout finale
-- Shell: rain-streaked menu art, paper case-file sheets, level cards, pointer-lock + pause polish, direct Open-the-Case start (story intro removed)
+- Banele Mjali
+- Busisiwe Mnguni
+- Pumelela Mapukata
+- Sibusiso Ndunge
 
 ## 📝 Credits
 
-Music from OpenGameArt.org; all external assets are credited with sources in the in-game **Credits** screen.
+### Level 2 — The police station
+
+| Asset | Source |
+| :--- | :--- |
+| Bricks, wall, carpet, wood floor, road and painted plaster | struffelproductions |
+| Police vehicle | low-poly.com |
+| Furniture | Sketchfab |
+| Music | freemusic |
+| Sky | CGTrader |
+
+These attributions apply to **Level 2**. Other music and audio retain the OpenGameArt.org credit shown in-game. Rendering, audio and build tools: Three.js, Howler.js and Vite. Menu typefaces: Big Shoulders Display and Courier Prime.
 
 ## 🔒 Ground Rules
 

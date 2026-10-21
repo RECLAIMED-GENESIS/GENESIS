@@ -233,8 +233,8 @@ export function attachPlayerView(level, opts = {}) {
       let speed = 0;
       if (st.last) speed = Math.hypot(p.x - st.last.x, p.z - st.last.z) / Math.max(dt, 1e-4);
       st.last = (st.last || new THREE.Vector3()).copy(p);
-      const amount = Math.min(2, speed / 4.5);
-      if (amount > 0.05) st.phase += dt * (3 + speed * 1.6);
+      const amount = Math.min(2, speed / 3);
+      if (amount > 0.05) st.phase += dt * Math.min(12, speed * 2.1);
       const body = st.det ? st.det.root : stand.root;
       body.position.set(p.x, p.y, p.z);
       body.rotation.y = (player.yaw || 0) + Math.PI;

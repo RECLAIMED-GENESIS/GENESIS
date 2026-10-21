@@ -111,29 +111,22 @@ export const isKiller = (id, c = getCase()) => normId(id) === c.killerId;
 
 export function level1Clues(c = getCase()) {
   const k = killerOf(c);
-  const len = k.hairLong ? 'long' : 'short';
-  const initial = k.initials.charAt(0);
-  const lastInitial = k.initials.split('.')[1] || '';
   return {
     hair: {
       name: `${cap(k.hairName)} hair fibres (guest chair)`,
-      note: `Two ${len} ${k.hairName} hairs wound into the seat cushion of the guest chair, and a third on the armrest. Dr Nkosi was bald — his own combings are grey stubble on the jacket collar.`,
-      finding: `A person with ${len} ${k.hairName} hair sat in the guest chair, facing him.`,
+      note: 'A few strands caught in the chair. Easy to miss. I wonder whether the microscope will give me something to work with.',
     },
     handkerchief: {
       name: 'Monogrammed handkerchief',
-      note: `Linen, monogrammed in the corner — but the first initial is soaked through with dried blood that is not the victim's, and only ".${lastInitial}." still reads. No wound of his is on the front of his hand. It lay where the guest stood up.`,
-      finding: `Someone whose initials end in ".${lastInitial}." was in this room, close enough to the barrel to be spattered, and wiped a hand. The first letter is under the blood — something else at the scene may supply it.`,
+      note: 'There is a stain on this cloth, and some stitching in the corner. Hmm. I will need a closer look back at the lab.',
     },
     trail: {
       name: 'Wiped blood trail (UV)',
-      note: `Under the UV torch the floor tells a different story: a smeared trail of dissolved haemoglobin from the guest chair to the door, plus the letter "${initial}" scrawled beside the body. The killer mopped ${k.his} own spatter in a hurry.`,
-      finding: 'The shooter stood up from the guest chair and left in a hurry, dragging a little blood with him.',
+      note: 'Something shows up under the UV light. Let me photograph it as it is. I wonder what I will make of it at the lab.',
     },
     casing: {
       name: 'Bullet casing',
-      note: `A 9mm casing, brass still bright, skittered under the bookshelf. Ejection marks are clean — the shooter stood to his or her right, close, and did not fumble the magazine.`,
-      finding: 'One shot, fired from less than a metre. The killer knew how to handle a gun.',
+      note: 'Hmm, a casing. This could be useful. I will bag it carefully and see what the lab can tell me.',
     },
   };
 }

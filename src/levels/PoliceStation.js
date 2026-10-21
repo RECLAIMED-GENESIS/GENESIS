@@ -168,7 +168,7 @@ export function installPoliceStation(Level) {
 
     _stationPrompt(it) {
       const prompts = {
-        reception: '[E] Speak to desk helper Mokoena', stationDoor: `[E] ${this.station.doorOpen ? 'Close' : 'Open'} captain’s office door`,
+        reception: '[E] Greet Mokoena', stationDoor: `[E] ${this.station.doorOpen ? 'Close' : 'Open'} captain’s office door`,
         stationClosed: '[E] Closed wing',
         stationExit: '[E] Leave for GENESIS',
       };
@@ -178,7 +178,9 @@ export function installPoliceStation(Level) {
     _stationInteract(it) {
       if (it.kind === 'reception') {
         this.station.checkedIn = true;
-        this._toast('CONSTABLE D. MOKOENA — FRONT DESK', 'Detective, Captain Mabaso is through the door on your right. Hand her the sealed exhibits from Nkosi’s office before you begin analysis. The lab is through the marked door ahead on the left.', 12000);
+        this.station.evidenceHanded = true;
+        this.station.inventory = Object.keys(this.collected).filter(id => this.collected[id]);
+        this._toast('CONSTABLE D. MOKOENA — FRONT DESK', 'Morning, Detective. The lab is ready — through the marked door on the left.', 3500);
       } else if (it.kind === 'stationDoor') {
         const p = this._stationPlayer?.pos;
         if (p && Math.abs(p.x - 10.15) < 0.65 && p.z > 10.5 && p.z < 13.5) {
@@ -192,24 +194,8 @@ export function installPoliceStation(Level) {
       this._refreshCounter(); return true;
     },
 
-    _stationCaptainIntro() {
-      if (!this.station.checkedIn) { this._toast('CAPT. MABASO', 'Check in with Mokoena at reception first. Every handover needs an arrival record.', 5000); return; }
-      if (!this.station.doorOpen) { this._toast('CAPT. MABASO', 'Leave the door open for the evidence receipt. We will close it for the private briefing later. [E] at the doorway.', 5000); return; }
-      this.ui.captain.style.display = 'flex'; window.__uiCapture = true;
-      if (document.exitPointerLock) document.exitPointerLock();
-      const count = Object.values(this.collected).filter(Boolean).length;
-      this.ui.captainInner.innerHTML = `<h2>CAPT. R. MABASO</h2><p style="line-height:1.8">“${count} exhibits from Nkosi’s office. We record the seals here, then you carry them to the lab intake. I want the phone and trace evidence examined, the handkerchief blood analysed, and the casing and UV trail reconstructed. A lead is not a conviction.”</p><p style="line-height:1.8">She checks each seal against your scene inventory. The phone stays in its evidence bag. The lab’s examiner laptop and Faraday box are ready.</p><button id="station-receipt" style="font:inherit;padding:14px 24px;cursor:pointer">Hand in evidence and collect lab authorisation</button><p><small>[Esc] Back</small></p>`;
-      this.ui.captainInner.querySelector('#station-receipt').addEventListener('click', () => {
-        this.station.evidenceHanded = true;
-        this.station.inventory = Object.keys(this.collected).filter(id => this.collected[id]);
-        this._closeCaptain(); this._refreshCounter();
-        this._toast('EVIDENCE RECEIPT SIGNED', `${count} exhibits recorded. Follow the corridor left to forensics, put on gloves and sign the intake. Return here with all four signed reports.`, 9000);
-      });
-    },
-
     _stationCanDepart() {
-      return this.station.evidenceHanded && !this.station.doorOpen &&
-        REPORTS.every(k => this.reports[k]?.signed) && this.dossier.names.size >= 2 && !!this.dossier.depot;
+      return this.station.checkedIn && REPORTS.every(k => this.reports[k]?.signed);
     },
 
     _updateStation(dt, player) {

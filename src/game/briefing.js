@@ -90,11 +90,9 @@ export function showBriefing({ kicker = 'DISPATCH', stamp = '', speaker = '', li
   };
 
   // Wait for the level card / fade veil to clear before appearing.
-  let waited = 0;
   poll = setInterval(() => {
-    waited += 120;
     const shellOn = document.querySelector('.gs-screen.on') || document.querySelector('#gs-veil.on');
-    if (!shellOn || waited > 15000) { clearInterval(poll); build(); }
+    if (!window.__loading && !shellOn) { clearInterval(poll); build(); }
   }, 120);
 
   return { cancel };

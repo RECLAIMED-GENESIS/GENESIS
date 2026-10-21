@@ -2,10 +2,12 @@
 // main.js — bootstrap, player controller, level manager, minimap
 // ============================================================
 import * as THREE from 'three';
+import { showLoading, hideLoading, paintLoading, waitForAssets } from './game/loading.js';
 import { StreetLevel } from './levels/lvl1.js';
 import { LabLevel }    from './levels/LabLevel.js';
 import { ChaseLevel }  from './levels/ChaseLevel.js';
-import { GameShell } from './ui/GameShell.js';
+import { styleLevelUI } from './ui/gameUI.js';
+import { GameShell, LEVEL_CARDS } from './ui/GameShell.js';
 import { AudioManager } from './audio/AudioManager.js';
 import { loadAllAudio } from './audio/loadAudio.js';
 import { getStats } from './game/stats.js';
@@ -70,7 +72,7 @@ addEventListener('keydown', e => {
     return;
   }
 
-  if (window.__uiCapture) return;
+  if (window.__uiCapture || transitioning) return;
 
   if (window.__dialogue && window.__dialogue.active) {
     window.__dialogue.handleKey(e.code);
@@ -145,6 +147,8 @@ addEventListener('blur', () => {
 let level = null, current = 1;
 let appState = 'menu';
 let paused = false;
+let transitioning = false;
+let loadingSceneReady = false;
 const hud = document.getElementById('hud');
 const msgEl = document.getElementById('msg');
 const crossEl = document.getElementById('cross');
@@ -210,12 +214,13 @@ function updateMsg() {
       prev.paused === paused && prev.appState === appState && prev.uiOpen === uiOpen &&
       prev.lockError === lockError && prev.hasLevel === hasLevel) return;
   lastMsgState = { shellOpen, locked, paused, appState, uiOpen, lockError, hasLevel };
-  const clean = appState === 'playing' && !paused && !uiOpen && !shellOpen;
+  document.body.dataset.uiSuspended = String(transitioning || shellOpen || paused || appState !== 'playing');
+  const clean = appState === 'playing' && !paused && !uiOpen && !shellOpen && !transitioning;
   if (msgEl) msgEl.style.display = (clean && !locked) ? 'block' : 'none';
   if (msgEl) msgEl.textContent = lockError
     ? 'MOUSE CAPTURE FAILED — Click the game to retry'
     : 'CLICK TO LOCK MOUSE — Esc unlocks · P pauses';
-  if (crossEl) crossEl.style.display = (appState === 'playing' && !shellOpen) ? 'block' : 'none';
+  if (crossEl) crossEl.style.display = (clean && current !== 1 && current !== 3) ? 'block' : 'none';
   if (hud) hud.style.display = (appState === 'playing' && hasLevel) ? 'block' : 'none';
   if (pauseBtn) pauseBtn.style.display = clean ? 'block' : 'none';
 }
@@ -311,6 +316,7 @@ function buildLevel(n) {
   if (!Array.isArray(level.colliders)) level.colliders = [];
   if (!level.name) level.name = `LEVEL ${n}`;
 
+  styleLevelUI(level, n);
   player.pos.copy(level.spawn);
   player.vel.set(0, 0, 0);
   player.yaw   = (typeof level.spawnYaw === 'number') ? level.spawnYaw : Math.PI;
@@ -320,17 +326,43 @@ function buildLevel(n) {
 }
 
 async function switchLevel(n, opts = {}) {
+  if (transitioning) return;
   if (!LEVELS[n]) {
     console.warn(`Level ${n} is not available yet.`);
     return;
   }
+  transitioning = true;
+  loadingSceneReady = false;
+  document.body.dataset.uiSuspended = 'true';
+  window.__paused = true;
+  for (const key of Object.keys(keys)) keys[key] = false;
+  mouseLook.reset();
+  player.vel.set(0, 0, 0);
   const useCard = opts.card !== false;
   try {
     const st = getStats();
     if (st.levelStartAt) st.elapsedMs += Date.now() - st.levelStartAt;
     st.levelStartAt = 0;
   } catch (e) {}
-  await shell.transition(() => buildLevel(n), useCard && typeof n === 'number' ? n : 0);
+  const loaded = await shell.transition(async () => {
+    showLoading(`Level ${n} — ${LEVEL_CARDS[n].sub}`);
+    await paintLoading();
+    buildLevel(n);
+    camera.position.copy(player.pos).add(new THREE.Vector3(0, player.EYE, 0));
+    camera.rotation.set(player.pitch, player.yaw, 0);
+    loadingSceneReady = true;
+    // Reveal the new scene behind the loading overlay, without advancing play.
+    shell.veil.classList.remove('on');
+    await paintLoading();
+    await waitForAssets();
+    await renderer.compileAsync(scene, camera);
+    hideLoading();
+  }, useCard && typeof n === 'number' ? n : 0);
+  hideLoading();
+  transitioning = false;
+  loadingSceneReady = false;
+  lastMsgState = null;
+  if (loaded === false) { paused = true; window.__paused = true; return; }
   paused = false;
   window.__paused = false;
   level?._view?.setMode(cameraMode);
@@ -398,7 +430,7 @@ marker.rotation.order = 'YXZ';
 marker.layers.set(2);
 scene.add(marker);
 
-const GRAV = 30, SPEED = 4.5, SPRINT = 9;
+const GRAV = 30, SPEED = 3, SPRINT = 6;
 const pMin = new THREE.Vector3();
 const pMax = new THREE.Vector3();
 const playerBounds = new THREE.Box3(pMin, pMax);
@@ -412,8 +444,9 @@ function stepPlayer(dt) {
   const s = (frozen || !locked) ? 0 : (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
   const sin = Math.sin(player.yaw), cos = Math.cos(player.yaw);
 
-  player.vel.x = (-sin * f + cos * s) * sp;
-  player.vel.z = (-cos * f - sin * s) * sp;
+  const scale = sp / Math.max(1, Math.hypot(f, s));
+  player.vel.x = (-sin * f + cos * s) * scale;
+  player.vel.z = (-cos * f - sin * s) * scale;
 
   player.vel.y -= GRAV * dt;
   player.pos.addScaledVector(player.vel, dt);
@@ -480,17 +513,18 @@ const timer = new THREE.Timer();
 let _rafId = 0;
 let _lastHudString = '';
 
-function renderScene() {
+function renderScene(preview = false) {
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   renderer.clear();
   renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, camera);
 
-  const S = 200;
+  if (preview || shellOpen || paused || innerWidth < 760 || innerHeight < 600 || current === 3) return;
+  const S = 180;
   renderer.setScissorTest(true);
-  renderer.setViewport(innerWidth - S - 12, 12, S, S);
-  renderer.setScissor(innerWidth - S - 12, 12, S, S);
+  renderer.setViewport(innerWidth - S - 12, 70, S, S);
+  renderer.setScissor(innerWidth - S - 12, 70, S, S);
   renderer.setClearColor(0x0a0a14, 1);
   renderer.clearDepth();
   mini.position.set(player.pos.x, 90, player.pos.z);
@@ -506,12 +540,16 @@ function tick() {
   const dt = Math.min(timer.getDelta(), 0.05);
   const t  = timer.getElapsed();
 
+  if (transitioning) {
+    if (loadingSceneReady) renderScene(true);
+    return;
+  }
   if (!level) { renderScene(); updateMsg(); return; }
   if (paused) { renderScene(); return; }
 
   if (locked && !levelUiOpen()) mouseLook.apply(player, dt);
   else mouseLook.reset();
-  stepPlayer(dt);
+  if (current !== 3) stepPlayer(dt);
   if (current === 2) {
     const p = player.pos;
     const workspace = p.x > -22.5 && p.x < -10 && p.z > 7 && p.z < 18.2;
@@ -556,6 +594,7 @@ addEventListener('resize', () => {
 document.getElementById('pauseBtn').addEventListener('click', () => {
   if (appState === 'playing' && !paused && !levelUiOpen()) setPaused(true);
 });
+hideLoading();
 shell.showMenu();
 try { audio.playMusic('menu_theme'); } catch (e) {}
 updateMsg();

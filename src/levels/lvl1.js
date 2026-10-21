@@ -62,70 +62,43 @@ export const CASE = {
   nextLevel: 2,
   nextPlace: 'Central Police Station',
   // Shown as a short cutscene once every clue is logged: the investigator bags
-  // the evidence for the lab, then heads for the city contact the diary names.
+  // the evidence for examination at the station lab.
   outro: [
-    'That is everything this room has to say. One gunshot, a guest who never finished his drink, and a meeting nobody was meant to know about.',
-    'I am bagging the casing, the glasses, the fibres and the rest — the lab will confirm what I already suspect.',
-    'His diary has one more entry: a meeting he was afraid of. Whoever he was going to see did not want him to make it.',
-    'This room has given me everything it can. The rest is in the evidence.',
-    'It all goes to the forensic lab. In the morning I run the tests myself, and by the end of the day I want a name.',
+    'Everything is photographed and packed. A room full of questions, and a few things that might help me answer them.',
+    'Hmm. I wonder what I will find when I look at these properly. No sense deciding what happened before the tests are done.',
+    'Next stop, the station lab. Let the evidence tell its own story.',
   ],
   body: {
     name: 'The body',
-    note: 'One entry wound, left chest, powder burns on the shirt — fired from well under a metre. Skin already cooling and stiff in the shoulders. He was shot where he sat, then slid off the chair and reached for something he could not quite grab.',
+    note: 'A wound in his chest. I need to document the scene carefully. The examinations will have to answer the rest.',
   },
   clues: {
     casing: {
       name: 'Bullet casing',
-      note: 'A 9mm casing, brass still bright, skittered under the bookshelf. Ejection marks are clean — the shooter stood to his right, close, and did not fumble the magazine.',
-      finding: 'One shot, fired from less than a metre. The killer knew how to handle a gun.',
+      note: 'Hmm, a casing. This could be useful. I will bag it carefully and see what the lab can tell me.',
     },
     glass: {
       name: 'Two whiskey glasses',
-      note: 'Two tumblers, not one: the victim\'s on the desk, still a finger of whiskey in it, and a guest\'s on the side cabinet, half drunk and dried out. No glasses were washed. Whoever he was drinking with never finished the night.',
-      finding: 'He had a guest, and they drank together. The glass was left where it stood.',
+      note: 'Two glasses. I wonder what traces are still on them. Better preserve both before I jump to conclusions.',
     },
     hair: {
       name: 'Brown hair fibres (guest chair)',
-      note: 'Two long brown hairs wound into the seat cushion of the guest chair, and a third on the armrest. Dr Nkosi was bald — his own combings are grey stubble on the jacket collar.',
-      finding: 'A person with long brown hair sat in the guest chair, facing him.',
+      note: 'A few strands caught in the chair. Easy to miss. I wonder whether the microscope will give me something to work with.',
     },
     handkerchief: {
       name: 'Monogrammed handkerchief',
-      note: 'Linen, monogrammed "K.P." in the corner, and the tip is stiff with dried blood that is not the victim\'s — no wound of his is on the front of his hand. It lay where the guest stood up.',
-      finding: '"K.P." was in this room, close enough to the barrel to be spattered, and wiped a hand.',
+      note: 'There is a stain on this cloth, and some stitching in the corner. Hmm. I will need a closer look back at the lab.',
     },
     phone: {
       name: 'His phone',
-      note: 'Screen still lit. 22:48 Unknown: "Exam scripts. Your office, tonight." 23:19 Dr Nkosi: "Just locked up the Staff Common Room. Heading to my office." 23:31 Unknown: "Coming up the back stairs. Tell no one."',
-      finding: 'Last message 23:31. He expected a secret visitor after locking the Staff Common Room.',
+      note: 'His phone. There might be something useful in here, but I need to examine it properly. For now, keep it safe.',
     },
     trail: {
       name: 'Wiped blood trail (UV)',
-      note: 'Under the UV lamp the floor tells a different story: a smeared trail of dissolved haemoglobin from the guest chair to the door, plus a letter scrawled on its side beside the body. The killer mopped his own spatter in a hurry.',
-      finding: 'The shooter stood up from the guest chair and left in a hurry, dragging a little blood with him.',
+      note: 'Something shows up under the UV light. Let me photograph it as it is. I wonder what I will make of it at the lab.',
     },
   },
-  // The deduction board: the case file will not let the room close until the
-  // player links the right PAIR of logged clues under each question. Each of
-  // the 6 clues is used exactly once. Wrong links count against the rank.
-  deductions: [
-    {
-      id: 'how', prompt: 'HOW DID HE DIE?',
-      needs: ['casing', 'glass'],
-      answer: 'A single 9mm round, fired from under a metre into the chest of a man who was drinking whiskey with his killer — a guest who never finished their glass.',
-    },
-    {
-      id: 'guest', prompt: 'WHO SAT OPPOSITE HIM?',
-      needs: ['hair', 'handkerchief'],
-      answer: 'Someone with long brown hair, close enough to the muzzle to be spattered with blood that was not the victim\'s — and vain enough to carry monogrammed linen: "K.P."',
-    },
-    {
-      id: 'when', prompt: 'WHEN WAS HE SHOT?',
-      needs: ['phone', 'trail'],
-      answer: 'After the 23:31 message. His visitor came up the back stairs, and the wiped blood trail says the shooter was out the door within minutes of the shot.',
-    },
-  ],
+
 };
 
 const REACH = 3.6;       // how far the player can examine things
@@ -298,18 +271,12 @@ export class StreetLevel {
     this.spawnYaw = Math.PI * 0.78;   // face across the room toward the desk
 
     this.clues = [];
-    this.solved = new Set();   // deduction ids the player has concluded
-    try {                     // restore conclusions after an R-restart
-      const l1 = (window.__caseProgress && window.__caseProgress.l1) || {};
-      for (const d of CASE.deductions) if (l1['ded_' + d.id]) this.solved.add(d.id);
-    } catch (e) {}
     this.movables = [];
     this.occluders = [];       // invisible boxes that block the examine ray
     this.uvOn = false;
     this.tool = 'bag';         // 1 bags · 2 tweezers · 3 swab kit
     this.caseOpen = false;
     this.outroOpen = false;
-    this.reconOpen = false;   // the 'put the night in order' beat before the outro
     this._idle = 0;           // seconds since the last find (drives hints)
     this._dark = 0;           // blackout timer for the mid-level scare
     this._scared = false;
@@ -372,7 +339,7 @@ export class StreetLevel {
         'DETECTIVE: I will secure the room and document what happened. We have five possible suspects, but no finding identifies the killer yet.',
         'DISPATCH: Start with the visible objects on the desk and beside the body. Look at an exhibit, raise your camera with Q and click to photograph it. Lower the camera with Q, then press E to collect it.',
         'DISPATCH: Use 1 for evidence bags, 2 for tweezers and 3 for the blood swab. The camera suggests the correct tool after a sharp photo. F turns on UV: use it to find and photograph the wiped trail.',
-        'CAPTAIN MABASO: Log all six exhibits. Open your case file with C, review the conclusions and seal the evidence. Then come to Central Police Station: reception will direct you to my office before you enter the lab.',
+        'CAPTAIN MABASO: Log all six exhibits. Open your case file with C, check your inventory and seal the evidence. Then come to Central Police Station: greet reception and head straight to the lab.',
       ],
       onDone: () => {
         if (this.ui) this._toast('INCIDENT \u2014 LECTURER FOUND DEAD', `Photograph everything before you lift it.`, 9000);
@@ -1306,7 +1273,7 @@ new FBXLoader().load(professorFBX, (object) => {
         getPos: (v) => v.copy(c.pos).add(new THREE.Vector3(0, 0.15, 0)),
       })),
       getColliders: () => this.colliders,
-      isBlocked: () => !!(window.__uiCapture || this.caseOpen || this.outroOpen || this.reconOpen),
+      isBlocked: () => !!(window.__uiCapture || this.caseOpen || this.outroOpen),
       clockLabel: () => `23:${String(40 + Math.floor(this.time / 60)).padStart(2, '0')}`,
       onPhoto: (photo) => this._onPhoto(photo),
     });
@@ -1388,7 +1355,6 @@ new FBXLoader().load(professorFBX, (object) => {
 
     ui.case = mk('div', 'position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(3,4,7,.9);z-index:9999;font-family:"Courier New",monospace;');
     ui.outro = mk('div', 'position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:radial-gradient(ellipse at 50% 45%, rgba(8,10,16,.96), rgba(2,3,5,.99));z-index:10000;font-family:"Courier New",monospace;color:#e9d9b0;pointer-events:auto;');
-    ui.recon = mk('div', 'position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(3,4,7,.95);z-index:10000;font-family:"Courier New",monospace;color:#e9d9b0;padding:24px;overflow:auto;');
     this._updateCounter();
   }
 
@@ -1408,89 +1374,33 @@ new FBXLoader().load(professorFBX, (object) => {
   }
 
   _openCaseFile() {
-    if (!this.caseOpen) {
-      this.caseOpen = true;
-    }
+    this.caseOpen = true;
     if (document.exitPointerLock) document.exitPointerLock();
     this.ui.prompt.style.display = 'none';
-
-    const has = (id) => this.clues.find((c) => c.id === id).found;
-    const done = this.solved.size === CASE.deductions.length;
-    const unk = '<i style="opacity:.55">??? — reach a conclusion below</i>';
-    const ded = (id) => CASE.deductions.find((d) => d.id === id);
-    const ans = (id) => this.solved.has(id) ? ded(id).answer : unk;
-
-    const last = has('phone') ? `${CASE.lastSeenPlace}. He locked it up at about 23:19 and walked up to his office to meet someone.` : unk;
-    const found = this.clues.filter((c) => c.found);
-
-    const dedBlocks = CASE.deductions.map((d) => {
-      if (this.solved.has(d.id)) {
-        return `<div data-ded="${d.id}" style="margin:10px 0;padding:10px 12px;border:1px solid #1f6f5c;background:rgba(31,111,92,.08)">
-          <b>${d.prompt}</b> <span style="color:#1f6f5c;font-weight:bold">&#10003; ESTABLISHED</span>
-          <div style="margin-top:4px">${d.answer}</div>
-        </div>`;
-      }
-      const parts = d.needs.map((id) => {
-        const cc = this.clues.find((x) => x.id === id);
-        return cc && cc.found ? `${cc.def.name} &#10003;` : `${(cc || {}).def ? cc.def.name : id} &hellip;`;
-      }).join(' &nbsp;·&nbsp; ');
-      return `<div data-ded="${d.id}" style="margin:10px 0;padding:10px 12px;border:1px dashed #6b5a34">
-        <b>${d.prompt}</b>
-        <div style="font-size:12px;opacity:.65;margin-top:4px">Establishes itself once bagged: ${parts}</div>
-      </div>`;
-    }).join('');
-
-    const rows = this.clues.map((c) => c.found
-      ? `<div style="margin:6px 0"><b>&#10003; ${c.def.name}</b><br><span style="opacity:.85">${c.def.finding}</span></div>`
-      : `<div style="margin:6px 0;opacity:.45">&#9633; Unexamined item</div>`).join('');
-
+    const found = this.clues.filter(c => c.found).length;
+    const done = found === this.clues.length;
+    const rows = this.clues.map(c => c.found
+      ? `<div style="margin:14px 0"><b>&#10003; ${c.def.name}</b><p style="margin:4px 0;line-height:1.6">${c.def.note}</p><small>Logged — awaiting lab examination</small></div>`
+      : '<div style="margin:14px 0;opacity:.6">&#9633; Exhibit not yet collected</div>').join('');
     this.ui.case.innerHTML = `
-      <style>@keyframes dedShake{0%,100%{transform:none}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}</style>
-      <div style="position:relative;width:min(820px,92vw);max-height:88vh;overflow:auto;background:#d9cba4;color:#1b1610;padding:28px 34px;box-shadow:0 0 60px #000;border-top:10px solid #b89b5e;">
-        <div style="position:absolute;right:26px;top:22px;border:3px solid #a1241c;color:#a1241c;padding:2px 10px;transform:rotate(8deg);font-weight:bold;letter-spacing:3px;">CONFIDENTIAL</div>
-        <div style="font-size:12px;letter-spacing:3px;opacity:.7">CASE FILE #001 ${done ? '— COMPLETE' : `— ${this.solved.size}/${CASE.deductions.length} CONCLUSIONS`}</div>
-        <h2 style="margin:6px 0 2px;font-size:26px">${CASE.victim}</h2>
-        <div style="opacity:.8">${CASE.role} &nbsp;|&nbsp; ${CASE.found}</div>
-        <hr style="border:0;border-top:1px dashed #6b5a34;margin:16px 0">
-        <div style="display:grid;grid-template-columns:110px 1fr;gap:8px 12px;font-size:15px">
-          <b>CAUSE</b><div>${ans('how')}</div>
-          <b>THE GUEST</b><div>${ans('guest')}</div>
-          <b>WHEN</b><div>${ans('when')}</div>
-          <b>LAST SEEN</b><div>${last}</div>
-        </div>
-        <hr style="border:0;border-top:1px dashed #6b5a34;margin:16px 0">
-        <b>DEDUCTIONS — LINK THE EVIDENCE</b>${dedBlocks}
-        <hr style="border:0;border-top:1px dashed #6b5a34;margin:16px 0">
-        <b>EVIDENCE LOGGED</b>${rows}
-        <div style="margin-top:22px;display:flex;gap:12px;justify-content:flex-end">
-          ${done ? '' : '<button id="cf-close" style="font:inherit;padding:9px 18px;background:#1b1610;color:#d9cba4;border:0;cursor:pointer">Back to the room [C]</button>'}
-          ${done ? `<button id="cf-go" style="font:inherit;padding:10px 20px;background:#a1241c;color:#fff;border:0;cursor:pointer;letter-spacing:1px">Conclusions drawn — close the room &rarr;</button>` : ''}
+      <div class="game-sheet" style="width:min(820px,92vw);max-height:88vh;overflow:auto;box-sizing:border-box">
+        <div style="font-size:12px;letter-spacing:2px">CASE FILE #001 — ${found}/${this.clues.length} EXHIBITS LOGGED</div>
+        <h2>${CASE.victim}</h2>
+        <p>${CASE.role} · ${CASE.found}</p>
+        <h3>DETECTIVE’S FIELD NOTES</h3>
+        <p>Collect and preserve the evidence. The lab examinations come next.</p>
+        ${rows}
+        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:24px">
+          <button id="cf-close" style="font:inherit;padding:10px 18px;cursor:pointer">Back to the room [C]</button>
+          ${done ? '<button id="cf-go" style="font:inherit;padding:10px 18px;background:#a1241c;color:#fff;border:0;cursor:pointer">Seal evidence for the station &rarr;</button>' : ''}
         </div>
       </div>`;
     this.ui.case.style.display = 'flex';
-
-    const close = this.ui.case.querySelector('#cf-close');
-    if (close) close.addEventListener('click', () => this._closeCaseFile());
-    const go = this.ui.case.querySelector('#cf-go');
-    if (go) go.addEventListener('click', () => { this._closeCaseFile(); this._openReconstruction(); });
-
-    this._bindDeductions();
-  }
-
-  // Conclusions establish themselves from bagged evidence — no link puzzles.
-  // Kept as a method because the case file calls it after every resolution.
-  _bindDeductions() {}
-
-  _solveDeduction(d) {
-    if (this.solved.has(d.id)) return;
-    this.solved.add(d.id);
-    window.__caseProgress = window.__caseProgress || { l1: {} };
-    window.__caseProgress.l1['ded_' + d.id] = true;
-    sfx('correct');
-    this._flash('rgba(31,111,92,.4)');
-    this._updateCounter();
-    this._toast(`CONCLUSION — ${d.prompt}`, d.answer, 9000);
-    if (this.caseOpen) this._openCaseFile();   // re-render if the file is open
+    this.ui.case.querySelector('#cf-close').addEventListener('click', () => this._closeCaseFile());
+    this.ui.case.querySelector('#cf-go')?.addEventListener('click', () => {
+      this._closeCaseFile();
+      this._openOutro();
+    });
   }
 
   _flash(color) {
@@ -1508,7 +1418,7 @@ new FBXLoader().load(professorFBX, (object) => {
   }
 
   // End-of-level cutscene: the investigator logs the evidence, takes it to the
-  // police station for the captain’s receipt and hands-on lab work -> Level 2.
+  // police station for hands-on lab work -> Level 2.
   _openOutro() {
     if (this.outroOpen) return;
     this.outroOpen = true;
@@ -1545,7 +1455,7 @@ new FBXLoader().load(professorFBX, (object) => {
         NEXT MORNING — CENTRAL POLICE STATION
       </div>
       <p style="position:relative;max-width:min(680px,86vw);margin:26px auto 0;font-size:19px;line-height:1.7;color:#d7dde8;opacity:0;animation:labFadeIn 1.4s 2.4s forwards">
-        The room is sealed and the exhibits are packed. Take them to Central Police Station, check in at reception and hand them to Captain Mabaso. You will examine the evidence yourself in the station lab.
+        The room is sealed and the exhibits are packed. Take them to Central Police Station, greet reception and head to the lab. You will examine the evidence there before taking the completed file to Captain Mabaso.
       </p>
       <div style="position:relative;margin-top:48px;opacity:0;animation:labFadeIn 1s 4s forwards">
         <button id="outro-city" style="font:inherit;letter-spacing:1px;padding:12px 28px;background:#1f6f5c;color:#fff;border:0;cursor:pointer">Travel to Central Police Station — Level 2 &rarr;</button>
@@ -1559,19 +1469,15 @@ new FBXLoader().load(professorFBX, (object) => {
   }
 
   // =========================================================
-  // GUIDANCE — open questions HUD + idle nudges
+  // GUIDANCE — evidence collection HUD + idle nudges
   // =========================================================
   _updateQuest() {
-    if (!this.ui || !this.ui.quest) return;
-    const rows = CASE.deductions.map((d) => {
-      const got = d.needs.filter((id) => (this.clues.find((x) => x.id === id) || {}).found).length;
-      const ok = this.solved.has(d.id);
-      return `<div style="color:${ok ? '#7fd4a8' : '#f2d9a0'};opacity:${ok ? 1 : 0.8}">${ok ? '&#10003;' : '&#9744;'} ${d.prompt} <span style="opacity:.6">${ok ? '' : got + '/' + d.needs.length}</span></div>`;
-    }).join('');
+    if (!this.ui?.quest) return;
     const found = this.clues.filter(c => c.found).length;
-    const next = found === this.clues.length ? 'All exhibits logged. Open [C], review the conclusions and seal the evidence for the police station.'
-      : 'Photograph [Q + click], lower camera [Q], then collect [E]. Use [F] to reveal the wiped trail.';
-    this.ui.quest.innerHTML = `<div style="margin-bottom:8px;line-height:1.6"><b>SECURE THE OFFICE — ${found}/${this.clues.length}</b><br>${next}</div><div style="opacity:.55;letter-spacing:2px;margin-bottom:2px">OPEN QUESTIONS</div>${rows}`;
+    const next = found === this.clues.length
+      ? 'All exhibits logged. Open [C] and seal the evidence for the station lab.'
+      : 'Photograph [Q + click], lower camera [Q], then collect [E]. Use [F] to find traces under UV.';
+    this.ui.quest.innerHTML = `<b>SECURE THE OFFICE — ${found}/${this.clues.length}</b><p>${next}</p><span style="opacity:.7">Preserve the evidence. Find the answers in the lab.</span>`;
   }
 
   _hint() {
@@ -1584,60 +1490,12 @@ new FBXLoader().load(professorFBX, (object) => {
   }
 
   // =========================================================
-  // RECONSTRUCTION — put the night in order before the file closes
-  // =========================================================
-  _openReconstruction() {
-    if (this.reconOpen) return;
-    this.reconOpen = true;
-    if (document.exitPointerLock) document.exitPointerLock();
-    if (this.ui.prompt) this.ui.prompt.style.display = 'none';
-    const truth = [
-      { t: '22:48', text: 'An unknown number summons him: "Exam scripts. Your office, tonight."' },
-      { t: '23:19', text: 'He locks up the Staff Common Room and heads for his office.' },
-      { t: '23:31', text: 'The visitor texts: "Coming up the back stairs. Tell no one."' },
-      { t: '23:31 – 23:36', text: 'One shot, from under a metre. The shooter wipes a bloodied hand and leaves in a hurry. His phone starts missing calls.' },
-      { t: '00:50', text: 'The night cleaner finds him.' },
-    ];
-    const pool = truth.slice();
-    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-    let placed = 0, slips = 0;
-    const el = this.ui.recon;
-    const render = (msg) => {
-      const done = placed === truth.length;
-      const tl = truth.slice(0, placed).map((e) =>
-        `<div style="margin:0 0 8px;padding:8px 12px;border-left:3px solid #3fa87a;background:rgba(63,168,122,.08)"><b style="color:#7fd4a8">${e.t}</b> &nbsp; ${e.text}</div>`).join('');
-      const left = pool.filter((e) => truth.indexOf(e) >= placed).map((e) =>
-        `<button data-i="${truth.indexOf(e)}" style="display:block;width:100%;text-align:left;font:inherit;padding:10px 14px;margin:0 0 8px;background:#141a24;color:#e9d9b0;border:1px solid #334052;cursor:pointer">${e.text}</button>`).join('');
-      el.innerHTML = `
-        <div style="width:min(760px,92vw)">
-          <div style="letter-spacing:5px;font-size:12px;color:#f2b84b;margin-bottom:6px">RECONSTRUCTION</div>
-          <div style="font-size:18px;margin-bottom:6px">${done ? 'That is the night, start to finish.' : 'Put the night in order. What happened NEXT?'}</div>
-          <div id="recon-msg" style="font-size:12px;opacity:.65;min-height:1.4em;margin-bottom:14px">${msg || (done ? (slips ? slips + ' slip' + (slips === 1 ? '' : 's') + ' on the record.' : 'No slips.') : 'Use what the phone, the trail and the case file told you.')}</div>
-          ${tl}${left}
-          ${done ? '<button id="recon-go" style="font:inherit;letter-spacing:1px;margin-top:10px;padding:12px 28px;background:#a1241c;color:#fff;border:0;cursor:pointer">Seal the file &rarr;</button>' : ''}
-        </div>`;
-      el.querySelectorAll('button[data-i]').forEach((b) => b.addEventListener('click', () => {
-        if (Number(b.dataset.i) === placed) { placed++; sfx('correct'); render(); return; }
-        slips++;
-        try { getStats().wrongDeductions++; } catch (e) {}
-        sfx('wrong'); this._flash('rgba(161,36,28,.4)');
-        b.animate([{ transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'none' }], { duration: 260 });
-        const m = el.querySelector('#recon-msg');
-        if (m) m.textContent = 'Not yet — something has to come before that. Check the times on the phone.';
-      }));
-      const go = el.querySelector('#recon-go');
-      if (go) go.addEventListener('click', () => { this.reconOpen = false; el.style.display = 'none'; this._openOutro(); });
-    };
-    el.style.display = 'flex';
-    render();
-  }
-
-  // =========================================================
   // INPUT
   // =========================================================
   _handleKey(e) {
+    if (window.__loading || window.__paused) return;
     if (e.repeat) return;
-    if (this.outroOpen || this.reconOpen) return;
+    if (this.outroOpen) return;
     if (e.code === 'KeyC') { this.caseOpen ? this._closeCaseFile() : this._openCaseFile(); return; }
     if (this.caseOpen) return;
     if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
@@ -1682,7 +1540,7 @@ new FBXLoader().load(professorFBX, (object) => {
     sfx('collect');
     this._toast(
       `EVIDENCE ${this.clues.filter((x) => x.found).length}/${this.clues.length} — ${c.def.name.toUpperCase()}`,
-      `${c.def.note}<div style="margin-top:6px;color:#f2b84b">&#9656; ${c.def.finding}</div>`,
+      `“${c.def.note}”`,
       11000);
     this._idle = 0;
     // Halfway through the room, the building reminds you you are not alone in it.
@@ -1690,7 +1548,7 @@ new FBXLoader().load(professorFBX, (object) => {
       this._scared = true; this._dark = 2.6; this._flashT = 0.45;
       clearTimeout(this._scareTimer);
       this._scareTimer = setTimeout(() => {
-        if (this.ui) this._toast('FOOTSTEPS', 'The lights die. Out in the corridor, slow footsteps on the back stairs — the same stairs. Then the tube stutters back and the landing is empty. Whoever came up here once knows this building well.', 9000);
+        if (this.ui) this._toast('FOOTSTEPS', 'Was that someone in the corridor? Stay focused. I still need to finish securing this room.', 9000);
       }, 1800);
     }
     // Six exhibits in: the dead man's phone lights up. Somebody is checking on him.
@@ -1701,14 +1559,8 @@ new FBXLoader().load(professorFBX, (object) => {
         if (!this.ui) return;
         this._flash('rgba(120,140,255,.35)');
         sfx('wrong');
-        this._toast('THE DEAD MAN\u2019S PHONE', 'It buzzes once against the desk, face-down. Then again. Whoever is on the other end does not know yet that he is not going to answer \u2014 and wants to know whether anyone has found what he was keeping.', 10000);
+        this._toast('THE DEAD MAN\u2019S PHONE', 'Another vibration from the evidence bag. Hmm. I wonder who is trying to reach him. I will check the device properly at the lab.', 10000);
       }, 2500);
-    }
-    // Conclusions draw themselves once their evidence is bagged — no puzzles.
-    for (const d of CASE.deductions) {
-      if (!this.solved.has(d.id) && d.needs.every((id) => (this.clues.find((x) => x.id === id) || {}).found)) {
-        this._solveDeduction(d);
-      }
     }
     if (this.clues.every((x) => x.found)) {
       this.ui.objective.textContent = 'ALL EVIDENCE LOGGED — CLOSE THE ROOM [C]';
@@ -1892,8 +1744,8 @@ new FBXLoader().load(professorFBX, (object) => {
     if (this.uvWash) this.uvWash.intensity = 4.0 * this.uv.uUvOn.value;
 
     // physics + interaction
-    if (player && player.pos && !this.caseOpen && !this.outroOpen && !this.reconOpen) this._stepMovables(dt, player);
-    if (hasView && !this.caseOpen && !this.outroOpen && !this.reconOpen) this._updateFocus();
+    if (player && player.pos && !this.caseOpen && !this.outroOpen) this._stepMovables(dt, player);
+    if (hasView && !this.caseOpen && !this.outroOpen) this._updateFocus();
     if (this.photoCam) this.photoCam.update(dt, this.time);
   }
 
@@ -1914,7 +1766,6 @@ new FBXLoader().load(professorFBX, (object) => {
       if (this.ui.root) this.ui.root.remove();
       if (this.ui.case) this.ui.case.remove();
       if (this.ui.outro) this.ui.outro.remove();
-      if (this.ui.recon) this.ui.recon.remove();
       this.ui = null;
     }
     if (this.level && this.level.parent) this.level.parent.remove(this.level);
@@ -2434,7 +2285,7 @@ function controlsBar(level, getThird) {
   return {
     update() {
       const tool = level.tool, cam = !!(level.photoCam && level.photoCam.isUp), uv = !!level.uvOn, third = getThird();
-      const overlay = !!(level.caseOpen || level.outroOpen || level.reconOpen || window.__uiCapture);
+      const overlay = !!(level.caseOpen || level.outroOpen || window.__uiCapture);
       const free = !document.pointerLockElement && !overlay && !window.__paused;
       const key = [tool, cam, uv, third, overlay, free].join('|');
       if (key === last || !chips.bag) return;
@@ -2515,7 +2366,7 @@ function applyLevel1Look(level) {
 
   // ---- the player: visible detective + [V] first / third person ----
   const view = attachPlayerView(level, {
-    forceFirst: () => !!(level.photoCam && level.photoCam.isUp) || level.caseOpen || level.outroOpen || level.reconOpen,
+    forceFirst: () => !!(level.photoCam && level.photoCam.isUp) || level.caseOpen || level.outroOpen,
     bounds: { L: level.LEFT, R: level.RIGHT, B: level.BACK, F: level.FRONT, H: level.H },
   });
   level._view = view;
