@@ -60,8 +60,9 @@ The lab names the suspect, and the trail leads to Genesis — an abandoned beach
 | Sprint / jump       | Shift / Space    |
 | Examine / question / collect | E |
 | Office kit          | Q camera, 1 bags, 2 tweezers, 3 swab |
-| UV torch            | F                |
-| Case file           | C                |
+| Office UV torch     | F                |
+| Office case file    | C                |
+| Lab report folder   | E at the report table |
 | First / third person | V               |
 | Chase: lane / jump | A, D / Space     |
 | Pause               | P or pause button |
@@ -130,6 +131,22 @@ Progress auto-saves on every level change. **Continue** restarts the saved level
    (**Important:** the game is served from a subdirectory, so all paths must be relative (e.g. `./assets/..`).)
 
 ---
+
+## Helping new players with Level 2
+
+Open **Controls & mission guide** from the main menu or Pause (P). The guide includes a short station route, expandable instructions for each bench, optional laptop command help, and troubleshooting. Close a lab device with Esc before opening Pause.
+
+Level 2 now starts with **FIELD TRAINING** enabled. Its amber marker points to the current object, its card gives one action at a time, and device controls receive an outline when relevant. Guidance advances from actual lab actions, supports work completed out of order, and never selects a suspect for the player. Press **H** or use the guidance button to turn it off or back on.
+
+For a first playthrough, explain one loop: **examine → photograph → file → sign**. Demonstrate intake and one bench, then let the player finish the others using the HUD’s NEXT instruction. Explain the phone shielding and airplane-mode steps before they handle it. Avoid revealing suspects or lab results: teach the controls and process, leaving the deductions to the player.
+
+## Station visuals
+
+Level 2 combines daylight shadows, rectangular ceiling lights, two shadow-casting lab task lights, and subdued environment reflections. Rounded resin worktops, metal edging, furniture shadows, and recessed building windows give surfaces depth. UV examination dims the lab fixtures without switching off the office and lobby lights.
+
+## Verification
+
+Run `npm run build` for a production build and `npm test` for lab-guidance progression and lighting lifecycle checks.
 
 ## HUD, UI and loading
 

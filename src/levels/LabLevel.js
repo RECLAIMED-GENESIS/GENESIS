@@ -35,6 +35,9 @@
 //   3. UVRevealMaterial — hidden indentations fade in with uUV
 // ============================================================
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { LabCoach } from '../ui/LabCoach.js';
+import { buildStationLighting, setStationLabLighting, disposeStationLighting } from './StationLighting.js';
 import { getCase, SUSPECTS, IDS, normId } from '../game/case.js';
 import { getStats } from '../game/stats.js';
 import { PhotoCamera, PHOTO } from '../game/photoCamera.js';
@@ -44,6 +47,8 @@ import { installLabExtras } from './LabExtras.js';
 import { installPoliceStation } from './PoliceStation.js';
 import { buildStationEnvironment, updateStationEnvironment, disposeStationEnvironment } from './StationEnvironment.js';
 import { attachPlayerView } from '../game/DetectiveAvatar.js';
+import { buildWoodWainscot } from './StationWoodPanel.js' ;
+import { buildLabWindow } from './StationWindowView.js' ;
 
 const EYE = 1.7;
 const REACH = 3.4;
@@ -175,8 +180,7 @@ export class LabLevel {
     this.renderer = rendererMaybe || window.__renderer || null;
     this._prevBg = this.scene.background;
     this._prevFog = this.scene.fog;
-    // Daylight working lab: bright, flat, nothing hides in shadow. Evidence
-    // is found by looking, not by following glow markers — there are none.
+    // Daylight station with local task lighting and optional procedural guidance.
     this.scene.background = new THREE.Color(0x9baebc);
     this.scene.fog = null;
 
@@ -247,6 +251,8 @@ export class LabLevel {
     this._buildPhysicalBenches(); // laptop, strand, linen, buttons, clipboards ... (LabExtras)
     this._syncProps();
     buildStationEnvironment(this);
+    buildStationLighting(this);
+    this._coach = new LabCoach(this);
 
     this.level.traverse((o) => {
       if (o.isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; }
@@ -277,12 +283,12 @@ export class LabLevel {
       kicker: 'CENTRAL POLICE STATION',
       stamp: '08:15 — THE MORNING AFTER',
       speaker: 'DETECTIVE / ARRIVAL',
-      objective: 'Greet reception → examine the evidence in the lab → sign the file → deliver it to the captain.',
+      objective: 'Follow FIELD TRAINING: one action at a time. H toggles guidance. Complete four reports and deliver the signed file.',
       lines: [
         'DETECTIVE: It is 08:15, the morning after Nkosi’s murder. I am outside Central Police Station with the exhibits collected from his office. The lab must establish what they can actually prove.',
         'MOKOENA — FRONT DESK: Greet me at reception on the left, then head straight to the marked lab.',
         'CAPTAIN MABASO: Enter the marked lab on the left. Sign its intake sheet and put on gloves. Examine four groups: the phone, hair and glass, blood, and a reconstruction from the casing and UV trail.',
-        'LAB INSTRUCTIONS: Shield the phone in the Faraday box, connect it to the cradle and crack its lock on the examiner laptop. Enter the recovered PIN on the handset and enable airplane mode. Follow the work-order HUD for the remaining benches.',
+        'LAB INSTRUCTIONS: Follow the amber marker and FIELD TRAINING card. It updates when you complete each action; H hides or restores it. Shield the phone in the Faraday box, connect it to the cradle and crack its lock on the examiner laptop. Enter the recovered PIN on the handset and enable airplane mode. Follow the work-order HUD for the remaining benches.',
         'CAPTAIN MABASO: Photograph your findings, file all four reports and sign every page at the report table. Bring the completed file to my office on the right. Delivering it will begin your next assignment.',
       ],
       onDone: () => {
@@ -308,7 +314,7 @@ export class LabLevel {
     }
     m.position.set(x, y, z); parent.add(m); return m;
   }
-  _std(color, rough = 0.8, metal = 0.1) {
+  _std(color, rough = 0.8, metal = 0) {
     return new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: metal });
   }
 
@@ -318,9 +324,10 @@ export class LabLevel {
     const uv = floor.geometry.attributes.uv;
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * W / 2, uv.getY(i) * D / 2);
     floor.rotation.x = -Math.PI / 2; this.level.add(floor);
-    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), this._stationMaterial('plaster', 0xd2d8d5));
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), this._stationMaterial('brick'));
     const ceilingUV = ceil.geometry.attributes.uv;
     for (let i = 0; i < ceilingUV.count; i++) ceilingUV.setXY(i, ceilingUV.getX(i) * W / 2, ceilingUV.getY(i) * D / 2);
+    ceil.material.side = THREE.DoubleSide;
     ceil.rotation.x = Math.PI / 2; ceil.position.y = H; this.level.add(ceil);
     const wallMat = this._stationMaterial('plaster');
     const mkWall = (cx, cz, w, d) => {
@@ -328,13 +335,14 @@ export class LabLevel {
       this.colliders.push(new THREE.Box3(
         new THREE.Vector3(cx - w / 2, 0, cz - d / 2), new THREE.Vector3(cx + w / 2, H, cz + d / 2)));
     };
-    mkWall(0, -D / 2 - 0.15, W + 0.6, 0.3);
+    buildLabWindow(this, wallMat);
     // Lobby-to-lab doorway at x=-5. Bench coordinates remain unchanged.
     mkWall(-8.15, D / 2 + 0.15, 4.3, 0.3);
     mkWall(3.15, D / 2 + 0.15, 14.3, 0.3);
     this._box(this.level, 2, 0.6, 0.3, wallMat, -5, 3.1, D / 2 + 0.15);
     mkWall(-W / 2 - 0.15, 0, 0.3, D + 0.6); mkWall(W / 2 + 0.15, 0, 0.3, D + 0.6);
-
+   
+    buildWoodWainscot(this);
     const court = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.8), new THREE.MeshStandardMaterial({ color: 0x9fb7be, roughness: 0.5, metalness: 0.15 }));
     court.position.set(-2, 2.0, -D / 2 + 0.10); this.level.add(court);
     this._box(this.level, 8.4, 2.0, 0.08, this._std(0x3a3f47, 0.6, 0.4), -2, 2.0, -D / 2 + 0.05);
@@ -402,7 +410,10 @@ export class LabLevel {
 
   _benchBase(g, x, z) {
     g.position.set(x, 0, z);
-    this._box(g, 3.4, 0.08, 1.7, this._std(0x35464b, 0.38, 0.25), 0, 0.9, 0);
+    const top = new THREE.Mesh(new RoundedBoxGeometry(3.4,.09,1.7,2,.025),
+      new THREE.MeshPhysicalMaterial({color:0x526161,roughness:.32,metalness:0,clearcoat:.28,clearcoatRoughness:.38}));
+    top.position.y=.9; g.add(top);
+    this._box(g,3.36,.025,1.66,this._std(0x9ca5a6,.28,.8),0,.848,0);
     for (const [lx, lz] of [[-1.5, -0.7], [1.5, -0.7], [-1.5, 0.7], [1.5, 0.7]])
       this._box(g, 0.09, 0.9, 0.09, this._std(0x4a3d2e, 0.8, 0), lx, 0.45, lz);
     this.level.add(g);
@@ -807,6 +818,7 @@ export class LabLevel {
   _handleKey(e) {
     if (window.__loading || window.__paused) return;
     if (e.repeat) return;
+    if (e.code === 'KeyH' && !e.target?.matches?.('input, textarea, select')) { this._coach?.toggle(); return; }
     if (this.heldKnob) {                       // turning a physical knob owns E/Esc
       if (e.code === 'KeyE' || e.code === 'Escape') this._releaseKnob();
       return;
@@ -1567,8 +1579,7 @@ export class LabLevel {
     if (this._docsLight) this._docsLight.material.emissiveIntensity = this.docs.lightsOff ? 0.12 : 0.55;
     // The room itself goes dark by the wall switch — the wand beam then owns the note
     const dark = this.docs.lightsOff ? 1 : 0;
-    if (this._hemi) this._hemi.intensity = dark ? 0.35 : 1.7;
-    for (const s of this._stripLights || []) { if (!s.flicker) s.pl.intensity = dark ? 4 : 22; }
+    setStationLabLighting(this, !!dark);
     if (this._noteMat) this._noteMat.uniforms.uOn.value = (this.docs.lightsOff && this.carried && this.carried.id === 'uvwand') ? 1 : 0;
   }
 
@@ -1787,9 +1798,12 @@ export class LabLevel {
     this._updateStation(dt, player);
     updateStationEnvironment(this, dt, t);
     if (cam) this._updateFocus(cam);
+    this._coach?.update(dt, player);
   }
 
   dispose() {
+    this._coach?.dispose();
+    disposeStationLighting(this);
     disposeStationEnvironment(this);
     if (this._view) { this._view.dispose(); this._view = null; }
     clearTimeout(this._toastTimer);

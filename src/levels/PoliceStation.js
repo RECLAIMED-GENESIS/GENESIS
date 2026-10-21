@@ -151,7 +151,7 @@ export function installPoliceStation(Level) {
       this._stationSign('POLICE', 10, 0.55, 28.07, 1.5);
       this._patrolFallbacks = this.level.children.slice(carStart);
       for (const [x,z] of [[0,15],[-5,9],[15,12],[0,21]]) {
-        const light = new THREE.PointLight(z > 19 ? 0xffd7a4 : 0xe7eef5, 28, 16, 1.7);
+        const light = new THREE.PointLight(z > 19 ? 0xffd7a4 : 0xf1eee5, 14, 11, 2);
         light.position.set(x, 3, z); this.level.add(light);
         const fixture = this._box(this.level, 1.5, 0.06, 0.2, new THREE.MeshBasicMaterial({color:0xe8edf0}), x, 3.3, z);
         if (z < 19) (this._ceilingFallbacks ||= []).push(fixture);

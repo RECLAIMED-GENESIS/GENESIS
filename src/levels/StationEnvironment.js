@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildStationSurroundings, buildEvidenceCases } from './StationSurroundings.js';
+import { applyGrime } from './StationRealism.js';
 
 const SURFACES = {
   tile: 'Tiles051', plaster: 'PaintedPlaster005', brick: 'Bricks082A',
@@ -42,11 +43,11 @@ export function stationMaterial(level, kind, color) {
       shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>',
         THREE.ShaderChunk.map_fragment.replace('diffuseColor *= sampledDiffuseColor;', remap + '\n diffuseColor *= sampledDiffuseColor;'));
       shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>',
-        '#include <roughnessmap_fragment>\n roughnessFactor = max(roughnessFactor, ' + (kind === 'plaster' ? '0.9' : '0.65') + ');');
+        '#include <roughnessmap_fragment>\n roughnessFactor = max(roughnessFactor, ' + (kind === 'plaster' ? '0.85' : '0.32') + ');');
     };
-    material.customProgramCacheKey = () => `station-painted-${kind}`;
+    material.customProgramCacheKey = () => `station-painted-v2-${kind}`;
   }
-  return material;
+  return applyGrime(material, kind, { paint: kind === 'plaster' && color === 0xffffff });
 }
 
 function releaseModel(root) {
@@ -206,7 +207,8 @@ export function buildStationEnvironment(L) {
     object.position.z-=((bounds.min.z+bounds.max.z)/2)*scale;
     object.position.y-=bounds.min.y*scale;
     holder.position.set(x,y,z);holder.rotation.y=rotation;L.level.add(holder);holder.updateMatrixWorld(true);
-    object.traverse(o=>{if(o.isMesh){o.castShadow=false;o.receiveShadow=true;o.userData.noShadow=true;}});
+    object.traverse(o=>{if(o.isMesh){o.castShadow=o.geometry.attributes.position.count<12000;o.receiveShadow=true;o.userData.noShadow=!o.castShadow;}});
+    for (const light of L._stationShadowLights || []) light.shadow.needsUpdate = true;
     if(collide)L.colliders.push(new THREE.Box3().setFromObject(holder));
     return holder;
   };
@@ -299,6 +301,12 @@ export function buildStationEnvironment(L) {
       for(const [x,z,rotation] of [[12,7.65,0],[13,7.65,0],[-8.9,8.5,Math.PI/2],[19.5,14.7,-Math.PI/2]])
         instance(model,'Station filing cabinet',x,0,z,.75,rotation,true);
     }),
+    load('latex-gloves.glb',model=> {
+      // The old blue dispenser box is replaced by a real pair of gloves lying on the intake table.
+      const old=L.level.children.find(o=>o.isMesh&&o.geometry?.type==='BoxGeometry'&&Math.abs(o.position.x+3.15)<.01&&Math.abs(o.position.y-1.05)<.01&&Math.abs(o.position.z-4.6)<.01);
+      if(old)old.visible=false;
+      L._gloveModel=instance(model,'Latex gloves',-3.15,.94,4.6,.5,.5);
+    }),
     load('fluorescent-fixture.glb',model=> {
       for(const [x,z] of [[-6,2.5],[0,2.5],[6,2.5],[0,-3.5],[0,15],[-5,9],[15,12],...(L._extraCeilingFixtures||[])]) {
         const fixture=instance(model,'Fluorescent ceiling fixture',x,0,z,2.2,Math.PI/2);
@@ -311,7 +319,15 @@ export function buildStationEnvironment(L) {
 }
 
 export function updateStationEnvironment(L,dt,t) {
+  // Cache the three shadow maps between updates; keep moving people and doors current.
+  L._shadowElapsed = (L._shadowElapsed || 0) + dt;
+  if (L._shadowElapsed >= .2) {
+    L._shadowElapsed = 0;
+    for (const light of L._stationShadowLights || []) light.shadow.needsUpdate = true;
+  }
   if(L._environmentFan)L._environmentFan.rotation.z-=dt*3;
+  // Gloves vanish from the table once the detective has put them on.
+  if(L._gloveModel)L._gloveModel.visible=!L.gloves;
   for(const led of L._environmentLEDs||[]) {
     const running=led.state==='dna'?L.bio.running:L.cyber.unitRunning;
     const ready=led.state==='dna'?L.bio.ready:L.cyber.unitDone;

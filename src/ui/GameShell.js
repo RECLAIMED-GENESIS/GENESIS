@@ -130,6 +130,13 @@ const CSS = `
 .gs-sheet input[type=checkbox]:checked::after{content:"";position:absolute;inset:3px;background:var(--stamp)}
 .gs-sheet :focus-visible{outline-color:var(--stamp)}
 .gs-credit-list{margin:12px 0 28px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 24px}.gs-credit-list dt{font-weight:bold}.gs-credit-list dd{margin:0;overflow-wrap:anywhere}
+.gs-guide{border-top:1px solid rgba(30,27,22,.25);padding:14px 0}
+.gs-guide summary{cursor:pointer;font-weight:bold;line-height:1.5}
+.gs-guide summary:focus-visible{outline:2px solid var(--stamp);outline-offset:4px}
+.gs-guide p{margin:12px 0}.gs-guide li{margin:10px 0;line-height:1.6}
+.gs-guide ol,.gs-guide ul{padding-left:24px}
+.gs-guide pre{overflow:auto;max-width:100%;background:var(--ink);color:var(--paper);padding:12px;font:12px/1.7 var(--type)}
+.gs-guide code{overflow-wrap:anywhere}.gs-guide .gs-guide{margin-left:8px}
 .gs-cr h3{margin:0;font-weight:700;font-size:15px}
 .gs-faint{opacity:.72}
 
@@ -666,20 +673,88 @@ export class GameShell {
       <div class="gs-sheet">
         <h2 class="gs-h">Controls &amp; mission guide</h2>
         <p class="gs-faint"><b>Read the Room. Close the Case.</b></p>
+        <p>Open this guide from the main menu or <b>P → Controls &amp; mission guide</b> while playing. Close a device or report with Esc before opening Pause.</p>
+        <h3>Movement &amp; shared controls</h3>
         <dl class="gs-keys">
-          <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Walk. Move the mouse to look; click the scene once to capture it.</dd>
-          <dt><kbd>Shift</kbd><kbd>Space</kbd></dt><dd>Run and jump.</dd>
-          <dt><kbd>V</kbd></dt><dd>Switch first-person / third-person during exploration. Photos and scripted scenes use their own view, then restore your choice.</dd>
-          <dt><kbd>E</kbd></dt><dd>Use what you are looking at: pick it up, question it, open it.</dd>
-          <dt><kbd>Q</kbd><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd></dt><dd>Office kit: camera, bags, tweezers, swab. Photograph first, lift second.</dd>
-          <dt><kbd>F</kbd></dt><dd>Switch on the UV torch.</dd>
-          <dt><kbd>C</kbd></dt><dd>Open the case file.</dd>
-          <dt><kbd>A</kbd><kbd>D</kbd> <kbd>Space</kbd></dt><dd>In the chase: change lane, jump.</dd>
-          <dt><kbd>Esc</kbd></dt><dd>Release the mouse. Click the game view to lock it again. Looking stops while unlocked.</dd>
-          <dt><kbd>P</kbd><kbd>R</kbd></dt><dd>Pause, or restart the level.</dd>
+          <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Walk in the office and station. Click the scene to capture the mouse, then move it to look.</dd>
+          <dt><kbd>Shift</kbd> / <kbd>Space</kbd></dt><dd>Sprint / jump during exploration.</dd>
+          <dt><kbd>V</kbd></dt><dd>Switch first / third person. Photography and scripted scenes control their own view.</dd>
+          <dt><kbd>E</kbd></dt><dd>Look at an object, move close enough for its prompt, then interact.</dd>
+          <dt><kbd>Q</kbd> + click</dt><dd>Office and lab: raise the camera, centre the subject and left-click to photograph. Scroll to zoom; Q lowers it.</dd>
+          <dt><kbd>Esc</kbd></dt><dd>Close a lab device or report; otherwise release the mouse. Click the scene to look and move again.</dd>
+          <dt><kbd>P</kbd></dt><dd>Pause / resume. The pause button also opens the menu.</dd>
+          <dt><kbd>R</kbd></dt><dd>Restart the current level. Current level actions must be repeated.</dd>
         </dl>
-        <h3>Your investigation</h3><p>The case runs in three stages. <b>1 — Office:</b> photograph all six exhibits with Q and left click before collecting them with E. Use 1 for bags, 2 for tweezers and 3 for a swab; F reveals the UV trail. Open C after all evidence is logged and seal the file to travel to the station.</p><p><b>2 — Police station:</b> start outside, greet Mokoena at reception, then head straight to the lab. Enter the lab, sign intake and wear gloves. Examine the phone, trace evidence, blood, and the casing / UV-trail reconstruction. Crack the phone on the laptop, then enter its PIN on the handset. Sign all four reports and bring the completed file to the captain. The evidence handoff takes you directly to Level 3. Closed wings are not accessible.</p><p> <b>3 — Genesis:</b> chase the suspect through the abandoned beachfront city. Change lanes and jump obstacles to catch the suspect before the cave bridge.</p>
-        <p><b>Briefings:</b> Enter or click finishes the current line, then advances. Esc skips. Your current objective stays on the HUD.</p><p>Progress saves at level transitions. Continue restarts the saved level; it does not restore every mid-level action.</p>
+        <details class="gs-guide" open>
+          <summary>Level 1 — Secure the office</summary>
+          <p><b>Your goal:</b> photograph and collect all six exhibits. The detective’s notes raise questions; the lab provides the answers.</p>
+          <ol>
+            <li>Look closely around the room. Use Q and left-click for a sharp photograph before collecting anything.</li>
+            <li>Lower the camera with Q. Use <b>1: bags, 2: tweezers, 3: swab</b>, then E to collect. A sharp photograph selects the appropriate tool; the wrong tool records contamination.</li>
+            <li>Use <b>F</b> for the UV torch. Photograph the revealed trail with UV on; this photograph logs that exhibit.</li>
+            <li>Use <b>C</b> to review field notes. Once all six exhibits are logged, seal the evidence and follow the departure screens to Level 2. There is no timeline-ordering puzzle.</li>
+          </ol>
+        </details>
+        <details class="gs-guide" open>
+          <summary>Level 2 — Examine the evidence</summary>
+          <p><b>Your goal:</b> finish four reports, sign all four pages, then deliver the file to the captain. Examining an item alone does not file its report.</p>
+          <ol>
+            <li><b>Arrive:</b> enter the station, greet Mokoena at reception on the left with E, then enter the marked lab. No conversation or initial captain visit is needed.</li>
+            <li><b>Prepare:</b> sign the intake sheet and put on gloves at the dispenser.</li>
+            <li><b>Work:</b> follow the HUD’s <b>NEXT</b> instruction. The four benches are digital forensics, trace evidence, biology, and scene reconstruction.</li>
+            <li><b>Finish each bench:</b> examine → photograph the required subject → file the report. While a machine runs, you can work at another bench.</li>
+            <li><b>Deliver:</b> use E on the folder at the report table and click <b>Sign page</b> on all four reports. Go to the captain’s office on the right and press E to deliver. The acknowledgement leads directly to Level 3.</li>
+          </ol>
+          <p><b>FIELD TRAINING:</b> follow the amber marker and the one-step instruction card. Device controls are outlined when needed, and the guide advances when you complete the action. Press <b>H</b> to hide or restore guidance. You still make the comparisons and conclusions yourself.</p>
+          <p><b>Lab controls:</b> E opens benches and devices; use the mouse on their buttons. Esc closes them. Q takes photographs in the room. Open the folder with <b>E at the report table</b>, not C. Use the lab’s physical UV wand and light controls, not the office’s F shortcut.</p>
+          <details class="gs-guide">
+            <summary>Phone — shield, unlock, read, photograph, file</summary>
+            <ol>
+              <li>Lift the phone from intake, place it in the <b>Faraday box</b> (radio shielding), take it out and seat it in the cradle.</li>
+              <li>Open the examiner laptop. Type <code>cat README.txt</code> for its instructions. Recover the PIN here instead of guessing on the handset.</li>
+              <li>Enter the recovered PIN on the phone and turn <b>airplane mode on immediately</b>. Three wrong PIN attempts, or leaving the unlocked phone connected to the network too long, can wipe it.</li>
+              <li>Read Messages, Maps and Contacts. Scroll inside the apps and use their <b>flag</b> buttons to record the relevant entries.</li>
+              <li>Close the device, photograph the laptop display with the recovered PIN, then reopen the phone and <b>Log digital report</b>.</li>
+            </ol>
+            <details class="gs-guide"><summary>Need help with the laptop commands?</summary>
+              <p>This is an in-game terminal. Enter each command and wait for its output:</p>
+              <pre>lockdump /dev/cradle0 -o lock.hash
+hashcat -m 0 -a 3 lock.hash ?d?d?d?d
+hashcat --show lock.hash</pre>
+              <p>Read the recovered PIN from the result and enter it on the handset. Esc closes the laptop.</p>
+            </details>
+          </details>
+          <details class="gs-guide">
+            <summary>Trace evidence — compare under the microscope</summary>
+            <p>Place the strand and cover slip. Open the eyepiece, adjust focus and magnification, and follow its comparison checklist. Record verdicts on at least two references and choose your final claim. Photograph the microscope, then return to the bench to file the trace page. Inspect the guest glass with the lab UV wand too; observations belong in your investigation, not guesses about the culprit.</p>
+            <p>For physical microscope knobs, E selects a knob; move the mouse or scroll to adjust it. E or Esc releases it.</p>
+          </details>
+          <details class="gs-guide">
+            <summary>Biology — prepare and compare the sample</summary>
+            <p>Cut the swatch, add the lysis treatment, load the cartridge and start the sequencer. When it finishes, use MATCH and read the comparison. Close the panel, photograph the sequencer, then return to log the DNA report.</p>
+          </details>
+          <details class="gs-guide">
+            <summary>Scene reconstruction — inspect the original exhibits</summary>
+            <p>Examine the casing in its tray and the working copy of the UV-trail photograph. Photograph both subjects in the lab, then use the reconstruction clipboard to file the report. This is a lab examination, not the removed Level 1 ordering puzzle.</p>
+          </details>
+          <details class="gs-guide">
+            <summary>Stuck? Check these first</summary>
+            <ul>
+              <li><b>No E prompt:</b> lower the camera, close any panel, move closer and aim at the item.</li>
+              <li><b>Cannot take a photo:</b> Esc out of the device, click the room to capture the mouse, then use Q. Centre the actual exhibit or machine and move closer for a sharp shot.</li>
+              <li><b>Report button disabled:</b> check the panel’s missing requirements. Reading, flagging, choosing a verdict and taking a sharp photograph are separate steps.</li>
+              <li><b>Captain will not accept the file:</b> check that all four reports exist and each page is signed at the report table.</li>
+              <li><b>Phone wiped:</b> restart the level with R if you want to recover its evidence. Shield it and enable airplane mode promptly on the next attempt.</li>
+            </ul>
+          </details>
+        </details>
+        <details class="gs-guide" open>
+          <summary>Level 3 — Catch the suspect</summary>
+          <p>Press Enter or click through the arrival story. After the countdown, forward running is automatic. Use <b>A / D</b> or <b>left / right arrows</b> to change lanes, <b>Space</b> to jump and <b>V</b> to change view. Watch the suspect-distance meter.</p>
+          <p>Jump smaller obstacles and change lanes around large barriers. Catch the suspect before the cave bridge. At the result screen, choose the retry button or press Enter to try again.</p>
+        </details>
+        <p><b>Office and station briefings:</b> Enter or click completes the current line, then advances; Esc skips. Your next task remains on the HUD.</p>
+        <p><b>Saving:</b> progress saves at level transitions. Continue restarts the saved level; it does not restore individual mid-level actions.</p>
         <button class="gs-btn gs-pill" id="gs-how-back">Back</button>
       </div></div>`);
     n.querySelector('#gs-how-back').addEventListener('click', () => this.show(this._guideFrom === 'pause' ? 'pause' : 'menu'));

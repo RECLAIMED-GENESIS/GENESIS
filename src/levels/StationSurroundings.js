@@ -1,5 +1,6 @@
 // Station-only streetscape, using the supplied blue-sky image.
 import * as THREE from 'three';
+import { buildCityBlock } from './StationBuildings.js';
 
 export function buildStationSurroundings(L) {
   const skyMap=new THREE.TextureLoader().load('/assets/textures/station-clouds-sky.jpg',texture=> {
@@ -35,9 +36,16 @@ export function buildStationSurroundings(L) {
   sky.name='Station blue sky';sky.userData.noShadow=true;sky.renderOrder=-100;L.level.add(sky);
   L.scene.background=new THREE.Color(0x8ec8ed);
   L.scene.fog=new THREE.Fog(0xb3d2e4,65,200);
-  const sun=new THREE.DirectionalLight(0xfff4dd,1.1);sun.position.set(92,85,-38);sun.castShadow=false;L.level.add(sun);
+  const sun=new THREE.DirectionalLight(0xfff1d7,2.4);
+  sun.position.set(-22,32,24);sun.target.position.set(0,0,8);sun.castShadow=true;
+  sun.shadow.mapSize.set(2048,2048);
+  Object.assign(sun.shadow.camera,{left:-36,right:36,top:36,bottom:-36,near:1,far:100});
+  sun.shadow.bias=-.00015;sun.shadow.normalBias=.04;
+  sun.shadow.autoUpdate=false;sun.shadow.needsUpdate=true;
+  L._stationShadowLights=[sun];
+  L.level.add(sun,sun.target);
   // Existing fixtures illuminate the rooms; the ambient sky now reads as daytime.
-  L._hemi.color.setHex(0xcce4f7);L._hemi.intensity=1.15;
+  L._hemi.color.setHex(0xcce4f7);L._hemi.intensity=.42;
   const asphalt=L._stationMaterial('asphalt',0x777d8b);
   const pavement=L._stationMaterial('tile',0x9da6ae), dark=L._std(0x26303a,.9,0);
   const ground=(w,d,mat,x,z,y)=> {
@@ -55,25 +63,9 @@ export function buildStationSurroundings(L) {
   const marking=L._std(0xbebbb0,.9,0);
   for(let x=-110;x<110;x+=8)box(3,.008,.12,marking,x,0,39);
   // Background buildings are beyond the existing playable forecourt boundary.
-  const windows=[], panes=new THREE.MeshStandardMaterial({color:0x344f65,emissive:0x93b5c4,emissiveIntensity:.35,roughness:.4,metalness:.25});
+  // Detailed facades: shopfronts, framed windows, balconies, cornices and rooftop plant.
   const buildings=[[-47,64,13,18,15],[-28,67,15,24,17],[-7,64,15,13,14],[15,69,18,22,17],[39,64,15,17,16],[60,70,18,27,18],[-38,4,13,15,15],[39,1,14,20,14],[-43,-24,17,26,17],[43,-29,16,29,17]];
-  for(let i=0;i<buildings.length;i++) {
-    const [x,z,w,h,d]=buildings[i];
-    const wall=L._stationMaterial(i%3===0?'brick':'plaster',[0x667582,0x85776f,0x596876][i%3]);
-    box(w,h,d,wall,x,h/2,z);box(w+.3,.35,d+.3,dark,x,h+.15,z);
-    box(w,.65,d+.2,dark,x,3,z);
-    // Front and side windows batch into a single instanced draw.
-    for(let y=4.8;y<h-1;y+=3.2) {
-      for(let xx=-w/2+1.6;xx<w/2-1;xx+=3)windows.push([x+xx,y,z-d/2-.025,0]);
-      for(let zz=-d/2+1.5;zz<d/2-1;zz+=3)windows.push([x+(x<0?w/2+.025:-w/2-.025),y,z+zz,Math.PI/2]);
-    }
-    box(w*.35,1.1,d*.3,dark,x+w*.2,h+.7,z);
-  }
-  const windowMesh=new THREE.InstancedMesh(new THREE.PlaneGeometry(1.35,1.65),panes,windows.length);
-  panes.side=THREE.DoubleSide;
-  const dummy=new THREE.Object3D(), color=new THREE.Color();
-  windows.forEach(([x,y,z,angle],i)=>{dummy.position.set(x,y,z);dummy.rotation.set(0,angle,0);dummy.updateMatrix();windowMesh.setMatrixAt(i,dummy.matrix);windowMesh.setColorAt(i,color.setHex(i%5===0?0xffd29d:0x6d8b9e));});
-  windowMesh.userData.noShadow=true;L.level.add(windowMesh);
+  buildCityBlock(L,buildings);
   const lampMetal=L._std(0x303b47,.6,.5), lampGlow=new THREE.MeshBasicMaterial({color:0xffd9a3});
   for(const x of [-30,-15,0,15,30]) {
     box(.12,5.2,.12,lampMetal,x,2.6,46.8);box(1.5,.09,.12,lampMetal,x+.7,5.15,46.8);
@@ -85,7 +77,7 @@ export function buildStationSurroundings(L) {
     box(2.4,.55,1.4,L._stationMaterial('brick',0x999b92),x,.275,z);
     box(2.2,.05,1.2,L._std(0x343b30),x,.56,z);
     const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.11,.16,2.6,6),bark);trunk.position.set(x,1.8,z);L.level.add(trunk);
-    const crown=new THREE.Mesh(new THREE.IcosahedronGeometry(1.1,1),leaves);crown.position.set(x,3.2,z);crown.scale.set(1,1.3,.8);L.level.add(crown);
+    const crown=new THREE.Mesh(new THREE.IcosahedronGeometry(1.1,3),leaves);crown.position.set(x,3.2,z);crown.scale.set(1,1.3,.8);L.level.add(crown);
     // Only the two beds within the playable forecourt need collision.
     if(Math.abs(x)<22&&z<30)L.colliders.push(new THREE.Box3(new THREE.Vector3(x-1.2,0,z-.7),new THREE.Vector3(x+1.2,3,z+.7)));
   }
