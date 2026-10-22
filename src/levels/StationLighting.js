@@ -54,8 +54,9 @@ export function buildStationLighting(L) {
   area(0xcbdff3, 3, 8, 1.6, -2, 2.2, -6.85, [-2, 1.0, 0], true);
   // Cool daylight through the facade; warmer desk and lobby fixtures give depth.
   for (const x of [-6,6]) area(0xcbdff3, 3, 3.4, 1.4, x,1.9,18.65,[x,1.2,12]);
-  area(0xffe3ba, 4, 1.4,.2,15,3.2,12,[15,0,12]);
-  for (const [x,z] of [[0,15],[-5,9]]) area(0xf5f1e7,4,1.5,.2,x,3.2,z,[x,0,z]);
+  // Speed: the desk and lobby fixtures at (15,12), (0,15) and (-5,9) already
+  // have a point light in the same spot (PoliceStation.js), so their small
+  // area lights were removed. Area lights are the most costly light type.
 }
 
 export function setStationLabLighting(L, dark) {

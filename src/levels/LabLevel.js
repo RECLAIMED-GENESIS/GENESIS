@@ -252,6 +252,20 @@ export class LabLevel {
     this._syncProps();
     buildStationEnvironment(this);
     buildStationLighting(this);
+    // Speed: send every picture (texture) to the graphics card now, instead of
+    // the first time it comes into view. Those first-time uploads were the
+    // short freezes while walking around the station.
+    const warmTextures = () => {
+      if (!this.renderer || this._disposed) return;
+      this.level.traverse((o) => {
+        if (!o.isMesh) return;
+        for (const m of Array.isArray(o.material) ? o.material : [o.material])
+          for (const k in m) { const v = m[k]; if (v && v.isTexture && v.image) this.renderer.initTexture(v); }
+      });
+    };
+    warmTextures();
+    Promise.resolve(this._environmentReady).then(warmTextures);
+    this._warmTimers = [setTimeout(warmTextures, 3000), setTimeout(warmTextures, 8000)];
     this._coach = new LabCoach(this);
 
     this.level.traverse((o) => {
@@ -1651,8 +1665,15 @@ export class LabLevel {
     cam.getWorldDirection(this._d);
     this._o.copy(cam.position);
     this._rc.set(this._o, this._d);
-    const targets = [];
-    this.level.traverse((o) => { if (o.userData.interact) targets.push(o); });
+    // Walking the whole station every frame is costly; refresh the list of
+    // things you can use twice a second instead.
+    const now = performance.now();
+    if (!this._focusTargets || now - this._focusTargetsAt > 500) {
+      const list = [];
+      this.level.traverse((o) => { if (o.userData.interact) list.push(o); });
+      this._focusTargets = list; this._focusTargetsAt = now;
+    }
+    const targets = this._focusTargets;
     const blockPoint = new THREE.Vector3();
     const hits = this._rc.intersectObjects(targets, false).filter((h) => {
       const w = h.object.userData.interact.when;
@@ -1802,6 +1823,8 @@ export class LabLevel {
   }
 
   dispose() {
+    this._disposed = true;
+    for (const id of this._warmTimers || []) clearTimeout(id);
     this._coach?.dispose();
     disposeStationLighting(this);
     disposeStationEnvironment(this);

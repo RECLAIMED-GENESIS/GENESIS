@@ -54,11 +54,16 @@ const mouseLook = new MouseLook();
 const keys = {};
 let locked = false;
 let lockPending = false;
+// True when a level panel (lab sheets, devices, dialogue) took the mouse away.
+// The next key or click after the panel closes captures it again, so walking
+// carries on. A mouse freed on purpose with Esc is left alone.
+let relockAfterPanel = false;
 let lockError = false;
 
 // Click captures the mouse; Escape only releases it. P controls pause.
 addEventListener('keydown', e => {
   if (e.code === 'Escape' && locked) {
+    relockAfterPanel = false;
     mouseLook.reset();
     if (document.exitPointerLock) document.exitPointerLock();
     return;
@@ -95,7 +100,14 @@ addEventListener('keydown', e => {
   }
 });
 
-addEventListener('keyup', e => keys[e.code] = false);
+addEventListener('keyup', e => { keys[e.code] = false; relockIfPanelClosed(); });
+// runs after the level's own handlers, so the panel has already closed
+addEventListener('click', () => relockIfPanelClosed());
+function relockIfPanelClosed() {
+  if (!relockAfterPanel || locked || paused || transitioning || appState !== 'playing' || levelUiOpen()) return;
+  relockAfterPanel = false;
+  lockPointer();
+}
 
 function pointerLockFailed() {
   lockPending = false;
@@ -119,6 +131,8 @@ renderer.domElement.addEventListener('click', () => {
 
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
+  if (!locked && appState === 'playing' && levelUiOpen()) relockAfterPanel = true;
+  if (locked) relockAfterPanel = false;
   lockPending = false;
   lockError = false;
   mouseLook.reset();
@@ -420,6 +434,16 @@ window.__level = () => level;
 window.__saveRun = () => { try { shell.saveGame({ level: current, caseProgress: window.__caseProgress || null }); } catch (e) {} };
 
 const mini = new THREE.OrthographicCamera(-55, 55, 55, -55, 1, 300);
+// Speed: the minimap used to redraw the whole level (every light, every
+// model) a second time on every frame. Now it is drawn into a small picture
+// 6 times a second, and each frame only pastes that picture (one quad).
+const MINI_PX = 180, MINI_EVERY = 1 / 6;
+const miniTarget = new THREE.WebGLRenderTarget(MINI_PX, MINI_PX, { type: THREE.HalfFloatType });
+const miniQuadScene = new THREE.Scene();
+const miniQuadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+miniQuadScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2),
+  new THREE.MeshBasicMaterial({ map: miniTarget.texture, depthTest: false, depthWrite: false })));
+let miniAge = Infinity;
 mini.layers.enable(0);
 mini.layers.enable(1);
 mini.layers.enable(2);
@@ -522,15 +546,22 @@ function renderScene(preview = false) {
 
   if (preview || shellOpen || paused || innerWidth < 760 || innerHeight < 600 || current === 3) return;
   const S = 180;
+  miniAge += timer.getDelta();
+  if (miniAge >= MINI_EVERY) {
+    miniAge = 0;
+    mini.position.set(player.pos.x, 90, player.pos.z);
+    mini.up.set(0, 0, -1);
+    mini.lookAt(player.pos.x, 0, player.pos.z);
+    renderer.setRenderTarget(miniTarget);
+    renderer.setClearColor(0x0a0a14, 1);
+    renderer.clear();
+    renderer.render(scene, mini);
+    renderer.setRenderTarget(null);
+  }
   renderer.setScissorTest(true);
   renderer.setViewport(innerWidth - S - 12, 70, S, S);
   renderer.setScissor(innerWidth - S - 12, 70, S, S);
-  renderer.setClearColor(0x0a0a14, 1);
-  renderer.clearDepth();
-  mini.position.set(player.pos.x, 90, player.pos.z);
-  mini.up.set(0, 0, -1);
-  mini.lookAt(player.pos.x, 0, player.pos.z);
-  renderer.render(scene, mini);
+  renderer.render(miniQuadScene, miniQuadCam);
   renderer.setScissorTest(false);
 }
 

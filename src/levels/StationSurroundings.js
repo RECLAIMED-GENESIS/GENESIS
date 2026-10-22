@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { buildCityBlock } from './StationBuildings.js';
 
 export function buildStationSurroundings(L) {
-  const skyMap=new THREE.TextureLoader().load('/assets/textures/station-clouds-sky.jpg',texture=> {
+  const skyMap=new THREE.TextureLoader().load('./assets/textures/station-clouds-sky.jpg',texture=> {
     if(L._environmentDisposed)texture.dispose();
   });
   skyMap.colorSpace=THREE.SRGBColorSpace;L._environmentTextures.add(skyMap);

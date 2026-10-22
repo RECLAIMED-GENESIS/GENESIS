@@ -17,7 +17,7 @@ export function stationMaterial(level, kind, color) {
     const loader = new THREE.TextureLoader();
     const maps = {};
     for (const [slot, suffix] of [['map', 'Color'], ['normalMap', 'NormalGL'], ['roughnessMap', 'Roughness']]) {
-      const texture = loader.load(`/assets/textures/${SURFACES[kind]}_1K-JPG_${suffix}.jpg`, tex => {
+      const texture = loader.load(`./assets/textures/${SURFACES[kind]}_1K-JPG_${suffix}.jpg`, tex => {
         if (level._environmentDisposed) tex.dispose();
       }, undefined, () => console.warn(`[station] Missing ${kind} ${suffix} texture`));
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
@@ -107,8 +107,10 @@ export function buildStationEnvironment(L) {
     else { box(w,.8,d,pale,x,.4,z);box(w+.02,.06,d+.02,trim,x,.85,z);box(w+.03,.12,d+.03,trim,x,.06,z); }
   }
   // Lab door frame and legible bench identifiers, no extra evidence or actions.
-  for(const x of [-6.04,-3.96])box(.08,2.8,.4,steel,x,1.4,7.15);
-  box(2.2,.1,.4,steel,-5,2.8,7.15);
+  // Blink fix: the posts were exactly flush with the wall ends (x -6 and -4) and
+  // poked through the FORENSIC LAB sign. Now 1 cm wider and 1 cm behind the sign.
+  for(const x of [-6.04,-3.96])box(.1,2.8,.36,steel,x,1.4,7.15);
+  box(2.2,.1,.36,steel,-5,2.8,7.15);
   for(const [text,x,z] of [['DIGITAL FORENSICS',-6.8,1.6],['TRACE ANALYSIS',6.8,1.6],['DNA / BIOLOGY',-6.8,-2.6],['SCENE RECONSTRUCTION',6.8,-2.6]]) {
     L._stationSign(text,x,.69,z+.865,2.8,0,'FORENSIC SERVICES  /  AUTHORISED EXAMINERS');
   }
@@ -193,7 +195,7 @@ export function buildStationEnvironment(L) {
   // Share each loaded model across instances, with deterministic size and placement.
   const loader=new GLTFLoader();
   L._environmentModels=[];
-  const load=(file,place)=>loader.loadAsync(`/assets/models/station/${file}`).then(gltf=> {
+  const load=(file,place)=>loader.loadAsync(`./assets/models/station/${file}`).then(gltf=> {
     if(L._environmentDisposed){releaseModel(gltf.scene);return;}
     L._environmentModels.push(gltf.scene);
     place(gltf.scene);
@@ -320,10 +322,13 @@ export function buildStationEnvironment(L) {
 
 export function updateStationEnvironment(L,dt,t) {
   // Cache the three shadow maps between updates; keep moving people and doors current.
+  // One shadow map every 0.5 s, taking turns (was both every 0.2 s): the
+  // scene is redrawn 2 times a second for shadows instead of 10.
   L._shadowElapsed = (L._shadowElapsed || 0) + dt;
-  if (L._shadowElapsed >= .2) {
+  if (L._shadowElapsed >= .5) {
     L._shadowElapsed = 0;
-    for (const light of L._stationShadowLights || []) light.shadow.needsUpdate = true;
+    const lights = L._stationShadowLights || [];
+    if (lights.length) { L._shadowTurn = ((L._shadowTurn || 0) + 1) % lights.length; lights[L._shadowTurn].shadow.needsUpdate = true; }
   }
   if(L._environmentFan)L._environmentFan.rotation.z-=dt*3;
   // Gloves vanish from the table once the detective has put them on.

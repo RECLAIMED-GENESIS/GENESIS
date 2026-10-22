@@ -802,6 +802,12 @@ hashcat --show lock.hash</pre>
         <p>Banele Mjali<br>Busisiwe Mnguni<br>Pumelela Mapukata<br>Sibusiso Ndunge</p>
         <h3>Story</h3>
         <p>Dr. T. Nkosi, the five witnesses and the case behind them. Procedural killer, clues and alibis — different every run.</p>
+        <h3>Level 1 — The office</h3>
+        <dl class="gs-credit-list">
+          <dt>Professor &amp; detective characters and poses</dt><dd>Mixamo (Adobe)</dd>
+          <dt>Music</dt><dd>OpenGameArt.org</dd>
+          <dt>Room, furniture, textures &amp; lighting</dt><dd>Made in code by the team</dd>
+        </dl>
         <h3>Level 2 — The police station</h3>
         <dl class="gs-credit-list">
           <dt>Bricks, wall, carpet, wood floor, road &amp; painted plaster</dt><dd>struffelproductions</dd>
@@ -810,8 +816,16 @@ hashcat --show lock.hash</pre>
           <dt>Music</dt><dd>freemusic</dd>
           <dt>Sky</dt><dd>CGTrader</dd>
         </dl>
+        <h3>Level 3 — The chase through Genesis</h3>
+        <dl class="gs-credit-list">
+          <dt>Street lights</dt><dd>Sketchfab</dd>
+          <dt>Music</dt><dd>freemusic</dd>
+          <dt>Textures</dt><dd>Images found on Google</dd>
+          <dt>Detective &amp; suspect characters and animations</dt><dd>Mixamo (Adobe)</dd>
+          <dt>Obstacles, chase effects &amp; sound effects</dt><dd>Made in code by the team</dd>
+        </dl>
         <h3>Other music &amp; audio</h3>
-        <p>OpenGameArt.org. The Level 2 music credit is listed separately above.</p>
+        <p>OpenGameArt.org. The music for each level is credited in that level's section above.</p>
         <h3>Tools</h3>
         <p>Three.js, Howler.js and Vite. Type set in Big Shoulders Display and Courier Prime.</p>
         <p class="gs-faint">Thanks for playing detective.</p>

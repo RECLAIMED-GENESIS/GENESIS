@@ -71,7 +71,8 @@ export function installPoliceStation(Level) {
         for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (material.map?.userData.stationKind === 'asphalt' ? 1 : w / 3), uv.getY(i) * (material.map?.userData.stationKind === 'asphalt' ? 1 : d / 3));
         this.level.add(mesh); return mesh;
       };
-      floor(0, 23.5, 44, 13, this._stationMaterial('asphalt'));
+      // 1 cm lower: it overlaps the tiled floor at the entrance (z 17-19), and two floors at the same height blink.
+      floor(0, 23.5, 44, 13, this._stationMaterial('asphalt'), -0.01);
       floor(0, 20.5, 42, 3, tile, 0.012);
       floor(0, 13, 20, 12, tile);
       floor(15, 12, 10, 10, this._stationMaterial('wood'));
