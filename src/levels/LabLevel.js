@@ -47,8 +47,8 @@ import { installLabExtras } from './LabExtras.js';
 import { installPoliceStation } from './PoliceStation.js';
 import { buildStationEnvironment, updateStationEnvironment, disposeStationEnvironment } from './StationEnvironment.js';
 import { attachPlayerView } from '../game/DetectiveAvatar.js';
+import { buildLabWindow, toggleLabCurtains, updateLabWindow, disposeLabWindow } from './StationWindowView.js';
 import { buildWoodWainscot } from './StationWoodPanel.js' ;
-import { buildLabWindow } from './StationWindowView.js' ;
 
 const EYE = 1.7;
 const REACH = 3.4;
@@ -185,7 +185,7 @@ export class LabLevel {
     this.scene.fog = null;
 
     this.name = 'LEVEL 2 — THE POLICE STATION';
-    this.spawn = new THREE.Vector3(0, 0, 26);
+    this.spawn = new THREE.Vector3(-5.5, 0, 17.8);
     this.spawnYaw = 0;
     this.station = { checkedIn: false, evidenceHanded: false, doorOpen: true, departureReady: false };
     this.colliders = [];
@@ -285,7 +285,7 @@ export class LabLevel {
       speaker: 'DETECTIVE / ARRIVAL',
       objective: 'Follow FIELD TRAINING: one action at a time. H toggles guidance. Complete four reports and deliver the signed file.',
       lines: [
-        'DETECTIVE: It is 08:15, the morning after Nkosi’s murder. I am outside Central Police Station with the exhibits collected from his office. The lab must establish what they can actually prove.',
+        'DETECTIVE: It is 08:15, the morning after Nkosi’s murder. I am at reception inside Central Police Station with the exhibits collected from his office. The lab must establish what they can actually prove.',
         'MOKOENA — FRONT DESK: Greet me at reception on the left, then head straight to the marked lab.',
         'CAPTAIN MABASO: Enter the marked lab on the left. Sign its intake sheet and put on gloves. Examine four groups: the phone, hair and glass, blood, and a reconstruction from the casing and UV trail.',
         'LAB INSTRUCTIONS: Follow the amber marker and FIELD TRAINING card. It updates when you complete each action; H hides or restores it. Shield the phone in the Faraday box, connect it to the cradle and crack its lock on the examiner laptop. Enter the recovered PIN on the handset and enable airplane mode. Follow the work-order HUD for the remaining benches.',
@@ -293,7 +293,7 @@ export class LabLevel {
       ],
       onDone: () => {
         this.elapsed = 0;
-        if (this.ui) this._toast('ARRIVAL — CENTRAL POLICE', 'Walk inside. Reception is on the left; the captain’s office is on the right.', 9000);
+        if (this.ui) this._toast('ARRIVAL — CENTRAL POLICE', 'Greet Mokoena at the desk, complete the lab work, then take the signed file to the captain’s office.', 9000);
       },
     });
   }
@@ -343,11 +343,6 @@ export class LabLevel {
     mkWall(-W / 2 - 0.15, 0, 0.3, D + 0.6); mkWall(W / 2 + 0.15, 0, 0.3, D + 0.6);
    
     buildWoodWainscot(this);
-    const court = new THREE.Mesh(new THREE.PlaneGeometry(8, 1.8), new THREE.MeshStandardMaterial({ color: 0x9fb7be, roughness: 0.5, metalness: 0.15 }));
-    court.position.set(-2, 2.0, -D / 2 + 0.10); this.level.add(court);
-    this._box(this.level, 8.4, 2.0, 0.08, this._std(0x3a3f47, 0.6, 0.4), -2, 2.0, -D / 2 + 0.05);
-    for (let i = 0; i < 3; i++) this._box(this.level, 0.08, 1.8, 0.1, this._std(0x3a3f47, 0.6, 0.4), -5 + i * 3, 2.0, -D / 2 + 0.06);
-
     const c = document.createElement('canvas'); c.width = c.height = 256;
     this._clockCanvas = c; this._clockCtx = c.getContext('2d');
     this._clockTex = new THREE.CanvasTexture(c); this._clockTex.colorSpace = THREE.SRGBColorSpace;
@@ -881,6 +876,7 @@ export class LabLevel {
 
   _interact(it) {
     this._idleT = 0;
+    if (it.kind === 'windowCurtains') { toggleLabCurtains(this); return; }
     if (this._stationInteract(it)) return;
     if (it.kind === 'captain') return this._openCaptain();
     if (!this.station.evidenceHanded) {
@@ -1680,6 +1676,7 @@ export class LabLevel {
     this.ui.prompt.style.display = 'block';
   }
   _promptFor(it) {
+    if (it.kind === 'windowCurtains') return `[E] Pull cord — ${this._labWindow.open ? 'close' : 'open'} curtains`;
     const c = this.cyber;
     { const label = this._stationPrompt(it); if (label !== undefined) return label; }
     { const x = this._promptExtra(it); if (x !== undefined) return x; }
@@ -1797,12 +1794,14 @@ export class LabLevel {
     if (cam && cam.isCamera && player && player.pos) this._applyFirstPerson(player);
     this._updateStation(dt, player);
     updateStationEnvironment(this, dt, t);
+    updateLabWindow(this, dt, player);
     if (cam) this._updateFocus(cam);
     this._coach?.update(dt, player);
   }
 
   dispose() {
     this._coach?.dispose();
+    disposeLabWindow(this);
     disposeStationLighting(this);
     disposeStationEnvironment(this);
     if (this._view) { this._view.dispose(); this._view = null; }

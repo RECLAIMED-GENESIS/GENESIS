@@ -2,12 +2,12 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { buildStationSurroundings, buildEvidenceCases } from './StationSurroundings.js';
+import { buildEvidenceCases } from './StationSurroundings.js';
 import { applyGrime } from './StationRealism.js';
 
 const SURFACES = {
   tile: 'Tiles051', plaster: 'PaintedPlaster005', brick: 'Bricks082A',
-  wood: 'WoodFloor041', carpet: 'Carpet006', asphalt: 'Road007',
+  wood: 'WoodFloor041', carpet: 'Carpet006',
 };
 
 export function stationMaterial(level, kind, color) {
@@ -17,7 +17,7 @@ export function stationMaterial(level, kind, color) {
     const loader = new THREE.TextureLoader();
     const maps = {};
     for (const [slot, suffix] of [['map', 'Color'], ['normalMap', 'NormalGL'], ['roughnessMap', 'Roughness']]) {
-      const texture = loader.load(`/assets/textures/${SURFACES[kind]}_1K-JPG_${suffix}.jpg`, tex => {
+      const texture = loader.load(`/assets/textures/station-lite/${SURFACES[kind]}_1K-JPG_${suffix}.jpg`, tex => {
         if (level._environmentDisposed) tex.dispose();
       }, undefined, () => console.warn(`[station] Missing ${kind} ${suffix} texture`));
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
@@ -64,7 +64,6 @@ function releaseModel(root) {
 }
 
 export function buildStationEnvironment(L) {
-  buildStationSurroundings(L);
   buildEvidenceCases(L);
   const steel = L._std(0x84979c, 0.38, 0.6), trim = L._std(0x263b44, 0.65, 0.25);
   const pale = L._stationMaterial('plaster', 0xe2e7e2), wood = L._stationMaterial('wood');
@@ -75,31 +74,6 @@ export function buildStationEnvironment(L) {
     for(let i=0;i<uv.count;i++) uv.setXY(i,uv.getX(i)*w/2,uv.getY(i)*d/2);
     m.rotation.x=-Math.PI/2; m.position.set(x,y,z);m.receiveShadow=true;L.level.add(m);return m;
   };
-  // Architectural layers: plinth, cornice, recessed entry and a covered approach.
-  for (const x of [-5.8,5.8]) {
-    box(8.4,.28,.38,trim,x,.14,19);
-    box(8.4,.16,.42,pale,x,2.67,19);
-  }
-  box(20.6,.16,12.6,trim,0,3.54,13);
-  box(20.3,1.8,.35,L._stationMaterial('brick'),0,4.25,19);
-  box(20.6,.16,.5,trim,0,5.2,19);
-  box(10.5,.16,10.6,trim,15.1,3.54,12);
-  box(6,.18,2.4,trim,0,2.91,20.1);
-  for(const x of [-2.7,2.7]) {
-    L._stationWall(x,21,.14,.14,steel,2.85);
-    box(.2,2.75,.2,trim,x/2.7*1.55,1.375,19);
-  }
-  box(3.2,.12,.24,steel,0,2.7,19);
-  floor(3,1.6,L._stationMaterial('carpet',0x8c9797),0,19.1);
-  // Glazed facade panels with frames and internal blinds (the walls retain collision).
-  const glazing = new THREE.MeshStandardMaterial({color:0x3d6775,roughness:.25,metalness:.45});
-  for (const x of [-6,6]) {
-    box(3.7,1.65,.12,trim,x,1.65,19.18);
-    box(3.5,1.45,.13,glazing,x,1.65,19.2);
-    box(.045,1.5,.16,steel,x,1.65,19.24);
-    for(let j=0;j<7;j++)box(3.45,.035,.15,pale,x,1.05+j*.19,19.25);
-    box(3.95,.12,.32,pale,x,.8,19.22);
-  }
   // Interior wainscot, skirting and rail give scale without obstructing circulation.
   for(const [x,z,w,d] of [[-9.96,9,.06,3.7],[-9.96,16,.06,5.7],[0,18.81,19.6,.06],[19.96,12,.06,9.6],[15,16.81,9.6,.06]]) {
     // Entrance wall is split to leave its opening clear.
@@ -193,11 +167,20 @@ export function buildStationEnvironment(L) {
   // Share each loaded model across instances, with deterministic size and placement.
   const loader=new GLTFLoader();
   L._environmentModels=[];
-  const load=(file,place)=>loader.loadAsync(`/assets/models/station/${file}`).then(gltf=> {
+  L._environmentUpgradeQueue = [];
+  const loadNow=(file,place)=>loader.loadAsync(`/assets/models/station/${file}`).then(gltf=> {
     if(L._environmentDisposed){releaseModel(gltf.scene);return;}
     L._environmentModels.push(gltf.scene);
     place(gltf.scene);
   }).catch(error=>console.warn(`[station] ${file} could not load; keeping fallback geometry`,error));
+  // Collision-bearing furniture must exist before play. Other models only
+  // replace working visual fallbacks and can arrive one at a time afterwards.
+  const load = (file, place) => {
+    if (file === 'desk.glb' || file === 'file-cabinet.glb') return loadNow(file, place);
+    return new Promise(resolve => {
+      L._environmentUpgradeQueue.push({ run: () => loadNow(file, place), resolve });
+    });
+  };
   const instance=(template,name,x,y,z,width,rotation=0,collide=false,fit='footprint')=> {
     const object=template.clone(true);object.updateMatrixWorld(true);
     const bounds=new THREE.Box3().setFromObject(object),size=bounds.getSize(new THREE.Vector3());
@@ -213,23 +196,6 @@ export function buildStationEnvironment(L) {
     return holder;
   };
   L._environmentReady=Promise.all([
-    load('patrol-car.glb',model=> {
-      const car=instance(model,'Imported police patrol car',10,0,26,4.3,0);
-      for(const mesh of L._patrolFallbacks||[])mesh.visible=false;
-      L._patrolCollider.setFromObject(car);
-      // A cheap contact shadow grounds the parked car without another shadow light.
-      const canvas=document.createElement('canvas');canvas.width=canvas.height=128;
-      const ctx=canvas.getContext('2d'),shade=ctx.createRadialGradient(64,64,20,64,64,64);
-      shade.addColorStop(0,'rgba(0,0,0,.55)');shade.addColorStop(1,'rgba(0,0,0,0)');
-      ctx.fillStyle=shade;ctx.fillRect(0,0,128,128);
-      const texture=new THREE.CanvasTexture(canvas);L._environmentTextures.add(texture);
-      const shadow=new THREE.Mesh(new THREE.PlaneGeometry(2.2,4.6),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthWrite:false}));
-      shadow.rotation.x=-Math.PI/2;shadow.position.set(10,.012,26);shadow.userData.noShadow=true;L.level.add(shadow);
-      for(const [x,z,rotation] of [[14,26,Math.PI], [18,26,0], [-10,26,Math.PI], [-18,26,0]]) {
-        instance(model,'Parked police patrol car',x,0,z,4.3,rotation,true);
-        const contact=shadow.clone();contact.position.set(x,.012,z);L.level.add(contact);
-      }
-    }),
     load('microscope.glb',model=> {
       // This download includes a presentation cube and a cable trailing down it.
       // Remove those two meshes so the actual microscope sits on our worktop.
@@ -319,6 +285,17 @@ export function buildStationEnvironment(L) {
 }
 
 export function updateStationEnvironment(L,dt,t) {
+  if (!L._environmentDisposed && !L._environmentUpgradeBusy &&
+      !window.__loading && !window.__paused && !window.__uiCapture) {
+    const upgrade = L._environmentUpgradeQueue?.shift();
+    if (upgrade) {
+      L._environmentUpgradeBusy = true;
+      upgrade.run().finally(() => {
+        L._environmentUpgradeBusy = false;
+        upgrade.resolve();
+      });
+    }
+  }
   // Cache the three shadow maps between updates; keep moving people and doors current.
   L._shadowElapsed = (L._shadowElapsed || 0) + dt;
   if (L._shadowElapsed >= .2) {
@@ -337,6 +314,9 @@ export function updateStationEnvironment(L,dt,t) {
 
 export function disposeStationEnvironment(L) {
   L._environmentDisposed=true;
+  // Cancel unstarted upgrades; in-flight models are released by loadNow.
+  for (const upgrade of L._environmentUpgradeQueue || []) upgrade.resolve();
+  L._environmentUpgradeQueue = [];
   for(const texture of L._environmentTextures||[])texture.dispose();
   // Includes textures embedded in the GLBs, which the legacy disposer did not own.
   for(const models of [L._environmentModels,L._environmentDerivedModels,L._environmentDiscarded])

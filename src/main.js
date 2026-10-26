@@ -1,5 +1,5 @@
 // ============================================================
-// main.js — bootstrap, player controller, level manager, minimap
+// main.js — bootstrap, player controller, level manager
 // ============================================================
 import * as THREE from 'three';
 import { showLoading, hideLoading, paintLoading, waitForAssets } from './game/loading.js';
@@ -419,17 +419,6 @@ window.__restartLevel = () => { if (appState === 'playing') switchLevel(current,
 window.__level = () => level;
 window.__saveRun = () => { try { shell.saveGame({ level: current, caseProgress: window.__caseProgress || null }); } catch (e) {} };
 
-const mini = new THREE.OrthographicCamera(-55, 55, 55, -55, 1, 300);
-mini.layers.enable(0);
-mini.layers.enable(1);
-mini.layers.enable(2);
-const marker = new THREE.Mesh(
-  new THREE.ConeGeometry(1.1, 2.6, 6),
-  new THREE.MeshBasicMaterial({ color: 0x33ffee }));
-marker.rotation.order = 'YXZ';
-marker.layers.set(2);
-scene.add(marker);
-
 const GRAV = 30, SPEED = 3, SPRINT = 6;
 const pMin = new THREE.Vector3();
 const pMax = new THREE.Vector3();
@@ -513,25 +502,12 @@ const timer = new THREE.Timer();
 let _rafId = 0;
 let _lastHudString = '';
 
-function renderScene(preview = false) {
+function renderScene() {
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   renderer.clear();
   renderer.shadowMap.needsUpdate = true;
   renderer.render(scene, camera);
-
-  if (preview || shellOpen || paused || innerWidth < 760 || innerHeight < 600 || current === 3) return;
-  const S = 180;
-  renderer.setScissorTest(true);
-  renderer.setViewport(innerWidth - S - 12, 70, S, S);
-  renderer.setScissor(innerWidth - S - 12, 70, S, S);
-  renderer.setClearColor(0x0a0a14, 1);
-  renderer.clearDepth();
-  mini.position.set(player.pos.x, 90, player.pos.z);
-  mini.up.set(0, 0, -1);
-  mini.lookAt(player.pos.x, 0, player.pos.z);
-  renderer.render(scene, mini);
-  renderer.setScissorTest(false);
 }
 
 function tick() {
@@ -541,7 +517,7 @@ function tick() {
   const t  = timer.getElapsed();
 
   if (transitioning) {
-    if (loadingSceneReady) renderScene(true);
+    if (loadingSceneReady) renderScene();
     return;
   }
   if (!level) { renderScene(); updateMsg(); return; }
@@ -569,10 +545,6 @@ function tick() {
     camera.rotation.order = 'YXZ';
     camera.rotation.set(player.pitch, player.yaw, 0);
   }
-
-
-  marker.position.set(player.pos.x, player.pos.y + 2, player.pos.z);
-  marker.rotation.set(-Math.PI / 2, player.yaw, 0);
 
   const levelName = (level && level.name) ? level.name : `LEVEL ${current}`;
   const hudStr = `<b>GENESIS — ${levelName}</b>`;

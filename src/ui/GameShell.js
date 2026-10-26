@@ -799,7 +799,7 @@ hashcat --show lock.hash</pre>
         <h2 class="gs-h">Credits</h2>
         <p><b>GENESIS — Read the Room. Close the Case.</b><br>A murder mystery in three stages: the office, the lab and the chase through Genesis.</p>
         <h3>Made by 404 Found Us</h3>
-        <p>Banele Mjali<br>Busisiwe Mnguni<br>Pumelela Mapukata<br>Sibusiso Ndunge</p>
+        <p>Busisiwe Mnguni — Level 1<br>Sibusiso Ndunge — Level 2<br>Pumelela Mapukata — Level 3</p>
         <h3>Story</h3>
         <p>Dr. T. Nkosi, the five witnesses and the case behind them. Procedural killer, clues and alibis — different every run.</p>
         <h3>Level 2 — The police station</h3>

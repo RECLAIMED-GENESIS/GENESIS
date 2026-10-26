@@ -154,11 +154,10 @@ The office, station and chase share a dark-blue panel style, warm paper text, am
 
 Every level loads over a dimmed view of its actual scene. The room or environment appears as soon as its geometry is constructed, and models and textures fill in while resources load. Movement and gameplay updates stay suspended until assets and shader preparation finish. The level title appears over the same scene before play begins. Initial application startup uses the GENESIS loading screen before a level exists.
 
-HUD elements are hidden during loading and shell menus. Compact layouts reduce panel size and omit the minimap on smaller windows. Loading animation respects reduced-motion preferences. Walking and sprinting have consistent speed in straight and diagonal directions.
+HUD elements are hidden during loading and shell menus. Compact layouts reduce panel size. Levels 1 and 2 use the main view without a minimap. Loading animation respects reduced-motion preferences. Walking and sprinting have consistent speed in straight and diagonal directions.
 
 ## 🧑‍💻 Team — 404 Found Us
 
-- Banele Mjali
 - Busisiwe Mnguni
 - Pumelela Mapukata
 - Sibusiso Ndunge

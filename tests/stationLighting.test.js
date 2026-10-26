@@ -9,10 +9,11 @@ test('lab dimming preserves lobby lights and restores every lab fixture',()=>{
  const env=new THREE.Texture();L.scene.environment=env;L.scene.environmentIntensity=.75;
  buildStationLighting(L);
  const labLights=new Set([...L._taskLights,...L._areaLights].map(s=>s.light));
- const other=L.level.children.filter(o=>o.isLight&&!labLights.has(o)).map(o=>[o,o.intensity]);
+ const other=L.level.children.filter(o=>o.isLight&&!labLights.has(o)&&o!==L._windowDaylight).map(o=>[o,o.intensity]);
  assert.equal(L.level.children.filter(o=>o.isLight&&o.castShadow).length,2);
- setStationLabLighting(L,true);for(const {light,intensity} of [...L._taskLights,...L._areaLights])assert.equal(light.intensity,intensity*.06);
+ L._labWindow={amount:1};
+ setStationLabLighting(L,true);assert.equal(L._windowDaylight.intensity,.18);for(const {light,intensity} of [...L._taskLights,...L._areaLights])assert.equal(light.intensity,intensity*.06);
  for(const [light,intensity] of other)assert.equal(light.intensity,intensity);
- setStationLabLighting(L,false);for(const {light,intensity} of [...L._taskLights,...L._areaLights])assert.equal(light.intensity,intensity);
+ setStationLabLighting(L,false);assert.equal(L._windowDaylight.intensity,3);for(const {light,intensity} of [...L._taskLights,...L._areaLights])assert.equal(light.intensity,intensity);
  disposeStationLighting(L);assert.equal(L.scene.environment,env);assert.equal(L.scene.environmentIntensity,.75);
 });

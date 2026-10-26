@@ -71,19 +71,13 @@ export function installPoliceStation(Level) {
         for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * (material.map?.userData.stationKind === 'asphalt' ? 1 : w / 3), uv.getY(i) * (material.map?.userData.stationKind === 'asphalt' ? 1 : d / 3));
         this.level.add(mesh); return mesh;
       };
-      floor(0, 23.5, 44, 13, this._stationMaterial('asphalt'));
-      floor(0, 20.5, 42, 3, tile, 0.012);
       floor(0, 13, 20, 12, tile);
       floor(15, 12, 10, 10, this._stationMaterial('wood'));
       const ceiling = floor(0, 13, 20, 12, plaster, 3.4); ceiling.rotation.x = Math.PI / 2;
       const officeCeiling = floor(15, 12, 10, 10, plaster, 3.4); officeCeiling.rotation.x = Math.PI / 2;
-      // Lobby exterior: a three-metre opening faces the outside spawn.
-      this._stationWall(-5.8, 19, 8.4, 0.3, brick);
-      this._stationWall(5.8, 19, 8.4, 0.3, brick);
-      this._box(this.level, 20.3, 0.65, 0.35, brick, 0, 3.08, 19);
-      this._stationWall(-10.15, 9, .3, 4, brick);
-      this._stationWall(-10.15, 16, .3, 6, brick);
-      this._box(this.level, .3, .6, 2, plaster, -10.15, 3.1, 12);
+      // Close the former outside entrance and operations-wing doorway.
+      this._stationWall(0, 19, 20.3, 0.3, brick);
+      this._stationWall(-10.15, 13, 0.3, 12.3, brick);
       this._stationWall(10.15, 18, 0.3, 2, brick);
       // Captain's office: doorway in the west wall, opening into the room.
       this._stationWall(10.15, 9, 0.3, 4, plaster);
@@ -105,12 +99,10 @@ export function installPoliceStation(Level) {
       this._box(this.level, 0.08, 0.4, 1.1, vent, 9.95, 2.5, 10.1);
       for (let i = 0; i < 6; i++) this._box(this.level, 0.1, 0.025, 1, this._std(0x161e23), 9.9, 2.34 + i * 0.06, 10.1);
 
-      this._stationSign('CENTRAL POLICE STATION', 0, 4.2, 19.2, 7, 0, 'PUBLIC ENTRANCE  /  DETECTIVE SERVICES');
       this._stationSign('FORENSIC LAB', -5, 2.9, 7.34, 3.5, 0, '01  /  SIGN IN BEFORE HANDLING EXHIBITS');
       this._stationSign('CAPT. R. MABASO', 9.96, 2.8, 12, 2.6, -Math.PI / 2, '02  /  CLOSE DOOR FOR BRIEFINGS');
       this._stationSign('RECEPTION', -5.5, 2.3, 14.13, 3.2);
-      this._stationSign('EXIT', 0, 2.9, 18.8, 1.6, Math.PI);
-      this._stationSign('RECEPTION / EXIT', -5, 3.05, 6.94, 1.5, Math.PI);
+      this._stationSign('RECEPTION', -5, 3.05, 6.94, 1.5, Math.PI);
       // Reception desk, terminal, paperwork, waiting seats and noticeboard.
       this._stationWall(-5.5, 15.8, 4, 1.2, wood, 1.05);
       this._box(this.level, 4.15, 0.08, 1.35, this._std(0x3e4544), -5.5, 1.09, 15.8);
@@ -136,21 +128,7 @@ export function installPoliceStation(Level) {
         this._hit(route.x, 1.3, route.z, route.rotation ? 0.3 : 1.8, 2.6, route.rotation ? 1.8 : 0.3, { kind: 'stationClosed', label: route.label });
       }
       this._stationSign('DUTY ROSTER', 6, 2.1, 18.8, 3, Math.PI, 'RECEPTION / PATROL / FORENSIC SERVICES');
-      this._hit(0, 1.2, 19, 3, 2.4, 0.4, { kind: 'stationExit', when: () => this.station.departureReady });
-      // Bounded forecourt: low walls, bollards, parking stripes and a patrol car.
-      this._stationWall(-22, 24, 0.4, 12, brick, 1.2);
-      this._stationWall(22, 24, 0.4, 12, brick, 1.2);
-      // Open frontage connects the forecourt to the city pavement.
-      this._stationWall(21, 18, 2, 0.4, brick, 1.2);
-      for (const x of [-3, 3]) this._stationWall(x, 21.5, 0.25, 0.25, this._std(0x303b42), 0.9);
-      for (const x of [-20, -16, -12, -8, 8, 12, 16, 20]) this._box(this.level, 0.08, 0.008, 4.5, this._std(0xdfd6ac), x, 0.016, 26);
-      const carStart = this.level.children.length;
-      this._patrolCollider = this._stationWall(10, 26, 1.9, 4.1, this._std(0xd5d9d9, 0.35, 0.4), 0.8);
-      this._box(this.level, 1.65, 0.65, 2, this._std(0x314b5a, 0.3, 0.4), 10, 1.05, 25.8);
-      this._box(this.level, 1.4, 0.12, 0.3, this._std(0x3f66b0), 10, 1.45, 25.8);
-      this._stationSign('POLICE', 10, 0.55, 28.07, 1.5);
-      this._patrolFallbacks = this.level.children.slice(carStart);
-      for (const [x,z] of [[0,15],[-5,9],[15,12],[0,21]]) {
+      for (const [x,z] of [[0,15],[-5,9],[15,12]]) {
         const light = new THREE.PointLight(z > 19 ? 0xffd7a4 : 0xf1eee5, 14, 11, 2);
         light.position.set(x, 3, z); this.level.add(light);
         const fixture = this._box(this.level, 1.5, 0.06, 0.2, new THREE.MeshBasicMaterial({color:0xe8edf0}), x, 3.3, z);
