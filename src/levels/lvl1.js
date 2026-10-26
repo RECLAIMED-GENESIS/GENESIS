@@ -105,6 +105,7 @@ export const CASE = {
 const REACH = 3.6;       // how far the player can examine things
 const PLAYER_R = 0.38;   // radius used when the player pushes objects
 const EYE = 1.66;        // first-person eye height
+const TIME_LIMIT = 300;  // seconds the player has to log every exhibit (5:00)t
 
 // ------------------------------------------------------------
 // FORENSIC TOOL BELT — every clue states its tool. Photograph first,
@@ -122,13 +123,11 @@ const CLUE_TOOL = {
 // Nudges used by the idle-hint system (a stuck player is a bored player).
 const CLUE_HINT = {
   casing: 'Something brass caught the lightning near the bookshelf. Check the floor under it.',
-  glass: 'He had company. Look for a second drink — not on the desk.',
+  glass: 'He had company. Check the right-hand end of the desk: two glasses, not one.',
   hair: 'The guest sat somewhere. Check the guest chair: cushion and armrest.',
   handkerchief: 'Something was dropped where the guest stood up. Check the floor by the guest chair.',
   phone: 'His phone should be near the desk. The screen was still lit when he died.',
-  note: 'Something was hidden, not lost. Try under the moving boxes.',
   trail: 'The floor has more to say. UV torch [F] — sweep from the guest chair toward the door.',
-  calendar: 'A dead man\'s plans live on his desk. Check the desk calendar.',
 };
 
 let _seed = 1337;
@@ -280,6 +279,8 @@ export class StreetLevel {
     this.outroOpen = false;
     this._idle = 0;           // seconds since the last find (drives hints)
     this._dark = 0;           // blackout timer for the mid-level scare
+    this._timeLeft = TIME_LIMIT;   // countdown for the whole level
+    this._timeUp = false;
     this._scared = false;
     this.focus = null;
     this.focusBody = false;
@@ -1090,29 +1091,62 @@ Promise.all([
       const g = new THREE.Group();
       const tumbler = (x, y, z, fill, tipped) => {
         const c = new THREE.Group();
-        const w = new THREE.Mesh(new THREE.CylinderGeometry(0.039, 0.032, 0.095, 18, 1, true),
-          new THREE.MeshPhysicalMaterial({
-            color: 0xe8f0f6, roughness: 0.05, metalness: 0, transparent: true, opacity: 0.4,
-            side: THREE.DoubleSide, transmission: 0.7, thickness: 0.3,
-          }));
-        w.position.y = 0.048; c.add(w);
-        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.008, 18), this.m.glass);
-        base.position.y = 0.004; c.add(base);
-        if (fill > 0) {
-          const liq = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.031, 0.03 * fill, 16), this.m.whiskey);
-          liq.position.y = 0.008 + 0.015 * fill; c.add(liq);
-        }
+
+        const wallMat = new THREE.MeshPhysicalMaterial({
+          color: 0xf2f7fb, roughness: 0.035, metalness: 0,
+          transparent: true, opacity: 0.34, side: THREE.DoubleSide,
+          transmission: 0.82, thickness: 0.55, ior: 1.5,
+        });
+        const wall = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.043, 0.035, 0.10, 32, 1, true), wallMat
+        );
+        wall.position.y = 0.055; c.add(wall);
+
+        const rim = new THREE.Mesh(
+          new THREE.TorusGeometry(0.043, 0.0032, 8, 32), wallMat
+        );
+        rim.position.y = 0.105; c.add(rim);
+
+        const base = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.036, 0.038, 0.012, 32), wallMat
+        );
+        base.position.y = 0.006; c.add(base);
+
+        const whiskeyMat = new THREE.MeshPhysicalMaterial({
+          color: 0x9a4f12, roughness: 0.08, metalness: 0,
+          transparent: true, opacity: 0.94, transmission: 0.05,
+        });
+        const whiskeyHeight = 0.055 * Math.max(0.35, Math.min(fill, 1));
+        const liq = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.033, 0.030, whiskeyHeight, 24), whiskeyMat
+        );
+        liq.position.y = 0.014 + whiskeyHeight / 2; c.add(liq);
+
+        const surface = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.033, 0.033, 0.002, 24),
+          new THREE.MeshPhysicalMaterial({ color: 0x7a3b0b, roughness: 0.12, metalness: 0 })
+        );
+        surface.position.y = 0.014 + whiskeyHeight + 0.001; c.add(surface);
+
         c.position.set(x, y, z);
-        if (tipped) { c.rotation.z = 1.45; c.rotation.y = 0.5; c.position.y = y + 0.03; }
-        g.add(c); return c;
+        if (tipped) {
+          c.rotation.z = 1.45; c.rotation.y = 0.5; c.position.y = y + 0.03;
+        }
+        g.add(c);
+        return c;
       };
-      // the victim's, on the desk, still a finger left
-      tumbler(-1.85, 0.8, -4.95, 1, false);
-      // the guest's, on the side cabinet, half drunk and dried
-      const guest = tumbler(7.72, 0.91, -6.15, 0, false);
-      guest.scale.setScalar(1.05);
+
+      // Glass 1: victim's tumbler on the desk, mostly full.
+      tumbler(-1.90, 0.80, -4.95, 0.90, false);   // victim's glass, mostly full
+      tumbler(-1.76, 0.80, -4.90, 0.50, false);   // guest's glass, half full
+
+
+      // Glass 2: guest's tumbler on the side cabinet, clearly visible and half full.
+      // Keep it away from the decanter so the player can distinguish the two objects.
+      //const guest = tumbler(7.58, 0.91, -6.12, 0.50, false);
+      //guest.scale.setScalar(1.08);
       this.level.add(g);
-      this._addClue('glass', g, [0.5, 0.45, 0.5], new THREE.Vector3(-1.85, 0.92, -4.95), 0.22,
+      this._addClue('glass', g, [0.4, 0.3, 0.4], new THREE.Vector3(-1.83, 0.86, -4.93), 0.22,
         { onCollect: () => { g.visible = false; } });
     }
 
@@ -1358,10 +1392,12 @@ Promise.all([
     ui.prompt = mk('div', 'position:absolute;left:50%;top:56%;transform:translateX(-50%);font-size:16px;padding:6px 14px;background:rgba(0,0,0,.55);border:1px solid rgba(242,217,160,.45);display:none;text-shadow:0 0 6px #000;', ui.root);
     ui.toast = mk('div', 'position:absolute;left:50%;bottom:11%;transform:translateX(-50%);width:min(640px,88vw);padding:12px 16px;background:rgba(8,8,12,.82);border-left:3px solid #f2b84b;font-size:14px;line-height:1.45;display:none;', ui.root);
     ui.uvTag = mk('div', 'position:absolute;right:18px;top:224px;font-size:13px;letter-spacing:2px;color:#b58cff;display:none;text-shadow:0 0 10px #7a3cff;', ui.root, 'UV LAMP ON');
+    ui.timer = mk('div', 'position:absolute;left:50%;top:14px;transform:translateX(-50%);font-size:30px;font-weight:bold;letter-spacing:4px;color:#ff2a2a;text-shadow:0 0 10px rgba(255,0,0,.7),0 0 2px #000;padding:4px 18px;background:rgba(0,0,0,.45);border:1px solid rgba(255,42,42,.5);border-radius:6px;', ui.root, '5:00');
 
     ui.case = mk('div', 'position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(3,4,7,.9);z-index:9999;font-family:"Courier New",monospace;');
     ui.outro = mk('div', 'position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:radial-gradient(ellipse at 50% 45%, rgba(8,10,16,.96), rgba(2,3,5,.99));z-index:10000;font-family:"Courier New",monospace;color:#e9d9b0;pointer-events:auto;');
     this._updateCounter();
+    this._renderTimer();
   }
 
   _updateCounter() {
@@ -1494,7 +1530,43 @@ Promise.all([
       : (CLUE_HINT[c.id] || 'Something in this room still has not been looked at.');
     this._toast('DETECTIVE\'S INSTINCT', msg, 7000);
   }
+  // =========================================================
+  // TIMER — 5:00 to log every exhibit, otherwise the level restarts
+  // =========================================================
+  _renderTimer() {
+    if (!this.ui || !this.ui.timer) return;
+    const s = Math.ceil(this._timeLeft);
+    this.ui.timer.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    // last minute: the clock pulses so the player feels the pressure
+    this.ui.timer.style.opacity = this._timeLeft <= 60 && !this._timeUp
+      ? String(0.65 + 0.35 * Math.sin(this.time * 7))
+      : '1';
+  }
 
+  _tickTimer(dt) {
+    if (this._timeUp || !this.ui) return;
+    // all exhibits logged: the clock stops, the player has won the race
+    if (this.clues.length && this.clues.every((c) => c.found)) return;
+    // reading the case file, the outro or a host panel does not cost time
+    if (window.__uiCapture || this.caseOpen || this.outroOpen) return;
+    this._timeLeft = Math.max(0, this._timeLeft - dt);
+    this._renderTimer();
+    if (this._timeLeft <= 0) this._timeExpired();
+  }
+
+  _timeExpired() {
+    this._timeUp = true;
+    this.focus = null;
+    this.focusBody = false;
+    if (this.ui.prompt) this.ui.prompt.style.display = 'none';
+    sfx('wrong');
+    this._flash('rgba(200,0,0,.45)');
+    this._toast('TIME IS UP', 'The scene was compromised before you could secure it. Restarting the investigation...', 4000);
+    clearTimeout(this._restartTimer);
+    this._restartTimer = setTimeout(() => {
+      if (typeof window.__restartLevel === 'function') window.__restartLevel();
+    }, 3000);
+  }
   // =========================================================
   // INPUT
   // =========================================================
@@ -1502,13 +1574,14 @@ Promise.all([
     if (window.__loading || window.__paused) return;
     if (e.repeat) return;
     if (this.outroOpen) return;
+    if (this._timeUp) return;
     if (e.code === 'KeyC') { this.caseOpen ? this._closeCaseFile() : this._openCaseFile(); return; }
     if (this.caseOpen) return;
     if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') {
       this.tool = { Digit1: 'bag', Digit2: 'tweezers', Digit3: 'swab' }[e.code];
       sfx('collect');
       this._updateCounter();
-      this._toast('TOOL BELT', `Holding ${TOOLS[this.tool]}. Casing, hair and note want tweezers; blood wants the swab; the rest bags.`, 3500);
+      this._toast('TOOL BELT', `Holding ${TOOLS[this.tool]}. Casing and hair want tweezers; the handkerchief wants the swab; the rest bags.`, 3500);
       return;
     }
     if (e.code === 'KeyF') {
@@ -1521,7 +1594,7 @@ Promise.all([
   }
 
   _collect(c) {
-    if (c.found) return;
+    if (c.found || this._timeUp) return;
     // Forensic order: photograph first, then the right instrument.
     if (!c.photo) {
       sfx('wrong');
@@ -1722,6 +1795,7 @@ Promise.all([
   update(deltaTime, t, player) {
     const dt = Math.min(deltaTime, 0.05);
     this.time += dt;
+    this._tickTimer(dt);
     this.uv.uTime.value = this.time;
     if (this.mixer) this.mixer.update(dt);   // advance the victim's FBX animation
 
@@ -1764,6 +1838,7 @@ Promise.all([
     clearTimeout(this._caseTimer);
     clearTimeout(this._scareTimer);
     clearTimeout(this._buzzTimer);
+    clearTimeout(this._restartTimer);
     if (this._briefing) { this._briefing.cancel(); this._briefing = null; }
     window.removeEventListener('keydown', this._onKey);
     if (this.photoCam) { this.photoCam.dispose(); this.photoCam = null; }

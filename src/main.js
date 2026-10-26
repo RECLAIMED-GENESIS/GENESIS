@@ -54,11 +54,16 @@ const mouseLook = new MouseLook();
 const keys = {};
 let locked = false;
 let lockPending = false;
+// True when a level panel (lab sheets, devices, dialogue) took the mouse away.
+// The next key or click after the panel closes captures it again, so walking
+// carries on. A mouse freed on purpose with Esc is left alone.
+let relockAfterPanel = false;
 let lockError = false;
 
 // Click captures the mouse; Escape only releases it. P controls pause.
 addEventListener('keydown', e => {
   if (e.code === 'Escape' && locked) {
+    relockAfterPanel = false;
     mouseLook.reset();
     if (document.exitPointerLock) document.exitPointerLock();
     return;
@@ -95,7 +100,14 @@ addEventListener('keydown', e => {
   }
 });
 
-addEventListener('keyup', e => keys[e.code] = false);
+addEventListener('keyup', e => { keys[e.code] = false; relockIfPanelClosed(); });
+// runs after the level's own handlers, so the panel has already closed
+addEventListener('click', () => relockIfPanelClosed());
+function relockIfPanelClosed() {
+  if (!relockAfterPanel || locked || paused || transitioning || appState !== 'playing' || levelUiOpen()) return;
+  relockAfterPanel = false;
+  lockPointer();
+}
 
 function pointerLockFailed() {
   lockPending = false;
@@ -119,6 +131,8 @@ renderer.domElement.addEventListener('click', () => {
 
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === renderer.domElement;
+  if (!locked && appState === 'playing' && levelUiOpen()) relockAfterPanel = true;
+  if (locked) relockAfterPanel = false;
   lockPending = false;
   lockError = false;
   mouseLook.reset();
