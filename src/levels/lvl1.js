@@ -1321,7 +1321,7 @@ Promise.all([
     if (!this.renderer) console.warn('StreetLevel: no renderer was passed, photos will be blank');
   }
   _onPhoto(photo) {
-    sfx('shutter');
+      sfx('collect');
     const sharp = photo.subjects.filter((s) => s.sharp);
     if (!sharp.length) {
       try { getStats().wastedFilm++; } catch (e) {}
@@ -1389,9 +1389,9 @@ Promise.all([
     ui.objective = mk('div', 'position:absolute;left:18px;top:38px;font-size:11px;letter-spacing:1px;opacity:.65;text-shadow:0 0 8px #000;', ui.root, 'DR. T. NKOSI — DEAD, SINGLE GUNSHOT WOUND');
     ui.quest = mk('div', 'position:absolute;left:18px;top:64px;font-size:12px;line-height:1.7;letter-spacing:1px;text-shadow:0 0 8px #000;max-width:360px;', ui.root);
     ui.hint = mk('div', 'position:absolute;left:18px;bottom:14px;font-size:12px;opacity:.7;text-shadow:0 0 6px #000;', ui.root,
-      '1–3 Tools &nbsp; Q + click Photo &nbsp; E Collect &nbsp; F UV &nbsp; C File');
+        '[1] bags &nbsp; [2] tweezers &nbsp; [3] swab &nbsp; [Q] camera &nbsp; [E] collect &nbsp; [F] UV &nbsp; [C] file');
     ui.prompt = mk('div', 'position:absolute;left:50%;top:56%;transform:translateX(-50%);font-size:16px;padding:6px 14px;background:rgba(0,0,0,.55);border:1px solid rgba(242,217,160,.45);display:none;text-shadow:0 0 6px #000;', ui.root);
-    ui.toast = mk('div', 'position:absolute;left:50%;bottom:11%;transform:translateX(-50%);width:min(640px,88vw);padding:12px 16px;background:rgba(8,8,12,.82);border-left:3px solid #f2b84b;font-size:14px;line-height:1.45;display:none;', ui.root);
+    ui.toast = mk('div', 'position:absolute;left:50%;bottom:22%;transform:translateX(-50%);width:min(640px,88vw);padding:12px 16px;background:rgba(8,8,12,.82);border-left:3px solid #f2b84b;font-size:14px;line-height:1.45;display:none;', ui.root);
     ui.uvTag = mk('div', 'position:absolute;right:18px;top:224px;font-size:13px;letter-spacing:2px;color:#b58cff;display:none;text-shadow:0 0 10px #7a3cff;', ui.root, 'UV LAMP ON');
     ui.timer = mk('div', 'position:absolute;left:50%;top:14px;transform:translateX(-50%);font-size:30px;font-weight:bold;letter-spacing:4px;color:#ff2a2a;text-shadow:0 0 10px rgba(255,0,0,.7),0 0 2px #000;padding:4px 18px;background:rgba(0,0,0,.45);border:1px solid rgba(255,42,42,.5);border-radius:6px;', ui.root, '5:00');
 
@@ -1519,8 +1519,8 @@ Promise.all([
     const found = this.clues.filter(c => c.found).length;
     const next = found === this.clues.length
       ? 'All exhibits logged. Open [C] and seal the evidence for the station lab.'
-      : 'Photograph each exhibit, then collect it. Use F to reveal UV traces.';
-    this.ui.quest.innerHTML = `<b>SECURE THE OFFICE — ${found}/${this.clues.length}</b><p>${next}</p>`;
+      : 'Photograph [Q + click], lower camera [Q], then collect [E]. Use [F] to find traces under UV.';
+    this.ui.quest.innerHTML = `<b>SECURE THE OFFICE — ${found}/${this.clues.length}</b><p>${next}</p><span style="opacity:.7">Preserve the evidence. Find the answers in the lab.</span>`;
   }
 
   _hint() {

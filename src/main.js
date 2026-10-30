@@ -330,7 +330,13 @@ function buildLevel(n) {
   if (!Array.isArray(level.colliders)) level.colliders = [];
   if (!level.name) level.name = `LEVEL ${n}`;
 
-  styleLevelUI(level, n);
+  // Level 1 keeps its original UI.
+// GameUI styling is only applied to Levels 2 and 3.
+    if (n !== 1) {
+      styleLevelUI(level, n);
+    } else {
+      delete document.body.dataset.level;
+    }
   player.pos.copy(level.spawn);
   player.vel.set(0, 0, 0);
   player.yaw   = (typeof level.spawnYaw === 'number') ? level.spawnYaw : Math.PI;
