@@ -1386,12 +1386,12 @@ Promise.all([
     ui.flash = mk('div', 'position:fixed;inset:0;pointer-events:none;z-index:41;opacity:0;', ui.root);
     ui.cross = mk('div', 'position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px;border-radius:50%;background:rgba(255,235,190,.6);box-shadow:0 0 6px rgba(0,0,0,.8);transition:all .12s;', ui.root);
     ui.counter = mk('div', 'position:absolute;left:18px;top:16px;font-size:15px;letter-spacing:2px;text-shadow:0 0 8px #000;', ui.root);
-    ui.objective = mk('div', 'position:absolute;left:18px;top:38px;font-size:11px;letter-spacing:1px;opacity:.65;text-shadow:0 0 8px #000;', ui.root, 'DR. T. NKOSI — DEAD, SINGLE GUNSHOT WOUND');
+    ui.objective = mk('div', 'position:absolute;left:18px;top:38px;font-size:11px;letter-spacing:1px;opacity:.65;text-shadow:0 0 8px #000;', ui.root, 'DR. T. NKOSI — DEAD');
     ui.quest = mk('div', 'position:absolute;left:18px;top:64px;font-size:12px;line-height:1.7;letter-spacing:1px;text-shadow:0 0 8px #000;max-width:360px;', ui.root);
     ui.hint = mk('div', 'position:absolute;left:18px;bottom:14px;font-size:12px;opacity:.7;text-shadow:0 0 6px #000;', ui.root,
         '[1] bags &nbsp; [2] tweezers &nbsp; [3] swab &nbsp; [Q] camera &nbsp; [E] collect &nbsp; [F] UV &nbsp; [C] file');
     ui.prompt = mk('div', 'position:absolute;left:50%;top:56%;transform:translateX(-50%);font-size:16px;padding:6px 14px;background:rgba(0,0,0,.55);border:1px solid rgba(242,217,160,.45);display:none;text-shadow:0 0 6px #000;', ui.root);
-    ui.toast = mk('div', 'position:absolute;left:50%;bottom:22%;transform:translateX(-50%);width:min(640px,88vw);padding:12px 16px;background:rgba(8,8,12,.82);border-left:3px solid #f2b84b;font-size:14px;line-height:1.45;display:none;', ui.root);
+    ui.toast = mk('div', 'position:absolute;left:50%;bottom:24%;transform:translateX(-50%);width:min(640px,88vw);padding:12px 16px;background:rgba(8,8,12,.82);border-left:3px solid #f2b84b;font-size:14px;line-height:1.45;display:none;', ui.root);
     ui.uvTag = mk('div', 'position:absolute;right:18px;top:224px;font-size:13px;letter-spacing:2px;color:#b58cff;display:none;text-shadow:0 0 10px #7a3cff;', ui.root, 'UV LAMP ON');
     ui.timer = mk('div', 'position:absolute;left:50%;top:14px;transform:translateX(-50%);font-size:30px;font-weight:bold;letter-spacing:4px;color:#ff2a2a;text-shadow:0 0 10px rgba(255,0,0,.7),0 0 2px #000;padding:4px 18px;background:rgba(0,0,0,.45);border:1px solid rgba(255,42,42,.5);border-radius:6px;', ui.root, '5:00');
 
@@ -1514,13 +1514,10 @@ Promise.all([
   // =========================================================
   // GUIDANCE — evidence collection HUD + idle nudges
   // =========================================================
-  _updateQuest() {
+_updateQuest() {
     if (!this.ui?.quest) return;
     const found = this.clues.filter(c => c.found).length;
-    const next = found === this.clues.length
-      ? 'All exhibits logged. Open [C] and seal the evidence for the station lab.'
-      : 'Photograph [Q + click], lower camera [Q], then collect [E]. Use [F] to find traces under UV.';
-    this.ui.quest.innerHTML = `<b>SECURE THE OFFICE — ${found}/${this.clues.length}</b><p>${next}</p><span style="opacity:.7">Preserve the evidence. Find the answers in the lab.</span>`;
+    this.ui.quest.innerHTML = `<b>SECURE THE OFFICE </b><span style="opacity:.7">Preserve the evidence. Find the answers in the lab.</span>`;
   }
 
   _hint() {
@@ -2331,13 +2328,15 @@ function furnish(level) {
 function controlsBar(level, getThird) {
   const css = document.createElement('style');
   css.textContent = `
-    .l1bar{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:55;display:flex;gap:10px;align-items:stretch;
-      font-family:'Courier New',monospace;pointer-events:none;max-width:calc(100vw - 32px);flex-wrap:wrap;justify-content:center}
+    .l1bar{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:55;display:flex;flex-direction:column;gap:8px;align-items:center;
+      font-family:'Courier New',monospace;pointer-events:none;max-width:calc(100vw - 24px)}
+    .l1row{display:flex;gap:8px;align-items:stretch;justify-content:center;flex-wrap:nowrap;max-width:100%;overflow-x:auto;scrollbar-width:none}
+    .l1row::-webkit-scrollbar{display:none}
     .l1grp{display:flex;gap:4px;align-items:center;background:rgba(8,10,16,.72);border:1px solid #2c3442;border-radius:8px;
-      padding:6px 8px;backdrop-filter:blur(3px)}
+      padding:5px 8px;backdrop-filter:blur(3px);flex:0 0 auto;white-space:nowrap}
     .l1lab{font-size:9px;letter-spacing:2px;color:#7d8798;margin-right:4px;writing-mode:vertical-rl;transform:rotate(180deg)}
     .l1k{display:flex;align-items:center;gap:6px;padding:3px 7px 3px 3px;border-radius:5px;color:#c9c2b0;font-size:11px;
-      letter-spacing:1px;transition:background .15s,color .15s}
+      letter-spacing:1px;transition:background .15s,color .15s;white-space:nowrap}
     .l1k b{display:inline-block;min-width:20px;padding:2px 5px;text-align:center;border:1px solid #5a5040;border-bottom-width:3px;
       border-radius:4px;background:#14171e;color:#f2d9a0;font-size:11px}
     .l1k.on{background:rgba(242,184,75,.18);color:#fff}
@@ -2350,9 +2349,11 @@ function controlsBar(level, getThird) {
   const bar = document.createElement('div'); bar.className = 'l1bar';
   const k = (id, key, label, extra = '') => `<span class="l1k ${extra}" data-k="${id}"><b>${key}</b>${label}</span>`;
   bar.innerHTML =
-    `<div class="l1grp"><span class="l1lab">KIT</span>${k('bag', '1', 'Bags')}${k('tweezers', '2', 'Tweezers')}${k('swab', '3', 'Swab')}${k('cam', 'Q', 'Camera')}</div>` +
-    `<div class="l1grp"><span class="l1lab">DO</span>${k('e', 'E', 'Collect')}${k('uv', 'F', 'UV lamp', 'uv')}${k('c', 'C', 'Case file')}${k('v', 'V', '1st person')}</div>` +
-    `<div class="l1grp">${k('p', 'P', 'Pause')}${k('esc', 'Esc', 'Mouse')}</div>`;
+    `<div class="l1grp"><span class="l1lab">KIT</span>${k('bag', '1', 'Bags')}${k('tweezers', '2', 'Tweezers')}${k('swab', '3', 'Swab')}${k('cam', 'Q + click', 'Camera')}</div>` +
+    `<div class="l1row">` +
+      `<div class="l1grp"><span class="l1lab">DO</span>${k('e', 'E', 'Collect')}${k('uv', 'F', 'UV lamp', 'uv')}${k('c', 'C', 'Case file')}${k('v', 'V', '1st person')}</div>` +
+      `<div class="l1grp">${k('p', 'P', 'Pause')}${k('esc', 'Esc', 'Mouse')}</div>` +
+    `</div>`;
   const click = document.createElement('div'); click.className = 'l1click'; click.textContent = 'CLICK TO LOOK AROUND';
   for (const el of [css, bar, click]) document.body.appendChild(el);
   const chips = {}; bar.querySelectorAll('[data-k]').forEach((e) => { chips[e.dataset.k] = e; });
