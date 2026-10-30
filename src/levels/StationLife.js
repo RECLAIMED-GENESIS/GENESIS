@@ -2,20 +2,11 @@
 import * as THREE from 'three';
 
 export function buildStationLayout(L) {
-  const plaster=L._stationMaterial('plaster'),trim=L._std(0x263a42,.7,.15);
   const box=(w,h,d,m,x,y,z)=>L._box(L.level,w,h,d,m,x,y,z);
-  // Reception's back wall leaves a generous central entrance to the cross-corridor.
-  L._stationWall(-5.65,14,8.7,.18,plaster);
-  L._stationWall(5.65,14,8.7,.18,plaster);
-  box(2.6,.45,.18,plaster,0,3.175,14);
-  // Separate lab and office branches, leaving the full east/west aisle at z=12.
-  L._stationWall(-2,9,.18,4,plaster);
-  L._stationWall(2,9,.18,4,plaster);
-  for(const x of [-2,2])box(.22,.1,4,trim,x,.85,9);
-  L._stationSign('STAFF CORRIDOR',0,2.95,14.12,2.3,0,'FORENSICS  /  CAPTAIN');
+  // Keep the passage open across both room approaches.
   L._stationSign('← FORENSICS     CAPTAIN →',0,2.4,7.34,3.7,0,'COMPLETE LAB REPORTS BEFORE VISITING THE CAPTAIN');
 
-  // Only reception, the lab and the captain's office remain active.
+  // Only the passage, the lab and the captain's office remain active.
   L._workDeskSpots = [];
   L._stationWorkers = [];
   L._extraCeilingFixtures = [[6,9]];

@@ -2,7 +2,7 @@
 // main.js — bootstrap, player controller, level manager
 // ============================================================
 import * as THREE from 'three';
-import { showLoading, hideLoading, paintLoading, waitForAssets } from './game/loading.js';
+import { showLoading, hideLoading, paintLoading, waitForAssets, prepareGraphics } from './game/loading.js';
 import { StreetLevel } from './levels/lvl1.js';
 import { LabLevel }    from './levels/LabLevel.js';
 import { ChaseLevel }  from './levels/ChaseLevel.js';
@@ -233,7 +233,7 @@ function updateMsg() {
   if (msgEl) msgEl.style.display = (clean && !locked) ? 'block' : 'none';
   if (msgEl) msgEl.textContent = lockError
     ? 'MOUSE CAPTURE FAILED — Click the game to retry'
-    : 'CLICK TO LOCK MOUSE — Esc unlocks · P pauses';
+    : 'Click to play · Esc releases mouse · P pauses';
   if (crossEl) crossEl.style.display = (clean && current !== 1 && current !== 3) ? 'block' : 'none';
   if (hud) hud.style.display = (appState === 'playing' && hasLevel) ? 'block' : 'none';
   if (pauseBtn) pauseBtn.style.display = clean ? 'block' : 'none';
@@ -361,15 +361,28 @@ async function switchLevel(n, opts = {}) {
   const loaded = await shell.transition(async () => {
     showLoading(`Level ${n} — ${LEVEL_CARDS[n].sub}`);
     await paintLoading();
+    const timing = { level: n };
+    const started = performance.now();
     buildLevel(n);
+    timing.constructionMs = Math.round(performance.now() - started);
     camera.position.copy(player.pos).add(new THREE.Vector3(0, player.EYE, 0));
     camera.rotation.set(player.pitch, player.yaw, 0);
-    loadingSceneReady = true;
+    // Station materials change as assets arrive. Rendering them here forces
+    // synchronous shader compilation before compileAsync can prepare them.
+    loadingSceneReady = n !== 2;
     // Reveal the new scene behind the loading overlay, without advancing play.
     shell.veil.classList.remove('on');
     await paintLoading();
+    const assetsStarted = performance.now();
     await waitForAssets();
-    await renderer.compileAsync(scene, camera);
+    timing.assetsMs = Math.round(performance.now() - assetsStarted);
+    const graphicsStarted = performance.now();
+    await prepareGraphics(renderer, scene, camera);
+    timing.graphicsMs = Math.round(performance.now() - graphicsStarted);
+    timing.totalMs = Math.round(performance.now() - started);
+    window.__lastLevelLoad = timing;
+    console.info('[level loading]', timing);
+    loadingSceneReady = true;
     hideLoading();
   }, useCard && typeof n === 'number' ? n : 0);
   hideLoading();

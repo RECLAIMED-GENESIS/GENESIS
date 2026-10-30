@@ -88,27 +88,33 @@ export function buildLabWindow(L, wallMat, W = 20, D = 14, H = 3.4) {
 export function toggleLabCurtains(L) {
   const w=L._labWindow;if(!w)return;
   w.open=!w.open;
-  // Generate a quiet filtered rain bed on first interaction, through the
-  // game's master gain so global volume and mute still apply.
+}
+
+// The rain is the room's ambience, not a curtain effect: the bed starts with
+// the level and only gets louder (and less muffled) once the curtains open.
+function ensureRainAudio(L) {
+  const w=L._labWindow;
+  if(!w||w.audio)return;
   const ctx=Howler.ctx;
-  if(!w.audio && ctx && Howler.masterGain){
-    const buffer=ctx.createBuffer(1,ctx.sampleRate*3,ctx.sampleRate);
-    const data=buffer.getChannelData(0);
-    for(let i=0;i<data.length;i++)data[i]=Math.random()*2-1;
-    const source=ctx.createBufferSource();source.buffer=buffer;source.loop=true;
-    const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=1300;
-    const gain=ctx.createGain();gain.gain.value=0;
-    source.connect(filter);filter.connect(gain);gain.connect(Howler.masterGain);source.start();
-    const timer=setInterval(()=>{
-      const paused=window.__paused||window.__loading||document.hidden;
-      gain.gain.setTargetAtTime(paused?0:(.012+w.amount*.025)*(w.nearby??1),ctx.currentTime,.15);
-    },100);
-    w.audio={source,filter,gain,timer};
-  }
+  if(!ctx||!Howler.masterGain)return;
+  const buffer=ctx.createBuffer(1,ctx.sampleRate*3,ctx.sampleRate);
+  const data=buffer.getChannelData(0);
+  for(let i=0;i<data.length;i++)data[i]=Math.random()*2-1;
+  const source=ctx.createBufferSource();source.buffer=buffer;source.loop=true;
+  const filter=ctx.createBiquadFilter();filter.type='lowpass';filter.frequency.value=1100;
+  const gain=ctx.createGain();gain.gain.value=0;
+  source.connect(filter);filter.connect(gain);gain.connect(Howler.masterGain);source.start();
+  const timer=setInterval(()=>{
+    const paused=window.__paused||window.__loading||document.hidden;
+    gain.gain.setTargetAtTime(paused?0:(.012+w.amount*.025)*(w.nearby??1),ctx.currentTime,.15);
+    filter.frequency.setTargetAtTime(w.open?2200:1100,ctx.currentTime,.4);
+  },100);
+  w.audio={source,filter,gain,timer};
 }
 
 export function updateLabWindow(L,dt,player) {
   const w=L._labWindow;if(!w)return;
+  ensureRainAudio(L);
   w.time+=dt;
   w.amount=THREE.MathUtils.damp(w.amount,w.open?1:0,4,dt);
   const panelWidth=(LAB_WINDOW.width/2+.04)*(1-w.amount*.85);

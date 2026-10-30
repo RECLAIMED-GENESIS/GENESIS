@@ -2,8 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 
-// Three shadow maps for the station: sunlight + two lab task lights.
-// Rectangular fixture lights supply soft highlights without six-face point shadows.
+// Reflection fill, ceiling area lights and two lab task-light shadow maps.
 export function buildStationLighting(L) {
   RectAreaLightUniformsLib.init();
   L._previousEnvironment = L.scene.environment;
@@ -52,16 +51,16 @@ export function buildStationLighting(L) {
   for (const s of L._stripLights) { s.pl.intensity = 8; s.pl.distance = 10; s.pl.decay = 2; s.flicker = false; }
   // Daylight spilling in through the lab's north window (dims with the lab lights for UV work).
   L._windowDaylight = area(0xcbdff3, 3, 8, 1.6, -2, 2.2, -6.85, [-2, 1.0, 0]);
-  L._windowDaylight.intensity = .24;
-  // Cool daylight through the facade; warmer desk and lobby fixtures give depth.
-  for (const x of [-6,6]) area(0xcbdff3, 3, 3.4, 1.4, x,1.9,18.65,[x,1.2,12]);
+  L._windowDaylight.intensity = 3 * (.08 + .92 * (L._labWindow?.amount || 0));
   area(0xffe3ba, 4, 1.4,.2,15,3.2,12,[15,0,12]);
-  for (const [x,z] of [[0,15],[-5,9]]) area(0xf5f1e7,4,1.5,.2,x,3.2,z,[x,0,z]);
+  for (const [x,z] of [[0,12],[-5,9]]) area(0xf5f1e7,4,1.5,.2,x,3.2,z,[x,0,z]);
+
 }
 
 export function setStationLabLighting(L, dark) {
   // UV examination dims only the lab fixtures; daylight and office lamps stay on.
   L._hemi.intensity = dark ? .22 : .42;
+  for (const mat of L._labFixtureDiffusers || []) mat.emissiveIntensity = dark ? .03 : .6;
   if (L._windowDaylight) L._windowDaylight.intensity = 3 * (.08 + .92 * (L._labWindow?.amount || 0)) * (dark ? .06 : 1);
   for (const s of L._stripLights || []) s.pl.intensity = dark ? .6 : 8;
   for (const { light, intensity } of [...(L._taskLights || []), ...(L._areaLights || [])]) light.intensity = dark ? intensity * .06 : intensity;

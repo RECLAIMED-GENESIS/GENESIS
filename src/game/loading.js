@@ -33,6 +33,21 @@ export function hideLoading() {
   window.__loading = false;
 }
 export const paintLoading = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+export async function prepareGraphics(renderer, scene, camera, timeoutMs = 60000) {
+  detail.textContent = 'Preparing graphics…';
+  await paintLoading();
+  let timeout;
+  try {
+    await Promise.race([
+      renderer.compileAsync(scene, camera),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('Graphics preparation timed out. Please retry or enable hardware acceleration in your browser.')), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 export async function waitForAssets() {
   const deadline = performance.now() + 120000;
   // Allow loader callbacks and dependent model/texture requests to settle.

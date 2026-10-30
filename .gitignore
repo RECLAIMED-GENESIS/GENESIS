@@ -29,4 +29,7 @@ game.zip
 *.zip
 dist/
 node_modules/
-*.timestamp-*.mjs
+*.timestamp-*.mjGs
+SUBMISSION-SHA256.txt
+SUBMISSION.md
+Sibu.md

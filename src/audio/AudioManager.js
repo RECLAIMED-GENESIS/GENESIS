@@ -1,4 +1,5 @@
 import { Howl, Howler } from 'howler';
+import { setVolume as setSynthVolume } from './sfx.js';
 
 export class AudioManager {
     constructor() {
@@ -94,6 +95,7 @@ export class AudioManager {
 
     setSfxVolume(v) {
         this.sfxVolume = Math.max(0, Math.min(1, v));
+        setSynthVolume(this.sfxVolume);
     }
 
     setMuted(m) {

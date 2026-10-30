@@ -11,8 +11,9 @@ float stNoise(vec2 p){
 
 // Interior wall paint. Change WALL_PRESET to restyle every station wall at once.
 //   upper = wall colour above the wainscot, lower = painted dado, rail = the chair-rail line.
-export const WALL_PRESET = 'teal';
+export const WALL_PRESET = 'forensic';
 export const WALL_PRESETS = {
+  forensic: { upper: 0xd6dcd7, lower: 0x607c7b, rail: 0x30474a }, // warm mineral paint, muted teal dado
   teal:  { upper: 0x5f949b, lower: 0xe4e7e2, rail: 0x25393f },   // calm institutional teal over white
   sage:  { upper: 0x8fb09a, lower: 0xe8eae3, rail: 0x2f4137 },   // soft sage green
   cream: { upper: 0xdccba4, lower: 0xeeebe2, rail: 0x4a3b28 },   // warm cream, brighter and friendlier
@@ -41,9 +42,9 @@ const GRIME = (paint) => /* glsl */`{
   float streak = stNoise(vec2(along * 3.0, vStW.y * 0.12));   // rain / drip streaks
   float baseDirt = 1.0 - smoothstep(0.0, 0.7, vStW.y);        // scuffs and splash at the floor
   float topDirt = smoothstep(2.8, 3.4, vStW.y) * (1.0 - smoothstep(3.4, 3.7, vStW.y)); // ceiling junction
-  float tone = 1.0 - vert * (0.30 * baseDirt + 0.10 * topDirt)
-                   - mix(0.08, 0.15, vert) * blotch
-                   - vert * 0.07 * streak;
+  float tone = 1.0 - vert * (0.12 * baseDirt + 0.04 * topDirt)
+                   - mix(0.025, 0.055, vert) * blotch
+                   - vert * 0.025 * streak;
   diffuseColor.rgb *= clamp(tone, 0.5, 1.0);
 }`;
 
@@ -63,6 +64,6 @@ export function applyGrime(material, kind, opts = {}) {
       .replace('#include <common>', '#include <common>\nvarying vec3 vStW;\n' + NOISE)
       .replace('#include <color_fragment>', '#include <color_fragment>\n' + GRIME(paint));
   };
-  material.customProgramCacheKey = () => `${prevKey()}|grime2-${kind}-${paint ? WALL_PRESET : 'plain'}`;
+  material.customProgramCacheKey = () => `${prevKey()}|grime3-${kind}-${paint ? WALL_PRESET : 'plain'}`;
   return material;
 }

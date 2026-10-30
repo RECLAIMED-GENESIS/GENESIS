@@ -13,7 +13,7 @@ export function buildEvidenceCases(L) {
     for(const xx of [-.385,.385])box(c,.025,.06,.8,foam,xx,.03,0);
     box(c,.4,.055,.12,shell,0,0,.51);
     for(const xx of [-.8,.8])box(c,.12,.08,.06,rim,xx,.04,.48);
-    const lid=new THREE.Group();lid.position.set(0,.04,-.45);lid.rotation.x=-1.95;c.add(lid);
+    const lid=new THREE.Group();lid.position.set(0,.04,-.45);lid.rotation.x=-2.85;c.add(lid);
     box(lid,2.25,.055,.9,shell,0,0,.45);box(lid,2.12,.012,.78,foam,0,.034,.45);
   }
   const labels=['01 CASING','02 GLASS','03 HAIR','04 FABRIC','05 PHONE','06 UV TRAIL'];

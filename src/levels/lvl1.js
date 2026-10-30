@@ -1,3 +1,4 @@
+import { EvidencePickup } from '../game/EvidencePickup.js';
 // ============================================================
 // LEVEL 1 — THE VICTIM'S OFFICE   (first-person investigation)
 //
@@ -341,7 +342,7 @@ export class StreetLevel {
         'DETECTIVE: I will secure the room and document what happened. We have five possible suspects, but no finding identifies the killer yet.',
         'DISPATCH: Start with the visible objects on the desk and beside the body. Look at an exhibit, raise your camera with Q and click to photograph it. Lower the camera with Q, then press E to collect it.',
         'DISPATCH: Use 1 for evidence bags, 2 for tweezers and 3 for the blood swab. The camera suggests the correct tool after a sharp photo. F turns on UV: use it to find and photograph the wiped trail.',
-        'CAPTAIN MABASO: Log all six exhibits. Open your case file with C, check your inventory and seal the evidence. Then come to Central Police Station: greet reception and head straight to the lab.',
+        'CAPTAIN MABASO: Log all six exhibits. Open your case file with C, check your inventory and seal the evidence. Then come to Central Police Station: head straight to the lab.',
       ],
       onDone: () => {
         if (this.ui) this._toast('INCIDENT \u2014 LECTURER FOUND DEAD', `Photograph everything before you lift it.`, 9000);
@@ -1320,6 +1321,7 @@ Promise.all([
     if (!this.renderer) console.warn('StreetLevel: no renderer was passed, photos will be blank');
   }
   _onPhoto(photo) {
+    sfx('shutter');
     const sharp = photo.subjects.filter((s) => s.sharp);
     if (!sharp.length) {
       try { getStats().wastedFilm++; } catch (e) {}
@@ -1328,7 +1330,6 @@ Promise.all([
       this._updateCounter();
       return;
     }
-    sfx('collect');
     for (const s of sharp) {
       const c = this.clues.find((x) => x.id === s.id);
       if (!c || c.photo) continue;
@@ -1388,7 +1389,7 @@ Promise.all([
     ui.objective = mk('div', 'position:absolute;left:18px;top:38px;font-size:11px;letter-spacing:1px;opacity:.65;text-shadow:0 0 8px #000;', ui.root, 'DR. T. NKOSI — DEAD, SINGLE GUNSHOT WOUND');
     ui.quest = mk('div', 'position:absolute;left:18px;top:64px;font-size:12px;line-height:1.7;letter-spacing:1px;text-shadow:0 0 8px #000;max-width:360px;', ui.root);
     ui.hint = mk('div', 'position:absolute;left:18px;bottom:14px;font-size:12px;opacity:.7;text-shadow:0 0 6px #000;', ui.root,
-      '[1] bags &nbsp; [2] tweezers &nbsp; [3] swab &nbsp; [Q] camera &nbsp; [E] collect &nbsp; [F] UV &nbsp; [C] file');
+      '1–3 Tools &nbsp; Q + click Photo &nbsp; E Collect &nbsp; F UV &nbsp; C File');
     ui.prompt = mk('div', 'position:absolute;left:50%;top:56%;transform:translateX(-50%);font-size:16px;padding:6px 14px;background:rgba(0,0,0,.55);border:1px solid rgba(242,217,160,.45);display:none;text-shadow:0 0 6px #000;', ui.root);
     ui.toast = mk('div', 'position:absolute;left:50%;bottom:11%;transform:translateX(-50%);width:min(640px,88vw);padding:12px 16px;background:rgba(8,8,12,.82);border-left:3px solid #f2b84b;font-size:14px;line-height:1.45;display:none;', ui.root);
     ui.uvTag = mk('div', 'position:absolute;right:18px;top:224px;font-size:13px;letter-spacing:2px;color:#b58cff;display:none;text-shadow:0 0 10px #7a3cff;', ui.root, 'UV LAMP ON');
@@ -1497,7 +1498,7 @@ Promise.all([
         NEXT MORNING — CENTRAL POLICE STATION
       </div>
       <p style="position:relative;max-width:min(680px,86vw);margin:26px auto 0;font-size:19px;line-height:1.7;color:#d7dde8;opacity:0;animation:labFadeIn 1.4s 2.4s forwards">
-        The room is sealed and the exhibits are packed. Take them to Central Police Station, greet reception and head to the lab. You will examine the evidence there before taking the completed file to Captain Mabaso.
+        The room is sealed and the exhibits are packed. Take them to Central Police Station, head to the lab. You will examine the evidence there before taking the completed file to Captain Mabaso.
       </p>
       <div style="position:relative;margin-top:48px;opacity:0;animation:labFadeIn 1s 4s forwards">
         <button id="outro-city" style="font:inherit;letter-spacing:1px;padding:12px 28px;background:#1f6f5c;color:#fff;border:0;cursor:pointer">Travel to Central Police Station — Level 2 &rarr;</button>
@@ -1518,8 +1519,8 @@ Promise.all([
     const found = this.clues.filter(c => c.found).length;
     const next = found === this.clues.length
       ? 'All exhibits logged. Open [C] and seal the evidence for the station lab.'
-      : 'Photograph [Q + click], lower camera [Q], then collect [E]. Use [F] to find traces under UV.';
-    this.ui.quest.innerHTML = `<b>SECURE THE OFFICE — ${found}/${this.clues.length}</b><p>${next}</p><span style="opacity:.7">Preserve the evidence. Find the answers in the lab.</span>`;
+      : 'Photograph each exhibit, then collect it. Use F to reveal UV traces.';
+    this.ui.quest.innerHTML = `<b>SECURE THE OFFICE — ${found}/${this.clues.length}</b><p>${next}</p>`;
   }
 
   _hint() {
@@ -1594,7 +1595,7 @@ Promise.all([
   }
 
   _collect(c) {
-    if (c.found || this._timeUp) return;
+    if (c.found || this._timeUp || (this._pickupAnimation?.active && c.id !== 'trail')) return;
     // Forensic order: photograph first, then the right instrument.
     if (!c.photo) {
       sfx('wrong');
@@ -1612,7 +1613,7 @@ Promise.all([
     window.__caseProgress = window.__caseProgress || { l1: {} };
     window.__caseProgress.l1[c.id] = true;
     c.aura.visible = false;
-    if (c.onCollect) c.onCollect();
+    if (!this._pickupAnimation?.begin(c, c.id === 'trail' ? 'camera' : this.tool)) c.onCollect?.();
     this.focus = null;
     this.ui.prompt.style.display = 'none';
     this._updateCounter();
@@ -1737,6 +1738,7 @@ Promise.all([
   }
 
   _updateFocus() {
+    if (this._pickupAnimation?.active) { this.focus = null; this.ui.prompt.style.display = 'none'; return; }
     const list = [];
     for (const c of this.clues) {
       if (c.follow) {                       // keep chair-mounted evidence in sync
@@ -2451,16 +2453,19 @@ function applyLevel1Look(level) {
     bounds: { L: level.LEFT, R: level.RIGHT, B: level.BACK, F: level.FRONT, H: level.H },
   });
   level._view = view;
+  level._pickupAnimation = new EvidencePickup(level.level, { reducedMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches });
   const bar = controlsBar(level, view.isThird);
   const baseUpdate = level.update.bind(level);
   level.update = (dt, t, player) => {           // lvl1 runs first, unchanged
     baseUpdate(dt, t, player);
     view.update(dt, player);
+    level._pickupAnimation.update(dt, player, window.__camera, view);
     bar.update();
   };
 
   return {
     dispose() {
+      level._pickupAnimation.dispose();
       view.dispose();
       bar.dispose();
       clearInterval(timer);

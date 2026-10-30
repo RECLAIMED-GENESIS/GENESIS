@@ -1,5 +1,6 @@
 // Level 2 environment only: supplied PBR surfaces, furniture and live lab dressing.
 import * as THREE from 'three';
+import { connectDnaAnalyser } from './LabAppliances.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { buildEvidenceCases } from './StationSurroundings.js';
@@ -17,7 +18,7 @@ export function stationMaterial(level, kind, color) {
     const loader = new THREE.TextureLoader();
     const maps = {};
     for (const [slot, suffix] of [['map', 'Color'], ['normalMap', 'NormalGL'], ['roughnessMap', 'Roughness']]) {
-      const texture = loader.load(`/assets/textures/station-lite/${SURFACES[kind]}_1K-JPG_${suffix}.jpg`, tex => {
+      const texture = loader.load(`./assets/textures/station-lite/${SURFACES[kind]}_1K-JPG_${suffix}.jpg`, tex => {
         if (level._environmentDisposed) tex.dispose();
       }, undefined, () => console.warn(`[station] Missing ${kind} ${suffix} texture`));
       texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
@@ -31,7 +32,7 @@ export function stationMaterial(level, kind, color) {
     level._stationMaps[kind] = maps;
   }
   const material = new THREE.MeshStandardMaterial({ color, ...level._stationMaps[kind],
-    normalScale: new THREE.Vector2(kind === 'brick' ? 0.65 : 0.3, kind === 'brick' ? 0.65 : 0.3),
+    normalScale: new THREE.Vector2(kind === 'brick' ? 0.65 : 0.12, kind === 'brick' ? 0.65 : 0.12),
     roughness: 1, metalness: 0 });
   // The supplied plaster is ochre and heavily chipped. Keep its surface detail,
   // but paint the station a subdued neutral; soften the busy tile albedo as well.
@@ -39,13 +40,13 @@ export function stationMaterial(level, kind, color) {
     material.onBeforeCompile = shader => {
       const remap = kind === 'plaster'
         ? 'sampledDiffuseColor.rgb = vec3(0.68) + vec3(dot(sampledDiffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722))) * 0.16;'
-        : 'sampledDiffuseColor.rgb = mix(vec3(0.38, 0.43, 0.44), sampledDiffuseColor.rgb, 0.22);';
+        : 'sampledDiffuseColor.rgb = mix(vec3(0.46, 0.49, 0.47), sampledDiffuseColor.rgb, 0.12);';
       shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>',
         THREE.ShaderChunk.map_fragment.replace('diffuseColor *= sampledDiffuseColor;', remap + '\n diffuseColor *= sampledDiffuseColor;'));
       shader.fragmentShader = shader.fragmentShader.replace('#include <roughnessmap_fragment>',
         '#include <roughnessmap_fragment>\n roughnessFactor = max(roughnessFactor, ' + (kind === 'plaster' ? '0.85' : '0.32') + ');');
     };
-    material.customProgramCacheKey = () => `station-painted-v2-${kind}`;
+    material.customProgramCacheKey = () => `station-painted-v3-${kind}`;
   }
   return applyGrime(material, kind, { paint: kind === 'plaster' && color === 0xffffff });
 }
@@ -75,39 +76,18 @@ export function buildStationEnvironment(L) {
     m.rotation.x=-Math.PI/2; m.position.set(x,y,z);m.receiveShadow=true;L.level.add(m);return m;
   };
   // Interior wainscot, skirting and rail give scale without obstructing circulation.
-  for(const [x,z,w,d] of [[-9.96,9,.06,3.7],[-9.96,16,.06,5.7],[0,18.81,19.6,.06],[19.96,12,.06,9.6],[15,16.81,9.6,.06]]) {
-    // Entrance wall is split to leave its opening clear.
-    if(z===18.81) {for(const xx of [-5.8,5.8]) {box(8.3,.8,d,pale,xx,.4,z);box(8.3,.06,.09,trim,xx,.85,z);} }
-    else { box(w,.8,d,pale,x,.4,z);box(w+.02,.06,d+.02,trim,x,.85,z);box(w+.03,.12,d+.03,trim,x,.06,z); }
+  for(const [x,z,w,d] of [[19.96,12,.06,9.6],[15,16.81,9.6,.06]]) {
+    box(w,.8,d,pale,x,.4,z);
+    box(w+.02,.06,d+.02,trim,x,.85,z);
+    box(w+.03,.12,d+.03,trim,x,.06,z);
   }
   // Lab door frame and legible bench identifiers, no extra evidence or actions.
   for(const x of [-6.04,-3.96])box(.08,2.8,.4,steel,x,1.4,7.15);
   box(2.2,.1,.4,steel,-5,2.8,7.15);
   for(const [text,x,z] of [['DIGITAL FORENSICS',-6.8,1.6],['TRACE ANALYSIS',6.8,1.6],['DNA / BIOLOGY',-6.8,-2.6],['SCENE RECONSTRUCTION',6.8,-2.6]]) {
-    L._stationSign(text,x,.69,z+.865,2.8,0,'FORENSIC SERVICES  /  AUTHORISED EXAMINERS');
-  }
-  // Sealable bench storage, keeping worktops and all physical interactions unchanged.
-  for(const [x,z] of [[-6.8,1.6],[6.8,1.6],[-6.8,-2.6],[6.8,-2.6]]) {
-    box(3,.7,1.4,pale,x,.45,z);
-    box(2.9,.1,1.25,trim,x,.1,z);
-    for(const dx of [-1,-.33,.33,1]) {
-      box(.62,.61,.035,pale,x+dx,.47,z+.72);
-      box(.24,.025,.045,steel,x+dx,.69,z+.75);
-    }
+    L._stationSign(text,x+.65,.81,z+.828,1.1,0).scale.y = .28;
   }
   floor(5.6,4.6,L._stationMaterial('carpet',0xc5c9c7),15,10.3);
-  // Lobby waiting seats with upholstered pads and metal rails.
-  for(const x of [5,6.2,7.4]) {
-    box(.78,.1,.65,L._stationMaterial('carpet',0x3f5963),x,.56,17.18);
-    box(.78,.5,.08,L._stationMaterial('carpet',0x3f5963),x,.83,17.41);
-    for(const dx of [-.38,.38])box(.045,.1,.7,steel,x+dx,.73,17.18);
-  }
-  // Noticeboard: case-neutral station paperwork, no new collectible clues.
-  box(3.1,1.5,.08,wood,-9.92,2.02,14.5).rotation.y=Math.PI/2;
-  for(let i=0;i<4;i++) {
-    const paper=box(.5,.64,.02,L._std(i===0?0xd3bf82:0xe5e4d7),-9.85,2.02,13.5+i*.65);
-    paper.rotation.y=Math.PI/2;
-  }
   // Move the entire filing unit to the blank wall opposite the captain's desk.
   const files=new THREE.Group();files.name='Captain filing shelves';
   files.position.set(15,0,16.45);files.rotation.y=Math.PI;L.level.add(files);
@@ -168,7 +148,7 @@ export function buildStationEnvironment(L) {
   const loader=new GLTFLoader();
   L._environmentModels=[];
   L._environmentUpgradeQueue = [];
-  const loadNow=(file,place)=>loader.loadAsync(`/assets/models/station/${file}`).then(gltf=> {
+  const loadNow=(file,place)=>loader.loadAsync(`./assets/models/station/${file}`).then(gltf=> {
     if(L._environmentDisposed){releaseModel(gltf.scene);return;}
     L._environmentModels.push(gltf.scene);
     place(gltf.scene);
@@ -176,7 +156,7 @@ export function buildStationEnvironment(L) {
   // Collision-bearing furniture must exist before play. Other models only
   // replace working visual fallbacks and can arrive one at a time afterwards.
   const load = (file, place) => {
-    if (file === 'desk.glb' || file === 'file-cabinet.glb') return loadNow(file, place);
+    if (file === 'desk.glb' || file === 'file-cabinet.glb' || file === 'dna-analyser.glb') return loadNow(file, place);
     return new Promise(resolve => {
       L._environmentUpgradeQueue.push({ run: () => loadNow(file, place), resolve });
     });
@@ -225,25 +205,12 @@ export function buildStationEnvironment(L) {
       for(const mesh of L._scopeFallbacks||[])mesh.visible=false;
     }),
     load('dna-analyser.glb',model=> {
-      instance(model,'Forensic DNA analyser',-7.3,.94,-2.6,1.25);
-      L._bioBody.visible=false; L._bioSlot.visible=false;
-      // Keep the live case results on a separate operator display, rather than
-      // replacing the imported machine's textured housing with a canvas.
-      L._bioDisplay.position.set(.6,1.3,.36);
-      L._bioDisplay.scale.set(.65,.65,1);
-      L._environmentLEDs.find(led=>led.state==='dna').mesh.position.set(-5.94,1.18,-2.21);
-      const parent=L._bioDisplay.parent;
-      L._box(parent,.7,.3,.05,trim,.6,1.3,.32);
-      L._box(parent,.055,.3,.055,steel,.6,1.1,.28);
-      L._box(parent,.35,.03,.24,trim,.6,.96,.28);
+      const analyser=instance(model,'Forensic DNA analyser',-7.3,.94,-2.6,1.25);
+      connectDnaAnalyser(L,analyser);
     }),
     load('lab-equipment.glb',model=> {
       instance(model,'Biology sample rack',-6.05,.94,-3,.45,-Math.PI/2);
       instance(model,'Preparation sample rack',-7.7,.94,-6.65,.4,-Math.PI/2);
-    }),
-    load('wanted-poster.glb',model=> {
-      instance(model,'Archived public wanted notice',2.5,1,18.68,1,Math.PI/2,false,'height');
-      L._stationSign('ARCHIVED PUBLIC NOTICE',2.5,2.3,18.65,2,Math.PI,'NOT PART OF THE CURRENT CASE');
     }),
     load('desk.glb',model=> {
       const captainDesk=instance(model,'Captain imported desk',15,0,9.7,3.1,Math.PI,true);
@@ -264,7 +231,7 @@ export function buildStationEnvironment(L) {
       }
     }),
     load('file-cabinet.glb',model=> {
-      for(const [x,z,rotation] of [[12,7.65,0],[13,7.65,0],[-8.9,8.5,Math.PI/2],[19.5,14.7,-Math.PI/2]])
+      for(const [x,z,rotation] of [[12,7.65,0],[13,7.65,0],[19.5,14.7,-Math.PI/2]])
         instance(model,'Station filing cabinet',x,0,z,.75,rotation,true);
     }),
     load('latex-gloves.glb',model=> {
@@ -274,7 +241,7 @@ export function buildStationEnvironment(L) {
       L._gloveModel=instance(model,'Latex gloves',-3.15,.94,4.6,.5,.5);
     }),
     load('fluorescent-fixture.glb',model=> {
-      for(const [x,z] of [[-6,2.5],[0,2.5],[6,2.5],[0,-3.5],[0,15],[-5,9],[15,12],...(L._extraCeilingFixtures||[])]) {
+      for(const [x,z] of [[-6,2.5],[0,2.5],[6,2.5],[0,-3.5],[0,12],[-5,9],[15,12],...(L._extraCeilingFixtures||[])]) {
         const fixture=instance(model,'Fluorescent ceiling fixture',x,0,z,2.2,Math.PI/2);
         const bounds=new THREE.Box3().setFromObject(fixture);
         fixture.position.y=3.38-bounds.max.y;

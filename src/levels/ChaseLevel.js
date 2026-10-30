@@ -1,3 +1,4 @@
+import { storyStyle } from '../game/storyStyle.js';
 // ============================================================
 // ChaseLevel.js — LEVEL 3: THE CHASE
 //
@@ -1345,9 +1346,9 @@ export class ChaseLevel {
       <div class="ch-sub"></div>`;
     const hint = document.createElement('div'); hint.className = 'ch-hint';
     hint.innerHTML = `
-      <div class="r"><span class="ch-k">A</span><span class="ch-k">D</span> change lane (left / right)</div>
+      <div class="r"><span class="ch-k">A</span><span class="ch-k">D</span> Lane</div>
       <div class="r"><span class="ch-k w">SPACE</span> jump</div>
-      <div class="r"><span class="ch-k">V</span> first / third person</div>
+      <div class="r"><span class="ch-k">V</span> View</div>
       <div class="r"><span class="ch-k">P</span> pause</div>`;
     const center = document.createElement('div'); center.className = 'ch-center';
     const end = document.createElement('div'); end.className = 'ch-end';
@@ -1458,19 +1459,7 @@ export class ChaseLevel {
   // =========================================================
   _buildStory(lines = STORY, heading = `LEVEL 3 &nbsp;·&nbsp; THE CITY OF ${GEN}`) {
     const css = document.createElement('style');
-    css.textContent = `
-      .ch-bars:before,.ch-bars:after{content:'';position:fixed;left:0;right:0;height:11vh;background:#000;z-index:63}
-      .ch-bars:before{top:0}.ch-bars:after{bottom:0}
-      .ch-story{position:fixed;left:50%;bottom:13vh;transform:translateX(-50%);z-index:64;width:min(760px,90vw);
-        box-sizing:border-box;background:rgba(6,8,14,.86);border:1px solid #3c4656;padding:18px 22px 14px;
-        font-family:'Courier New',monospace;color:#e8e2d2;cursor:pointer}
-      .ch-story .t{font-size:clamp(15px,2.2vw,19px);line-height:1.7;min-height:5.1em}
-      .ch-story .f{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;letter-spacing:2px}
-      .ch-story .d span{color:#f2b84b;margin-right:5px}.ch-story .d span.dim{color:#3c4656}
-      .ch-story .n{color:#f2b84b}
-      .ch-title{position:fixed;top:14vh;left:0;right:0;text-align:center;z-index:64;pointer-events:none;
-        font-family:'Courier New',monospace;color:#f2e6c8;letter-spacing:6px;font-size:clamp(14px,2vw,18px)}
-    `;
+    css.textContent = storyStyle;
     const bars = document.createElement('div'); bars.className = 'ch-bars';
     const title = document.createElement('div'); title.className = 'ch-title';
     title.innerHTML = heading;

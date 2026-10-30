@@ -132,7 +132,7 @@ export class DetectiveRig {
     this._aim(b.RightArm, b.RightForeArm, ra); this._aim(b.RightForeArm, b.RightHand, rf);
   }
   // amount: 0 still, 1 walking, 2 running
-  pose(phase, amount, airborne = false) {
+  pose(phase, amount, airborne = false, carrying = false) {
     if (!this.ok) return;
     this._reset();
     const D = (x, y, z) => this._dir(x, y, z);
@@ -154,7 +154,8 @@ export class DetectiveRig {
       return [ang(t + 0.05, side * (0.16 - 0.05 * run)), ang(t + 0.2 + 0.25 * a + 0.9 * run, side * 0.08)];
     };
     const [lt, ls] = leg(phase, -1), [rt, rs] = leg(phase + Math.PI, 1);
-    const [la, lf] = arm(phase, -1), [ra, rf] = arm(phase + Math.PI, 1);
+    const [la, lf] = arm(phase, -1);
+    const [ra, rf] = carrying ? [D(.45, .2, .85), D(.95, .08, -.12)] : arm(phase + Math.PI, 1);
     this._limbs(lt, ls, rt, rs, la, lf, ra, rf);
     this._ground();
   }
@@ -204,7 +205,7 @@ export function attachPlayerView(level, opts = {}) {
     tag = document.createElement('div');
     tag.style.cssText = 'position:fixed;right:14px;top:14px;z-index:60;pointer-events:none;font-family:"Courier New",monospace;' +
       'font-size:11px;letter-spacing:1px;color:#c9c2b0;background:rgba(8,10,16,.72);border:1px solid #2c3442;border-radius:8px;padding:6px 10px';
-    tag.className = 'dv-tag';
+    tag.className = 'dv-tag game-layer';
     document.body.appendChild(tag);
     if (!document.getElementById('dv-tag-css')) {
       const css = document.createElement('style'); css.id = 'dv-tag-css';
@@ -224,6 +225,11 @@ export function attachPlayerView(level, opts = {}) {
   const ray = new THREE.Ray(), hit = new THREE.Vector3();
   return {
     isThird: () => st.third,
+    getCarryAnchor(out) {
+      const hand = st.det?.rig.b.RightHand;
+      if (hand) { hand.getWorldPosition(out); return true; }
+      stand.arms[0].elbow.localToWorld(out.set(0, -.29, 0)); return true;
+    },
     setMode(mode) { st.third = mode === 'third'; setTag(); },
     update(dt, player) {
       dt = Math.min(dt || 0, 0.05);
@@ -239,8 +245,11 @@ export function attachPlayerView(level, opts = {}) {
       const body = st.det ? st.det.root : stand.root;
       body.position.set(p.x, p.y, p.z);
       body.rotation.y = (player.yaw || 0) + Math.PI;
-      if (st.det) st.det.rig.pose(st.phase, amount, !player.grounded);
-      else poseDetective(stand, st.phase, amount, !player.grounded, performance.now() / 1000);
+      if (st.det) st.det.rig.pose(st.phase, amount, !player.grounded, !!level.carried || !!level._pickupAnimation?.active || !!level._handling?.active);
+      else {
+        poseDetective(stand, st.phase, amount, !player.grounded, performance.now() / 1000);
+        if (level.carried || level._pickupAnimation?.active || level._handling?.active) { stand.arms[0].shoulder.rotation.x = -.5; stand.arms[0].elbow.rotation.x = -1.05; }
+      }
       body.visible = third;
       if (!third) {
         // first person: a gentle head bob while walking, like a person's eyes

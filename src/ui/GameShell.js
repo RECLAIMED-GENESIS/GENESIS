@@ -16,12 +16,14 @@
 // The `.gs-screen` / `.on` classes are read by main.js; keep them.
 // ============================================================
 
+import { renderAssetCredits } from './credits.js';
+
 const SAVE_KEY = 'genesis.save.v1';
 const SETTINGS_KEY = 'genesis.settings.v1';
 
 export const LEVEL_CARDS = {
   1: { title: 'Level 1', sub: "The victim's office", line: 'Dr. Nkosi is dead. The room remembers everything.' },
-  2: { title: 'Level 2', sub: 'The police station', line: 'Greet reception. Examine the evidence. Bring the file to the captain.' },
+  2: { title: 'Level 2', sub: 'The police station', line: 'Enter the lab. Examine the evidence. Bring the file to the captain.' },
   3: { title: 'Level 3', sub: 'Genesis', line: 'The suspect is running. Catch him before the bridge.' },
 };
 
@@ -38,10 +40,10 @@ const CSS = `
 #gs-veil.on{opacity:1;pointer-events:auto}
 
 .gs-screen{
-  --night:#07111a; --paper:#eadfc4; --paper2:#d6c8a4; --ink:#1e1b16;
-  --sodium:#e8a33d; --stamp:#c2362b; --mist:#9fb4bf;
+  --night:#0f1b21; --paper:var(--game-sheet); --paper2:#d4dacf; --ink:var(--game-ink);
+  --sodium:var(--game-accent); --stamp:#607d79; --mist:var(--game-muted);
   --disp:"Big Shoulders Display","Arial Narrow","Franklin Gothic Condensed",Impact,sans-serif;
-  --type:"Courier Prime","Courier New",monospace;
+  --type:var(--game-font);
   position:fixed;inset:0;display:none;z-index:20001;
   font-family:var(--type);color:var(--paper);background:var(--night);
 }
@@ -50,9 +52,9 @@ const CSS = `
 .gs-screen :focus-visible{outline:2px solid var(--sodium);outline-offset:3px}
 
 /* ---------- shared: rows (menu + pause) ---------- */
-.gm-nav{display:flex;flex-direction:column;width:min(430px,100%);margin-top:30px}
-.gm-row{position:relative;display:block;width:100%;text-align:left;background:none;border:0;
-  border-top:1px solid rgba(234,223,196,.16);padding:13px 8px 13px 26px;transition:transform .18s ease}
+.gm-nav{display:flex;flex-direction:column;width:min(430px,100%);margin-top:30px;gap:8px}
+.gm-row{position:relative;display:block;width:100%;text-align:left;background:var(--game-panel);border:1px solid var(--game-border);border-radius:var(--game-radius);
+ padding:13px 8px 13px 26px;transition:transform .18s ease}
 .gm-row:last-child{border-bottom:1px solid rgba(234,223,196,.16)}
 .gm-row::before{content:"";position:absolute;left:0;top:11px;bottom:11px;width:4px;background:var(--stamp);
   transform:scaleY(0);transform-origin:top;transition:transform .2s ease}
@@ -60,8 +62,9 @@ const CSS = `
 .gm-row:hover:not(:disabled)::before,.gm-row:focus-visible::before{transform:scaleY(1)}
 .gm-row:hover:not(:disabled) .gm-n,.gm-row:focus-visible .gm-n{color:var(--sodium)}
 .gm-row:focus-visible{outline-offset:-2px}
-.gm-n{display:block;font-family:var(--disp);font-weight:800;font-size:30px;line-height:1.05;letter-spacing:.03em;text-transform:uppercase}
-.gm-row.primary .gm-n{font-size:42px}
+.gm-n{display:block;font-family:var(--type);font-weight:500;font-size:18px;line-height:1.25;letter-spacing:0}
+.gm-row.primary{border-color:var(--sodium)}
+.gm-row.primary .gm-n{font-size:21px;color:var(--sodium)}
 .gm-s{display:block;font-size:13px;line-height:1.4;color:var(--mist);margin-top:3px}
 .gm-row:disabled{opacity:.42;cursor:default}
 
@@ -102,12 +105,12 @@ const CSS = `
   background:radial-gradient(ellipse at 50% 40%,#10202c 0%,#050b11 75%)}
 .gs-sheet{position:relative;width:min(760px,92vw);max-height:90vh;overflow:auto;
   background-color:var(--paper);
-  background-image:repeating-linear-gradient(0deg,transparent 0 27px,rgba(30,27,22,.075) 27px 28px);
-  color:var(--ink);padding:40px 48px 40px 78px;box-shadow:0 34px 90px rgba(0,0,0,.7);
-  transform:rotate(-.35deg);font-size:15px;line-height:28px}
-.gs-sheet::before{content:"";position:absolute;left:46px;top:0;bottom:0;width:2px;background:rgba(194,54,43,.4)}
+  border-radius:var(--game-radius);border-top:3px solid var(--stamp);box-sizing:border-box;
+  color:var(--ink);padding:32px 40px;box-shadow:0 34px 90px rgba(0,0,0,.7);
+  font-size:14px;line-height:1.7}
+.gs-sheet::before{display:none;content:"";position:absolute;left:46px;top:0;bottom:0;width:2px;background:rgba(194,54,43,.4)}
 .gs-sheet p{margin:0 0 28px}
-.gs-h{margin:0 0 28px;font-family:var(--disp);font-weight:900;font-size:46px;line-height:56px;
+.gs-h{margin:0 0 28px;font-family:var(--disp);font-weight:700;font-size:32px;line-height:1.2;
   text-transform:uppercase;letter-spacing:.01em}
 .gs-sheet b{font-weight:700}
 .gs-keys{display:grid;grid-template-columns:150px 1fr;margin:0 0 28px}
@@ -115,7 +118,7 @@ const CSS = `
 .gs-keys dd{margin:0}
 .gs-sheet kbd{font:700 12px/18px var(--type);padding:0 7px;border:1px solid var(--ink);border-bottom-width:3px;
   border-radius:3px;background:var(--paper2)}
-.gs-pill{display:inline-block;padding:9px 22px;line-height:1.2;background:transparent;border:1px solid currentColor;
+.gs-pill{border-radius:7px;min-height:36px;display:inline-block;padding:9px 22px;line-height:1.2;background:transparent;border:1px solid currentColor;
   letter-spacing:.04em;transition:background .15s,color .15s}
 .gs-sheet .gs-pill{border:2px solid var(--ink);color:var(--ink);font-weight:700}
 .gs-sheet .gs-pill:hover{background:var(--ink);color:var(--paper)}
@@ -129,7 +132,7 @@ const CSS = `
 .gs-sheet input[type=checkbox]{-webkit-appearance:none;appearance:none;width:26px;height:26px;margin:0;border:2px solid var(--ink);background:transparent;position:relative;cursor:pointer}
 .gs-sheet input[type=checkbox]:checked::after{content:"";position:absolute;inset:3px;background:var(--stamp)}
 .gs-sheet :focus-visible{outline-color:var(--stamp)}
-.gs-credit-list{margin:12px 0 28px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 24px}.gs-credit-list dt{font-weight:bold}.gs-credit-list dd{margin:0;overflow-wrap:anywhere}
+.gs-credit-list{margin:12px 0 28px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 24px}.gs-credit-list a{color:inherit;text-decoration:underline}.gs-credit-list strong{color:var(--stamp)}.gs-credit-list dt{font-weight:bold}.gs-credit-list dd{margin:0;overflow-wrap:anywhere}
 .gs-guide{border-top:1px solid rgba(30,27,22,.25);padding:14px 0}
 .gs-guide summary{cursor:pointer;font-weight:bold;line-height:1.5}
 .gs-guide summary:focus-visible{outline:2px solid var(--stamp);outline-offset:4px}
@@ -184,9 +187,9 @@ const CSS = `
 .gs-pill.quiet:hover{background:rgba(234,223,196,.1)}
 
 @media (max-width:640px){
-  .gs-sheet{padding:28px 22px 28px 52px}.gs-sheet::before{left:30px}
+  .gs-sheet{padding:24px}.gs-sheet::before{left:30px}
   .gs-keys,.gs-set{grid-template-columns:1fr}.gs-set output{text-align:left}
-  .gm-n{font-size:26px}.gm-row.primary .gm-n{font-size:34px}
+  .gm-n{font-size:16px}.gm-row.primary .gm-n{font-size:19px}
 }
 @media (prefers-reduced-motion:reduce){
   .gs-screen *,.gs-screen *::before,.gs-screen *::after{animation:none!important;transition:none!important}
@@ -680,9 +683,10 @@ export class GameShell {
           <dt><kbd>Shift</kbd> / <kbd>Space</kbd></dt><dd>Sprint / jump during exploration.</dd>
           <dt><kbd>V</kbd></dt><dd>Switch first / third person. Photography and scripted scenes control their own view.</dd>
           <dt><kbd>E</kbd></dt><dd>Look at an object, move close enough for its prompt, then interact.</dd>
-          <dt><kbd>Q</kbd> + click</dt><dd>Office and lab: raise the camera, centre the subject and left-click to photograph. Scroll to zoom; Q lowers it.</dd>
+          <dt><kbd>Q</kbd> + click</dt><dd>Level 1 only: raise the camera, centre the subject and left-click to photograph. Scroll to zoom; Q lowers it.</dd>
           <dt><kbd>Esc</kbd></dt><dd>Close a lab device or report; otherwise release the mouse. Click the scene to look and move again.</dd>
           <dt><kbd>P</kbd></dt><dd>Pause / resume. The pause button also opens the menu.</dd>
+          <dt><kbd>X</kbd></dt><dd>Level 2: spin the phone or UV wand you are carrying.</dd>
           <dt><kbd>R</kbd></dt><dd>Restart the current level. Current level actions must be repeated.</dd>
         </dl>
         <details class="gs-guide" open>
@@ -699,22 +703,22 @@ export class GameShell {
           <summary>Level 2 — Examine the evidence</summary>
           <p><b>Your goal:</b> finish four reports, sign all four pages, then deliver the file to the captain. Examining an item alone does not file its report.</p>
           <ol>
-            <li><b>Arrive:</b> enter the station, greet Mokoena at reception on the left with E, then enter the marked lab. No conversation or initial captain visit is needed.</li>
+            <li><b>Arrive:</b> start in the passage between the lab and captain’s office, then enter the marked lab on the left. No conversation or initial captain visit is needed.</li>
             <li><b>Prepare:</b> sign the intake sheet and put on gloves at the dispenser.</li>
-            <li><b>Work:</b> follow the HUD’s <b>NEXT</b> instruction. The four benches are digital forensics, trace evidence, biology, and scene reconstruction.</li>
-            <li><b>Finish each bench:</b> examine → photograph the required subject → file the report. While a machine runs, you can work at another bench.</li>
+            <li><b>Work:</b> press <b>H</b> if you want step-by-step guidance. The four benches are digital forensics, trace evidence, biology, and scene reconstruction.</li>
+            <li><b>Finish each bench:</b> examine → record the findings → file the report. While a machine runs, you can work at another bench.</li>
             <li><b>Deliver:</b> use E on the folder at the report table and click <b>Sign page</b> on all four reports. Go to the captain’s office on the right and press E to deliver. The acknowledgement leads directly to Level 3.</li>
           </ol>
-          <p><b>FIELD TRAINING:</b> follow the amber marker and the one-step instruction card. Device controls are outlined when needed, and the guide advances when you complete the action. Press <b>H</b> to hide or restore guidance. You still make the comparisons and conclusions yourself.</p>
-          <p><b>Lab controls:</b> E opens benches and devices; use the mouse on their buttons. Esc closes them. Q takes photographs in the room. Open the folder with <b>E at the report table</b>, not C. Use the lab’s physical UV wand and light controls, not the office’s F shortcut.</p>
+          <p><b>LAB HELP:</b> guidance starts off. Press <b>H</b> to show the objective, route marker and highlighted device controls; press H again to hide them. The objective advances when you complete the action. You still make the comparisons and conclusions yourself.</p>
+          <p><b>Lab controls:</b> E opens benches and devices; use the mouse on their buttons. Esc closes them. Open the folder with <b>E at the report table</b>, not C. Use the lab’s physical UV wand and light controls, not the office’s F shortcut.</p>
           <details class="gs-guide">
-            <summary>Phone — shield, unlock, read, photograph, file</summary>
+            <summary>Phone — shield, unlock, read, file</summary>
             <ol>
               <li>Lift the phone from intake, place it in the <b>Faraday box</b> (radio shielding), take it out and seat it in the cradle.</li>
               <li>Open the examiner laptop. Type <code>cat README.txt</code> for its instructions. Recover the PIN here instead of guessing on the handset.</li>
               <li>Enter the recovered PIN on the phone and turn <b>airplane mode on immediately</b>. Three wrong PIN attempts, or leaving the unlocked phone connected to the network too long, can wipe it.</li>
               <li>Read Messages, Maps and Contacts. Scroll inside the apps and use their <b>flag</b> buttons to record the relevant entries.</li>
-              <li>Close the device, photograph the laptop display with the recovered PIN, then reopen the phone and <b>Log digital report</b>.</li>
+              <li>Once you have read and flagged the required phone evidence, select <b>Log digital report</b>.</li>
             </ol>
             <details class="gs-guide"><summary>Need help with the laptop commands?</summary>
               <p>This is an in-game terminal. Enter each command and wait for its output:</p>
@@ -726,23 +730,22 @@ hashcat --show lock.hash</pre>
           </details>
           <details class="gs-guide">
             <summary>Trace evidence — compare under the microscope</summary>
-            <p>Place the strand and cover slip. Open the eyepiece, adjust focus and magnification, and follow its comparison checklist. Record verdicts on at least two references and choose your final claim. Photograph the microscope, then return to the bench to file the trace page. Inspect the guest glass with the lab UV wand too; observations belong in your investigation, not guesses about the culprit.</p>
+            <p>Place the strand and cover slip. Open the eyepiece, adjust focus and magnification, and follow its comparison checklist. Record verdicts on at least two references and choose your final claim. File the trace page after completing the comparison. Inspect the guest glass with the lab UV wand too; observations belong in your investigation, not guesses about the culprit.</p>
             <p>For physical microscope knobs, E selects a knob; move the mouse or scroll to adjust it. E or Esc releases it.</p>
           </details>
           <details class="gs-guide">
             <summary>Biology — prepare and compare the sample</summary>
-            <p>Cut the swatch, add the lysis treatment, load the cartridge and start the sequencer. When it finishes, use MATCH and read the comparison. Close the panel, photograph the sequencer, then return to log the DNA report.</p>
+            <p>Cut the swatch and add the lysis treatment. Open the analyser’s lower compartment, load the cartridge, close the door and press E at its keyboard to start. When it finishes, use the keyboard again to compare references and read the screen. Then log the DNA report.</p>
           </details>
           <details class="gs-guide">
             <summary>Scene reconstruction — inspect the original exhibits</summary>
-            <p>Examine the casing in its tray and the working copy of the UV-trail photograph. Photograph both subjects in the lab, then use the reconstruction clipboard to file the report. This is a lab examination, not the removed Level 1 ordering puzzle.</p>
+            <p>Examine the casing in its tray. Switch off the lab lights, pick up the UV wand, then inspect the recorded floor-surface reconstruction. Then use the reconstruction clipboard to file the report. This is a lab examination, not the removed Level 1 ordering puzzle.</p>
           </details>
           <details class="gs-guide">
             <summary>Stuck? Check these first</summary>
             <ul>
-              <li><b>No E prompt:</b> lower the camera, close any panel, move closer and aim at the item.</li>
-              <li><b>Cannot take a photo:</b> Esc out of the device, click the room to capture the mouse, then use Q. Centre the actual exhibit or machine and move closer for a sharp shot.</li>
-              <li><b>Report button disabled:</b> check the panel’s missing requirements. Reading, flagging, choosing a verdict and taking a sharp photograph are separate steps.</li>
+              <li><b>No E prompt:</b> close any panel, move closer and aim at the item.</li>
+              <li><b>Report button disabled:</b> check the panel’s missing requirements. Complete the required reading, flags or comparison verdicts before filing.</li>
               <li><b>Captain will not accept the file:</b> check that all four reports exist and each page is signed at the report table.</li>
               <li><b>Phone wiped:</b> restart the level with R if you want to recover its evidence. Shield it and enable airplane mode promptly on the next attempt.</li>
             </ul>
@@ -802,32 +805,10 @@ hashcat --show lock.hash</pre>
         <p>Busisiwe Mnguni — Level 1<br>Sibusiso Ndunge — Level 2<br>Pumelela Mapukata — Level 3</p>
         <h3>Story</h3>
         <p>Dr. T. Nkosi, the five witnesses and the case behind them. Procedural killer, clues and alibis — different every run.</p>
-        <h3>Level 1 — The office</h3>
-        <dl class="gs-credit-list">
-          <dt>Professor &amp; detective characters and poses</dt><dd>Mixamo (Adobe)</dd>
-          <dt>Music</dt><dd>OpenGameArt.org</dd>
-          <dt>Room, furniture, textures &amp; lighting</dt><dd>Made in code by the team</dd>
-        </dl>
-        <h3>Level 2 — The police station</h3>
-        <dl class="gs-credit-list">
-          <dt>Bricks, wall, carpet, wood floor, road &amp; painted plaster</dt><dd>struffelproductions</dd>
-          <dt>Police vehicle</dt><dd>low-poly.com</dd>
-          <dt>Furniture</dt><dd>Sketchfab</dd>
-          <dt>Music</dt><dd>freemusic</dd>
-          <dt>Sky</dt><dd>CGTrader</dd>
-        </dl>
-        <h3>Level 3 — The chase through Genesis</h3>
-        <dl class="gs-credit-list">
-          <dt>Street lights</dt><dd>Sketchfab</dd>
-          <dt>Music</dt><dd>freemusic</dd>
-          <dt>Textures</dt><dd>Images found on Google</dd>
-          <dt>Detective &amp; suspect characters and animations</dt><dd>Mixamo (Adobe)</dd>
-          <dt>Obstacles, chase effects &amp; sound effects</dt><dd>Made in code by the team</dd>
-        </dl>
-        <h3>Other music &amp; audio</h3>
-        <p>OpenGameArt.org. The music for each level is credited in that level's section above.</p>
-        <h3>Tools</h3>
-        <p>Three.js, Howler.js and Vite. Type set in Big Shoulders Display and Courier Prime.</p>
+        ${renderAssetCredits()}
+        <h3>Development assistance</h3>
+        <p>OpenAI ChatGPT/Codex assisted implementation, debugging, optimisation and attribution research. The team reviews and maintains the submitted game.</p>
+        <p><a href="./ASSET-CREDITS.md" target="_blank" rel="noopener noreferrer">Asset credits and source records</a><br><a href="./THIRD-PARTY-LICENSES.txt" target="_blank" rel="noopener noreferrer">Library licence notices</a></p>
         <p class="gs-faint">Thanks for playing detective.</p>
         <button class="gs-btn gs-pill" id="gs-cr-back">Back</button>
       </div></div>`);

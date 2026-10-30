@@ -8,7 +8,7 @@ export function styleLevelUI(level, number) {
     if (node instanceof HTMLElement && node.tagName !== 'STYLE') node.classList.add('game-layer');
   }
   const roles = {
-    counter: 'status', objective: 'subtitle', quest: 'objective',
+    timer: 'timer', counter: 'status', objective: 'subtitle', quest: 'objective',
     prompt: 'prompt', toast: 'toast', carry: 'carry', hint: 'controls',
     overlay: 'file', overlayInner: 'sheet', device: 'modal', captain: 'modal',
     captainInner: 'dialogue', case: 'modal', outro: 'modal', recon: 'modal',

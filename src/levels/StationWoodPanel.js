@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 export const WOOD_PANEL = {
-  url: '/assets/models/station/wood_wall.glb',
+  url: './assets/models/station/wood_wall.glb',
   height: 1.2,          // wood from the floor up to here; brick above
   tint: 0xb4804d,       // the GLB colour map is grayscale, so this is the wood colour
   rail: 0x3a2a1e,       // cap rail + skirting

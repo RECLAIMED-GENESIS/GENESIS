@@ -6,6 +6,7 @@ export class LabCoach {
   constructor(level) {
     this.level = level;
     this.enabled = true;
+    this.expanded = false;
     this.elapsed = 0;
     this.last = '';
     this.highlights = [];
@@ -13,8 +14,10 @@ export class LabCoach {
     level.level.traverse(o => { if (o.userData.interact) this.targets.push(o); });
     const card = document.createElement('aside');
     card.className = 'lab-coach game-layer';
-    card.setAttribute('aria-label', 'Lab field training');
-    card.innerHTML = '<div class="lc-kicker">FIELD TRAINING <span class="lc-progress"></span></div><h3></h3><p class="lc-instruction" aria-live="polite"></p><code hidden></code><div class="lc-navigation"></div><small>Complete the action to continue · H toggles guidance</small>';
+    card.setAttribute('aria-label', 'Current objective');
+    card.id = 'lab-guidance';
+    card.hidden = true;
+    card.innerHTML = '<div class="lc-kicker">NEXT OBJECTIVE <span class="lc-progress"></span></div><h3></h3><p class="lc-instruction" aria-live="polite"></p><code hidden></code><div class="lc-navigation"></div><small>H to collapse help</small>';
     this.card = level.ui.coach = card;
     this.title = card.querySelector('h3');
     this.text = card.querySelector('p');
@@ -23,8 +26,9 @@ export class LabCoach {
     this.progress = card.querySelector('.lc-progress');
     const toggle = document.createElement('button');
     toggle.className = 'lab-guide-toggle game-layer';
-    toggle.textContent = 'H · Guidance on';
-    toggle.setAttribute('aria-pressed', 'true');
+    toggle.innerHTML = '<kbd>H</kbd> Help';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', 'lab-guidance');
     toggle.addEventListener('click', () => this.toggle());
     this.button = level.ui.coachToggle = toggle;
     document.body.append(card, toggle);
@@ -37,16 +41,14 @@ export class LabCoach {
     this.position = new THREE.Vector3();
   }
   toggle() {
-    this.enabled = !this.enabled;
-    this.card.hidden = !this.enabled;
-    this.button.textContent = this.enabled ? 'H · Guidance on' : 'H · Guidance off';
-    this.button.setAttribute('aria-pressed', String(this.enabled));
-    this.level.ui.quest.style.visibility = this.enabled ? 'hidden' : '';
-    this.marker.visible = false;
+    this.expanded = !this.expanded;
+    this.card.classList.toggle('lc-expanded', this.expanded);
+    this.button.innerHTML = this.expanded ? '<kbd>H</kbd> Hide help' : '<kbd>H</kbd> Help';
+    this.button.setAttribute('aria-expanded', String(this.expanded));
     this.clearHighlights();
-    document.body.classList.remove('lab-coach-panel');
-    this.last = '';
+    this.update(0, this.player);
   }
+
   clearHighlights() {
     for (const node of this.highlights) node.classList.remove('lab-coach-target');
     this.highlights = [];
@@ -54,9 +56,12 @@ export class LabCoach {
   update(dt, player) {
     if (!this.enabled) return;
     const L = this.level;
+    this.player = player;
     L.ui.quest.style.visibility = 'hidden';
     const busy = L._uiBusy();
-    document.body.classList.toggle('lab-coach-panel', busy);
+    document.body.classList.toggle('lab-coach-panel', busy && this.expanded);
+    document.body.dataset.labPanel = String(busy || !!L._captainTalking);
+    this.card.hidden = !this.expanded || !!L._captainTalking;
     this.card.classList.toggle('lc-in-panel', busy);
     const step = nextLabStep(L);
     const key = `${step.id}:${Object.keys(L.reports).length}`;
@@ -69,21 +74,22 @@ export class LabCoach {
       this.progress.textContent = `${Object.keys(L.reports).length}/4 reports filed`;
       this.last = key;
     }
+    this.command.hidden = !step.command;
+    if (this.text.textContent !== step.text) this.text.textContent = step.text;
     // Device panels rebuild after each action. Refresh outlines without changing focus.
     this.elapsed += dt;
     if (this.elapsed >= .15) {
       this.elapsed = 0;
       this.clearHighlights();
-      if (busy && step.selector) {
+      if (busy && this.expanded && step.selector) {
         this.highlights = [...document.querySelectorAll(step.selector)].filter(n => n.getClientRects().length && !n.disabled);
         for (const node of this.highlights) node.classList.add('lab-coach-target');
       }
     }
-    const target = this.targets.find(o => o.userData.interact.kind === step.target);
-    this.marker.visible = !!target && !busy;
+    const target = this.targets.find(o => o.userData.interact?.kind === step.target);
+    this.marker.visible = this.expanded && !!target && !busy && !L._captainTalking;
     if (!target || !player) { this.nav.textContent = step.remaining !== undefined ? `Sequencer: ${step.remaining}s remaining` : ''; return; }
     target.getWorldPosition(this.position);
-    if (step.photo) L._ptargets.find(p => p.id === step.photo)?.getPos(this.position);
     let route = '';
     // Route through real doorways instead of pointing players through walls.
     if (player.pos.z > 19.6 && this.position.z < 19) {
@@ -109,6 +115,7 @@ export class LabCoach {
   dispose() {
     this.clearHighlights();
     document.body.classList.remove('lab-coach-panel');
+    delete document.body.dataset.labPanel;
     this.marker.removeFromParent();
     this.marker.geometry.dispose(); this.marker.material.dispose();
     this.card.remove(); this.button.remove();

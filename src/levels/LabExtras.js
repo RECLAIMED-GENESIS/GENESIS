@@ -13,6 +13,7 @@
 //      for filing the report.
 // ============================================================
 import * as THREE from 'three';
+import { dressFridge, interactAppliance, dnaCanRun } from './LabAppliances.js';
 import { SUSPECTS, IDS } from '../game/case.js';
 import { getStats } from '../game/stats.js';
 import { play as sfx } from '../audio/sfx.js';
@@ -76,7 +77,7 @@ const extras = {
 
   _buildLabProps() {
     const L = this.level;
-    const wood = this._std(0x7a6a52, 0.75, 0.05), steel = this._std(0x9aa3ad, 0.35, 0.7), white = this._std(0xe6e9ec, 0.5, 0.1);
+    const wood = this._std(0x78918b, 0.65, 0.08), steel = this._std(0x9aa3ad, 0.35, 0.7), white = this._std(0xe6e9ec, 0.5, 0.1);
     const dark = this._std(0x23272e, 0.6, 0.3);
     const block = (x0, x1, z0, z1, h = 2.4) => this.colliders.push(new THREE.Box3(new THREE.Vector3(x0, 0, z0), new THREE.Vector3(x1, h, z1)));
 
@@ -86,11 +87,11 @@ const extras = {
     this._box(cab, 0.5, 2.1, 0.04, wood, 0, 1.05, -1.1); this._box(cab, 0.5, 2.1, 0.04, wood, 0, 1.05, 1.1);
     const shelfY = [0.25, 0.85, 1.45, 2.05];
     shelfY.forEach((y) => this._box(cab, 0.5, 0.04, 2.2, wood, 0, y, 0));
-    this._cabHits = [];
+    this._cabHits = [];this._chemBottles=[];
     let bi = 0;
     [0.25, 0.85, 1.45].forEach((y, row) => {
       for (let i = 0; i < 6; i++) {
-        this._bottle(cab, 0.02, y + 0.02, -0.9 + i * 0.36, bi++, -Math.PI / 2);
+        this._chemBottles.push(this._bottle(cab, 0.02, y + 0.02, -0.9 + i * 0.36, bi++, -Math.PI / 2));
       }
       this._hit(9.6, y + 0.22, -0.4, 0.5, 0.5, 2.2, { kind: 'chemshelf', row, i: 0 });
     });
@@ -121,11 +122,6 @@ const extras = {
     this._box(fr, 0.7, 1.9, 0.04, white, 0, 0.95, -0.33); this._box(fr, 0.7, 1.9, 0.04, white, 0, 0.95, 0.33);
     this._box(fr, 0.7, 0.04, 0.7, white, 0, 1.9, 0); this._box(fr, 0.7, 0.04, 0.7, white, 0, 0.02, 0);
     [0.5, 0.95, 1.4].forEach((y) => this._box(fr, 0.62, 0.025, 0.62, steel, 0, y, 0));
-    const capCols = [0xa1241c, 0xe8c84a, 0x2a5f80, 0x3fa87a];
-    for (let s = 0; s < 3; s++) for (let i = 0; i < 6; i++) {
-      const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.1, 8), new THREE.MeshStandardMaterial({ color: capCols[(s + i) % 4], roughness: 0.5 }));
-      tube.position.set(-0.2 + (i % 3) * 0.17, 0.57 + s * 0.45, -0.15 + Math.floor(i / 3) * 0.3); fr.add(tube);
-    }
     this._fridgeDoor = new THREE.Group(); this._fridgeDoor.position.set(0.34, 0, -0.35); fr.add(this._fridgeDoor);
     this._box(this._fridgeDoor, 0.05, 1.86, 0.7, white, 0, 0.95, 0.35);
     this._box(this._fridgeDoor, 0.04, 0.5, 0.04, steel, 0.05, 1.1, 0.6);
@@ -136,14 +132,25 @@ const extras = {
     const tagM = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.13), new THREE.MeshBasicMaterial({ map: tag.tex }));
     tagM.rotation.y = Math.PI / 2; tagM.position.set(0.08, 1.4, 0.35); tagM.userData.noShadow = true; this._fridgeDoor.add(tagM);
     this._fridgeOpen = false;
+    dressFridge(this,fr);
+    // The swung-open door leaves the cabinet hitbox, so the door itself is
+    // clickable too — otherwise the fridge can be opened but not closed.
+    this._fridgeDoor.traverse((o) => { if (o.isMesh) o.userData.interact = { kind: 'fridge' }; });
     this._hit(-9.05, 1.0, -0.9, 0.5, 1.8, 0.8, { kind: 'fridge' });
     block(-9.8, -9.05, -1.25, -0.55, 1.95);
 
     // ---- sink counter + eyewash (west wall) ----
     const sink = new THREE.Group(); sink.position.set(-9.6, 0, -5.4); L.add(sink);
-    this._box(sink, 0.6, 0.9, 1.4, white, 0, 0.45, 0);
-    this._box(sink, 0.62, 0.04, 1.42, dark, 0, 0.92, 0);
-    this._box(sink, 0.4, 0.03, 0.55, steel, 0.02, 0.945, -0.25);
+    this._box(sink, 0.6, 0.78, 1.4, white, 0, 0.39, 0);
+    for(const x of [-.26,.28])this._box(sink,.1,.04,1.42,dark,x,.92,0);
+    this._box(sink,.46,.04,.22,dark,.01,.92,-.6);this._box(sink,.46,.04,.66,dark,.01,.92,.38);
+    this._box(sink,.4,.02,.55,steel,.02,.83,-.25);
+    for(const x of [-.18,.22])this._box(sink,.015,.1,.55,steel,x,.88,-.25);
+    for(const z of [-.525,.025])this._box(sink,.4,.1,.015,steel,.02,.88,z);
+    this._waterStream=new THREE.Mesh(new THREE.CylinderGeometry(.006,.009,.36,10),new THREE.MeshStandardMaterial({color:0xa6d4df,transparent:true,opacity:.55,roughness:.1}));
+    this._waterStream.position.set(-.04,1.04,-.25);sink.add(this._waterStream);this._waterStream.visible=false;
+    this._waterRipple=new THREE.Mesh(new THREE.RingGeometry(.025,.035,24),new THREE.MeshBasicMaterial({color:0xb9e1eb,transparent:true,opacity:.3,side:THREE.DoubleSide}));
+    this._waterRipple.rotation.x=-Math.PI/2;this._waterRipple.position.set(-.04,.845,-.25);sink.add(this._waterRipple);this._waterRipple.visible=false;
     const fct = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.3, 8), steel); fct.position.set(-0.2, 1.1, -0.25); sink.add(fct);
     this._box(sink, 0.18, 0.03, 0.03, steel, -0.12, 1.25, -0.25);
     const ew = new THREE.Group(); ew.position.set(-9.88, 1.15, -4.1); L.add(ew);
@@ -162,20 +169,26 @@ const extras = {
     this._box(this._centri, 0.5, 0.22, 0.46, this._std(0xc5ccd4, 0.4, 0.4), 0, 0.11, 0);
     this._centriLid = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.06, 20), this._std(0x3a3f47, 0.4, 0.6));
     this._centriLid.position.set(0, 0.25, 0); this._centri.add(this._centriLid);
-    this._rotor = new THREE.Group(); this._rotor.position.set(0, 0.25, 0); this._centri.add(this._rotor);
+    this._rotor = new THREE.Group(); this._rotor.position.set(0, 0.235, 0); this._centri.add(this._rotor);
     this._rotor.visible = false;
     this._box(this._rotor, 0.34, 0.02, 0.04, steel, 0, 0, 0); this._box(this._rotor, 0.04, 0.02, 0.34, steel, 0, 0, 0);
+    for(let i=0;i<4;i++){const angle=i*Math.PI/2;const tube=new THREE.Mesh(new THREE.CylinderGeometry(.025,.018,.045,12),this._std(0x548694));tube.position.set(Math.cos(angle)*.12,0,Math.sin(angle)*.12);this._rotor.add(tube);}
     this._centriSpin = 0;
     // pipette rack
     this._box(pc, 0.4, 0.04, 0.2, dark, -0.1, 0.96, 0.05);
+    this._pipettes=[];
     for (let i = 0; i < 4; i++) {
       const p = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.01, 0.3, 8), this._std([0xe8c84a, 0x2a5f80, 0xa1241c, 0x3fa87a][i], 0.5, 0.1));
-      p.position.set(-0.24 + i * 0.09, 1.12, 0.05); pc.add(p);
+      p.position.set(-0.24 + i * 0.09, 1.12, 0.05); pc.add(p);this._pipettes.push(p);
     }
     // balance
     this._box(pc, 0.32, 0.06, 0.26, this._std(0xd8dce0, 0.4, 0.4), 0.55, 0.97, 0);
     this._box(pc, 0.18, 0.012, 0.18, steel, 0.55, 1.015, 0);
     this._balDisp = this._box(pc, 0.12, 0.04, 0.02, this._std(0x0a141c, 0.3, 0.2), 0.55, 0.98, 0.14);
+    this._balanceWeight=new THREE.Mesh(new THREE.CylinderGeometry(.035,.04,.07,16),steel);this._balanceWeight.position.set(.55,1.2,0);pc.add(this._balanceWeight);
+    const balance=canvasTex(256,80,()=>{});this._balanceTex=balance.tex;
+    this._balDisp.material=new THREE.MeshBasicMaterial({map:balance.tex});
+    this._drawBalance=()=>{const g=balance.ctx;g.fillStyle='#112b29';g.fillRect(0,0,256,80);g.fillStyle='#b8e2c7';g.font='bold 45px monospace';g.fillText(this._balanceLoaded?'10.000 g':'0.000 g',10,57);balance.tex.needsUpdate=true;};this._drawBalance();
     // flasks
     for (let i = 0; i < 3; i++) {
       const fl = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.24, 14), new THREE.MeshStandardMaterial({ color: [0xbfe6ff, 0xf0d8a0, 0xd8f0c8][i], transparent: true, opacity: 0.5, roughness: 0.1 }));
@@ -188,7 +201,7 @@ const extras = {
     // wall shelf over the counter with more reagents
     const ws = new THREE.Group(); ws.position.set(-8.0, 1.75, -6.85); L.add(ws);
     this._box(ws, 2.6, 0.04, 0.26, wood, 0, 0, 0);
-    for (let i = 0; i < 7; i++) this._bottle(ws, -1.1 + i * 0.36, 0.02, 0, 6 + i * 2, 0);
+    for (let i = 0; i < 7; i++) this._chemBottles.push(this._bottle(ws, -1.1 + i * 0.36, 0.02, 0, 6 + i * 2, 0));
     this._hit(-8.0, 2.0, -6.8, 2.6, 0.5, 0.35, { kind: 'chemshelf', row: 3, i: 0 });
 
     // ---- whiteboard (south wall) ----
@@ -215,9 +228,11 @@ const extras = {
       this._box(L, 0.5, 1.0, 0.12, white, 6.4 + i * 0.7, 1.4, 6.9);
       this._box(L, 0.04, 0.04, 0.12, steel, 6.4 + i * 0.7, 1.95, 6.9);
     }
-    const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.24, 0.7, 16), this._std(0xa1241c, 0.5, 0.1));
+    const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.24, 0.7, 16,1,true), new THREE.MeshStandardMaterial({color:0xa1241c,roughness:.65,side:THREE.DoubleSide}));
     bin.position.set(9.2, 0.35, 6.3); L.add(bin);
-    this._box(L, 0.4, 0.04, 0.4, this._std(0x1c1f25, 0.5, 0.2), 9.2, 0.72, 6.3);
+    this._box(L,.3,.06,.3,dark,9.2,.12,6.3);
+    this._binHinge=new THREE.Group();this._binHinge.position.set(9.2,.72,6.08);L.add(this._binHinge);
+    this._box(this._binHinge,.48,.035,.48,this._std(0x1c1f25,.5,.2),0,0,.22);
     this._hit(9.2, 0.5, 6.3, 0.7, 1.0, 0.7, { kind: 'bin' });
     block(8.9, 9.5, 6.0, 6.6, 0.8);
     [[-9.4, 6.4, 0x2a6a9a], [-9.0, 6.5, 0x5a6a5a]].forEach(([x, z, col]) => {
@@ -278,8 +293,10 @@ const extras = {
     this._coverSrc = new THREE.Group(); this._coverSrc.position.set(7.98, 0.962, 2.22); L.add(this._coverSrc);
     this._box(this._coverSrc, 0.1, 0.008, 0.1, new THREE.MeshStandardMaterial({ color: 0xcfe8f4, transparent: true, opacity: 0.5, roughness: 0.05 }), 0, 0, 0);
     this._hit(7.98, 1.0, 2.22, 0.2, 0.2, 0.2, { kind: 'cover' });
-    this._strandOn = this._box(L, 0.14, 0.003, 0.012, std(0x4a2c17, 0.9, 0), 6.1, 0.975, 1.6); this._strandOn.visible = false;
-    this._coverOn = this._box(L, 0.1, 0.008, 0.1, new THREE.MeshStandardMaterial({ color: 0xcfe8f4, transparent: true, opacity: 0.5, roughness: 0.05 }), 6.1, 0.98, 1.6); this._coverOn.visible = false;
+    this._box(L,.28,.025,.23,std(0x283338,.5,.5),6.1,1.22,1.6);
+    this._strandOn = this._box(L, 0.14, 0.003, 0.012, std(0x4a2c17, 0.9, 0), 6.1, 1.24, 1.6); this._strandOn.visible = false;
+    this._box(this._strandOn,.2,.004,.14,new THREE.MeshStandardMaterial({color:0xcfe8f4,transparent:true,opacity:.5,roughness:.12}),0,-.004,0);
+    this._coverOn = this._box(L, 0.1, 0.008, 0.1, new THREE.MeshStandardMaterial({ color: 0xcfe8f4, transparent: true, opacity: 0.5, roughness: 0.05 }), 6.1, 1.245, 1.6); this._coverOn.visible = false;
     const glass = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.04, 0.11, 14), new THREE.MeshStandardMaterial({ color: 0xdfe9ee, transparent: true, opacity: 0.45, roughness: 0.05 }));
     glass.position.set(8.1, 1.02, 1.2); L.add(glass);
     this._glassProp = glass;
@@ -295,12 +312,17 @@ const extras = {
     this._box(this._linen, 0.24, 0.01, 0.2, std(0xf4f0e6, 0.95, 0), 0, 0, 0);
     this._box(this._linen, 0.07, 0.012, 0.06, std(0x7a1a1a, 0.9, 0), 0.04, 0.003, -0.02);
     this._hit(-6.65, 1.0, -2.0, 0.34, 0.2, 0.3, { kind: 'cut' });
-    this._swatch = this._box(L, 0.05, 0.01, 0.04, std(0x7a1a1a, 0.9, 0), -6.1, 1.0, -2.1); this._swatch.visible = false;
+    this._swatch = this._box(L, 0.05, 0.01, 0.04, std(0x7a1a1a, 0.9, 0), -6.35, .97, -2.1); this._swatch.visible = false;
+    const tube=new THREE.Mesh(new THREE.CylinderGeometry(.04,.033,.15,16,1,true),new THREE.MeshStandardMaterial({color:0xd4e8ea,transparent:true,opacity:.3,depthWrite:false,side:THREE.DoubleSide,roughness:.12}));
+    tube.name='Open lysis tube';tube.position.set(-6.1,1.035,-2.1);L.add(tube);
+    this._lysisFluid=new THREE.Mesh(new THREE.CylinderGeometry(.031,.028,.06,16),std(0xa3cad0,.3,0));
+    this._lysisFluid.position.set(-6.1,.995,-2.1);L.add(this._lysisFluid);
     this._hit(-6.1, 1.0, -2.1, 0.5, 0.35, 0.3, { kind: 'lysis' });
     this._cartridgeHit = this._hit(-5.5, 1.0, -2.9, 0.4, 0.25, 0.3, { kind: 'cartridge' });
+    this._legacyDnaButtons=[];this._legacyDnaControls=[];
     const btn = (x, col, kind) => {
-      this._box(L, 0.1, 0.05, 0.05, std(col, 0.4, 0.2), x, 1.18, -2.08);
-      this._hit(x, 1.18, -2.06, 0.14, 0.12, 0.1, { kind });
+      this._legacyDnaButtons.push(this._box(L, 0.1, 0.05, 0.05, std(col, 0.4, 0.2), x, 1.18, -2.08));
+      this._legacyDnaControls.push(this._hit(x, 1.18, -2.06, 0.14, 0.12, 0.1, { kind }));
     };
     btn(-7.7, 0x2a9d6a, 'seqrun'); btn(-7.54, 0x2a5f80, 'seqmatch');
     this._box(L, 0.3, 0.015, 0.22, std(0x8a6a3a, 0.8, 0.1), -8.2, 0.97, -2.4);
@@ -334,9 +356,10 @@ const extras = {
     if (this._coverSrc) this._coverSrc.visible = !t.cover;
     if (this._coverOn) this._coverOn.visible = !!t.cover;
     if (this._linen) this._linen.visible = true;
-    if (this._swatch) this._swatch.visible = !!b.cut && !b.loaded;
+    if (this._swatch) this._swatch.visible = !!b.cut && !b.lysis;
+    this._lysisFluid?.material.color.setHex(b.lysis ? 0x986a72 : 0xa3cad0);
     if (this._cartridgeMesh) {
-      if (b.loaded) this._cartridgeMesh.position.set(-0.5, 1.12, 0.52);
+      if (b.loaded) { if(this._dnaSeat)this._cartridgeMesh.position.copy(this._cartridgeMesh.parent.worldToLocal(this._dnaSeat.clone()));else this._cartridgeMesh.position.set(-0.5, 1.12, 0.52); }
       else this._cartridgeMesh.position.set(1.3, 0.99, -0.3);
     }
     this._drawLaptop();
@@ -345,17 +368,17 @@ const extras = {
       const prog = b.ready ? 1 : b.running ? Math.min(1, b.t / 180) : b.loaded ? 0.1 : 0;
       const n = Math.floor(this._helixPairs.length * prog);
       this._helixPairs.forEach((p, i) => { p.visible = i < n; });
-      this._helix.visible = n > 0;
+      this._helix.visible = !this._dnaModel && n > 0;
       if (this._helixRung) this._helixRung.color.setHex(b.matched ? 0xffd36a : 0xcfe8ff);
     }
-    if (this._glassProp) { this._glassProp.material.emissive.setHex(0x6a4acf); this._glassProp.material.emissiveIntensity = t.glassUV ? 0.55 : 0; }
+    if (this._glassProp) { this._glassProp.material.emissive.setHex(0x6a4acf); this._glassProp.material.emissiveIntensity = 0; }
   },
 
   // ---------- blood → DNA: a double helix that builds above the sequencer as it reads ----------
   _buildHelix() {
     const L = this.level, N = 28, R = 0.07, STEP = 0.022;
     const baseMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.025, 24), new THREE.MeshStandardMaterial({ color: 0x1c2630, emissive: 0x2a5f80, emissiveIntensity: 0.8, roughness: 0.4, metalness: 0.5 }));
-    baseMesh.position.set(-6.3, 0.975, -2.95); L.add(baseMesh);
+    baseMesh.position.set(-6.3, 0.975, -2.95); L.add(baseMesh);this._helixBase=baseMesh;
     this._helix = new THREE.Group(); this._helix.position.set(-6.3, 1.03, -2.95); this._helix.visible = false; L.add(this._helix);
     const sphereG = new THREE.SphereGeometry(0.016, 10, 8);
     const matA = new THREE.MeshBasicMaterial({ color: 0x4aa8ff }), matB = new THREE.MeshBasicMaterial({ color: 0xffa24a });
@@ -369,76 +392,7 @@ const extras = {
       const rung = new THREE.Mesh(rungG, this._helixRung); rung.rotation.z = Math.PI / 2; pair.add(rung);
       this._helix.add(pair); this._helixPairs.push(pair);
     }
-    this._hit(-6.3, 1.3, -2.95, 0.3, 0.7, 0.3, { kind: 'helix' });
-  },
-
-  // ---------- guest glass: sweep the UV beam; lip print + fingerprint fluoresce under it ----------
-  _renderGlassScan() {
-    const t = this.trace, el = this.ui.deviceInner;
-    el.innerHTML =
-      '<div style="max-width:250px;font-size:12px;line-height:1.7;opacity:.9"><b>UV EXAMINATION \u2014 GUEST GLASS</b><br>Move the mouse: that is your wand beam. Prints only fluoresce where it passes.<br><br>\u2022 sweep the <b>rim</b> \u2014 lip print<br>\u2022 sweep the <b>side</b> \u2014 fingerprint<br><br><span id="lx-prog"></span><br><br><span style="opacity:.6">[Esc] set the wand down</span></div>' +
-      '<canvas id="lx-cv" width="420" height="520" style="background:#05060c;border:2px solid #2a2f4a;cursor:crosshair;max-height:84vh"></canvas>' +
-      '<div id="lx-res" style="max-width:290px;font-size:12px;line-height:1.7"></div>';
-    const cv = el.querySelector('#lx-cv'), ctx = cv.getContext('2d');
-    const mk = () => { const c = document.createElement('canvas'); c.width = 420; c.height = 520; return c; };
-    const printsCv = mk(), maskCv = mk(), tmpCv = mk();
-    const pg = printsCv.getContext('2d'), mg = maskCv.getContext('2d'), tg = tmpCv.getContext('2d');
-    const glassPath = (g) => {
-      g.beginPath(); g.moveTo(110, 80); g.lineTo(145, 440); g.quadraticCurveTo(210, 470, 275, 440); g.lineTo(310, 80); g.stroke();
-      g.beginPath(); g.ellipse(210, 80, 100, 16, 0, 0, Math.PI * 2); g.stroke();
-    };
-    // the prints themselves (drawn once, glowing violet)
-    pg.shadowColor = '#8a6aff'; pg.shadowBlur = 8; pg.strokeStyle = '#c4b0ff'; pg.lineWidth = 1.8;
-    for (let x = 118; x <= 302; x += 5) {                         // lip print: ridges running down from the rim
-      const u = (x - 210) / 100, y0 = 80 + 16 * Math.sqrt(Math.max(0, 1 - u * u));
-      pg.beginPath(); pg.moveTo(x, y0 + 2); pg.quadraticCurveTo(x + Math.sin(x * 1.7) * 3, y0 + 9, x + Math.sin(x * 0.9) * 2, y0 + 17 + (x % 3)); pg.stroke();
-    }
-    for (let r = 5; r <= 48; r += 4.5) {                          // fingerprint: partial loop
-      pg.beginPath(); pg.ellipse(240, 270, r * 0.78, r, -0.25, Math.PI * (-0.15 + r / 160), Math.PI * (1.25 - r / 220)); pg.stroke();
-    }
-    pg.fillStyle = '#e8dcff'; [[225, 250], [255, 262], [232, 290], [262, 285], [246, 305], [218, 272], [270, 250], [240, 240]].forEach(([x, y]) => { pg.beginPath(); pg.arc(x, y, 2.4, 0, 7); pg.fill(); });
-    for (let r = 4; r <= 30; r += 4.5) { pg.beginPath(); pg.ellipse(165, 345, r * 0.8, r, 0.4, Math.PI * 0.1, Math.PI * 0.95); pg.stroke(); } // smudged second print
-    // coverage bookkeeping
-    const lipCells = [], fingCells = [];
-    for (const cx of [160, 180, 200, 220, 240, 260]) for (const cy of [96, 108]) lipCells.push({ cx, cy, on: false });
-    for (const cx of [210, 230, 250, 270]) for (const cy of [245, 265, 285, 305]) fingCells.push({ cx, cy, on: false });
-    const prog = el.querySelector('#lx-prog'), res = el.querySelector('#lx-res');
-    const showRes = () => {
-      res.innerHTML = '<b>FINDINGS</b><br><br><b>Lip print (rim)</b><br>Partial, smeared \u2014 class characteristics only. Too degraded to compare against any known lip print.<br><br>' +
-        '<b>Fingerprint (side)</b><br>Partial loop, right index finger. <b>8 ridge characteristics</b> \u2014 an examiner needs about 12 to identify.<br>Dry, cracked skin: fissured, broken ridges.<br><br>' +
-        '<b style="color:#e8c84a">Insufficient for identification.</b><br>Consistent with whoever sat opposite him \u2014 but it names no one.';
-    };
-    const showProg = () => {
-      const a = lipCells.filter((c) => c.on).length, b = fingCells.filter((c) => c.on).length;
-      prog.innerHTML = 'rim ' + Math.round(a / lipCells.length * 100) + '% \u00b7 side ' + Math.round(b / fingCells.length * 100) + '%' + (t.glassUV ? '<br><b style="color:#7fd4a0">scan complete</b>' : '');
-    };
-    const render = (mx, my) => {
-      ctx.fillStyle = '#05060c'; ctx.fillRect(0, 0, 420, 520);
-      ctx.strokeStyle = 'rgba(130,140,180,.4)'; ctx.lineWidth = 3; glassPath(ctx);
-      tg.globalCompositeOperation = 'source-over'; tg.clearRect(0, 0, 420, 520); tg.drawImage(printsCv, 0, 0);
-      tg.globalCompositeOperation = 'destination-in'; tg.drawImage(maskCv, 0, 0); tg.globalCompositeOperation = 'source-over';
-      ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(tmpCv, 0, 0); ctx.globalCompositeOperation = 'source-over';
-      if (mx >= 0) {
-        const gr = ctx.createRadialGradient(mx, my, 4, mx, my, 70);
-        gr.addColorStop(0, 'rgba(150,110,255,.35)'); gr.addColorStop(1, 'rgba(150,110,255,0)');
-        ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(mx, my, 70, 0, 7); ctx.fill();
-        ctx.strokeStyle = 'rgba(190,160,255,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(mx, my, 46, 0, 7); ctx.stroke();
-      }
-    };
-    if (t.glassUV) { mg.fillStyle = '#fff'; mg.fillRect(0, 0, 420, 520); showRes(); lipCells.concat(fingCells).forEach((c) => { c.on = true; }); }
-    showProg(); render(-1, -1);
-    cv.addEventListener('mousemove', (e) => {
-      const r = cv.getBoundingClientRect();
-      const x = (e.clientX - r.left) * (420 / r.width), y = (e.clientY - r.top) * (520 / r.height);
-      const gr = mg.createRadialGradient(x, y, 6, x, y, 52);
-      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-      mg.fillStyle = gr; mg.beginPath(); mg.arc(x, y, 52, 0, 7); mg.fill();
-      for (const c of lipCells.concat(fingCells)) if (Math.hypot(c.cx - x, c.cy - y) < 34) c.on = true;
-      if (!t.glassUV && lipCells.filter((c) => c.on).length >= 9 && fingCells.filter((c) => c.on).length >= 12) {
-        t.glassUV = true; sfx('correct'); showRes(); this._refreshCounter();
-      }
-      showProg(); render(x, y);
-    });
+    this._hit(-6.3, 1.3, -2.95, 0.3, 0.7, 0.3, { kind: 'helix',when:()=>!this._dnaModel });
   },
 
   // ---------- laptop screen (3D) ----------
@@ -464,11 +418,13 @@ const extras = {
     g.textBaseline = 'top'; g.font = 'bold 22px monospace';
     const txt = (s, y, col = '#7fd4a0', f = 20) => { g.fillStyle = col; g.font = f + 'px monospace'; g.fillText(s, 16, y); };
     if (!this.collected.handkerchief) { txt('NO SAMPLE', 20, '#a05a4a'); this._bioTex.needsUpdate = true; return; }
-    if (!b.loaded) txt('SEQUENCER 3500  \u00b7  IDLE', 16, '#4a7f60'), txt(b.cut ? (b.lysis ? 'seat the cartridge' : 'lyse the swatch') : 'prepare a sample', 52, '#7fd4a0', 22);
+    if (!b.loaded) txt('DNA ANALYSER  \u00b7  IDLE', 16, '#4a7f60'), txt(b.cut ? (b.lysis ? 'seat the cartridge' : 'lyse the swatch') : 'prepare a sample', 52, '#7fd4a0', 22);
     else if (b.running && !b.ready) {
       const pct = Math.min(100, Math.round((b.t / 180) * 100));
       txt('RUN  ' + pct + '%', 16, '#7fd4a0', 26); txt(this._dnaStage(), 56, '#9fb4c0', 20);
       g.strokeStyle = '#2a5f80'; g.strokeRect(16, 100, W - 32, 22); g.fillStyle = '#2a5f80'; g.fillRect(16, 100, (W - 32) * pct / 100, 22);
+      g.strokeStyle='#80c9bb';g.lineWidth=2;g.beginPath();
+      for(let x=0;x<W-32;x++){const peak=Math.pow(Math.max(0,Math.sin(x*.11+b.t*.2)),18);const y=175-peak*(12+30*Math.abs(Math.sin(x*.032)));if(x===0)g.moveTo(x+16,y);else g.lineTo(x+16,y);}g.stroke();
     } else if (!b.ready) txt('CARTRIDGE SEATED', 16), txt('press RUN (green)', 56, '#9fb4c0', 20);
     else {
       txt('PROFILE 16/16 \u00b7 HIGH CONF.', 8, '#7fd4a0', 18);
@@ -490,37 +446,18 @@ const extras = {
   // INTERACTIONS
   // ======================================================================
   _interactFlavor(it) {
+    if(interactAppliance(this,it))return true;
     const say = (a, b, ms = 5500) => { sfx('collect'); this._toast(a, b, ms); return true; };
     switch (it.kind) {
       case 'chemshelf': {
         this._chemI = this._chemI || {};
         const base = it.row * 6;
         const n = (this._chemI[it.row] = ((this._chemI[it.row] ?? -1) + 1) % 6);
-        const [name, , note] = CHEMS[(base + n) % CHEMS.length];
-        return say(name, note + '  <span style="opacity:.55">(press again for the next bottle)</span>');
+        const bottle=this._chemBottles[(base+n)%this._chemBottles.length];
+        this._handling.begin({source:bottle,destination:bottle.getWorldPosition(new THREE.Vector3()),complete:()=>{}});return true;
       }
-      case 'hood':
-        this._hoodOpen = !this._hoodOpen;
-        if (this._hoodSash) this._hoodSash.position.y = this._hoodOpen ? 2.2 : 1.5;
-        return say(this._hoodOpen ? 'FUME HOOD \u2014 SASH UP' : 'FUME HOOD \u2014 SASH DOWN', this._hoodOpen ? 'Airflow alarm chirps. Work is meant to happen with the sash low.' : 'Sash down. Airflow steady. Nothing is cooking tonight.', 3500);
-      case 'fridge':
-        this._fridgeOpen = !this._fridgeOpen;
-        if (this._fridgeDoor) this._fridgeDoor.rotation.y = this._fridgeOpen ? 1.7 : 0;
-        return say(this._fridgeOpen ? 'SAMPLE FRIDGE \u2014 OPEN' : 'SAMPLE FRIDGE \u2014 CLOSED', this._fridgeOpen ? 'Racks of capped tubes, every one dated and initialled. Case #001 has a shelf of its own \u2014 empty, until you file.' : 'Four degrees, door shut, log signed.', 3500);
-      case 'sink':
-        return say('SINK + EYEWASH', 'Gloves off here, never at the bench. The eyewash gets flushed every Friday \u2014 yellow tag, signed.', 4500);
-      case 'centrifuge':
-        this._centriSpin = this._centriSpin > 0 ? 0 : 3;
-        if (this._rotor) this._rotor.visible = this._centriSpin > 0;
-        return say('CENTRIFUGE', this._centriSpin > 0 ? 'Lid down. Spinning an empty rotor \u2014 balanced, at least.' : 'Stopped.', 3000);
-      case 'pipettes':
-        return say('PIPETTES', 'P10, P200, P1000. Tonight\u2019s sequencer cartridge is sealed and pre-loaded \u2014 nothing here to pipette.', 4500);
-      case 'balance':
-        return say('ANALYTICAL BALANCE', 'Tared to 0.0000 g. Tonight everything is weighed by a judge, not a scale.', 3500);
       case 'whiteboard':
         return say('THE BOARD', 'Mabaso\u2019s handwriting: 23:19 locked the common room, 23:31 last message, 00:50 found. Six exhibits: casing, glass, hair, handkerchief, phone and UV trail. Four reports to complete.', 7000);
-      case 'bin':
-        return say('BIOHAZARD BIN', 'Used gloves and swabs only. If you are tempted to throw something else in here, file it instead.', 4000);
       case 'cheatcard':
         return say('ANALYST\u2019S CARD',
           'hashcat \u2014 <b>-m</b> hash mode (0 = MD5) \u00b7 <b>-a 3</b> mask attack \u00b7 mask: <b>?d</b> = one digit, <b>?l</b> letter.<br>Usage: <code>hashcat -m &lt;mode&gt; -a 3 &lt;hashfile&gt; &lt;mask&gt;</code><br>The dump tool header tells you the hash type. Four-digit PIN = four masks.', 11000);
@@ -544,16 +481,19 @@ const extras = {
         if (!this.collected.hair) return say('HAIR STRAND', 'No hair was collected at the scene.', 3500);
         if (t.strand) return true;
         this._checkGloves('the hair fibres');
-        t.strand = true; sfx('collect'); this._refreshCounter();
-        return say('STRAND ON THE STAGE', 'Teased flat with tweezers. Now lower a cover slip.', 4000);
+        this._handling.begin({source:this._strandSrc, destination:this._strandOn.getWorldPosition(new THREE.Vector3()), complete:()=>{
+          t.strand=true; sfx('collect'); this._refreshCounter();
+        }}); return true;
       case 'cover':
         if (!t.strand) return say('COVER SLIP', 'Strand first \u2014 a cover slip on an empty stage is just glass.', 3500);
         if (t.cover) return true;
-        t.cover = true; sfx('collect'); this._refreshCounter();
-        return say('SLIDE PREPPED', 'Cover slip down, no bubbles. Lean into the eyepiece \u2014 [E] on the tubes.', 4500);
+        this._handling.begin({source:this._coverSrc, destination:this._coverOn.getWorldPosition(new THREE.Vector3()), complete:()=>{
+          t.cover=true; sfx('collect'); this._refreshCounter();
+        }}); return true;
       case 'tglass':
         if (!this.collected.glass) return say('GUEST GLASS', 'The glass was never collected.', 3500);
-        if (!t.glassUV && !(this.carried && this.carried.id === 'uvwand')) return say('GUEST GLASS', 'Smudges, nothing you can read by eye. Fetch the UV wand from the reconstruction bench and examine it under UV.', 5000);
+        if (!(this.carried && this.carried.id === 'uvwand')) return say('GUEST GLASS', 'Smudges, nothing you can read by eye. Fetch the UV wand from the reconstruction bench and examine it under UV.', 5000);
+        if (!d.lightsOff) return say('UV EXAMINATION', 'Switch the lab lights off before scanning the glass.', 3500);
         this._openDevice('glassscan'); return true;
       case 'tracepad':
         return this._fileTrace();
@@ -567,23 +507,31 @@ const extras = {
       case 'lysis':
         if (!b.cut) return say('LYSIS TUBE', 'Nothing to lyse yet. Cut a swatch from the linen first.', 3500);
         if (b.lysis) return say('LYSIS TUBE', 'Already in buffer.', 2500);
-        b.lysis = true; sfx('collect'); this._refreshCounter();
-        return say('IN LYSIS BUFFER', 'The swatch sinks into the buffer. Seat the single-use cartridge next.', 4500);
+        this._handling.begin({source:this._swatch, destination:new THREE.Vector3(-6.1,1.02,-2.1), complete:()=>{
+          b.lysis=true; sfx('collect'); this._refreshCounter();
+        }}); return true;
       case 'cartridge':
         if (!b.lysis) return say('CARTRIDGE', 'Needs a lysed sample first.', 3500);
         if (b.loaded) return say('CARTRIDGE', 'Already in the sequencer.', 2500);
-        b.loaded = true; sfx('collect'); this._refreshCounter();
-        return say('CARTRIDGE SEATED', 'It clicks home. Green RUN button on the sequencer front.', 4500);
+        if(this._dnaDoor&&!b.hatchOpen)return say('SAMPLE COMPARTMENT','Open the analyser compartment first.',2200);
+        this._handling.begin({source:this._cartridgeMesh, destination:this._dnaSeat||new THREE.Vector3(-7.3,1.12,-2.08), complete:()=>{
+          b.loaded=true; sfx('collect'); this._refreshCounter();
+        }}); return true;
+      case 'dnaHatch':
+        if(b.running)return say('COMPARTMENT LOCKED','Run in progress.',1800);
+        b.hatchOpen=!b.hatchOpen;sfx('door');return true;
+      case 'dnaDisplay':this._openOverlay(this._bioPanel(),'biology');return true;
+      case 'dnaControl':return this._interactExtra({kind:b.ready?'seqmatch':'seqrun'});
       case 'seqrun':
         if (!b.loaded) return say('SEQUENCER', 'No cartridge loaded.', 3000);
         if (b.running || b.ready) return say('SEQUENCER', b.ready ? 'Run finished.' : 'Already running \u2014 about three minutes. Work another bench.', 3500);
-        b.running = true; b.t = 0; sfx('collect'); this._refreshCounter();
-        return say('STR RUN STARTED', 'Full 16-locus run takes about three minutes. Go work another bench.', 5000);
+        if(!dnaCanRun(b,!this._dnaDoor||Math.abs(this._dnaDoor.rotation.z+Math.PI/2)<.03))return say('CLOSE COMPARTMENT','Close the sample door and let it latch before starting.',2200);
+        b.running = true; b.t = 0; sfx('instrumentStart'); this._refreshCounter();return true;
       case 'seqmatch':
         if (!b.ready) return say('SEQUENCER', b.running ? 'Not finished \u2014 ' + this._dnaStage().toLowerCase() + '.' : 'No profile yet.', 3500);
         if (b.matched) return true;
         b.matched = true; sfx('correct'); this._refreshCounter();
-        return say('REFERENCE MATCH', 'Done. Photograph the readout [Q], then file the DNA page on the clipboard.', 5500);
+        return true;
       case 'biopad':
         return this._fileDna();
       case 'helix':
@@ -594,12 +542,10 @@ const extras = {
       // ---------------- DOCS ----------------
       case 'trailprints':
         if (!this.collected.trail) return say('TRAIL PHOTOS', 'Not collected at the scene.', 3500);
-        d.trailRead = true; sfx('collect');
-        return say('TRAIL PHOTOS (UV)', 'The wiped blood trail leads from the guest chair toward the exit. The letter beside the body supports the monogram lead; compare the blood with the handkerchief analysis.', 8000);
+        this._openDevice('trail'); return true;
       case 'casingtray':
         if (!this.collected.casing) return say('CASING TRAY', 'Empty \u2014 the casing was not collected.', 3500);
-        d.casingRead = true; sfx('collect');
-        return say('CASING', '9\u00d719 mm Parabellum. Compare the primer and ejection marks with a recovered weapon later; the casing alone cannot identify its owner.', 7000);
+        this._openDevice('casing'); return true;
       case 'docspad':
         return this._fileDocs();
       default: return false;
@@ -612,12 +558,16 @@ const extras = {
       case 'chemshelf': return '[E] Read the next bottle';
       case 'hood': return '[E] ' + (this._hoodOpen ? 'Lower the sash' : 'Raise the sash');
       case 'fridge': return '[E] ' + (this._fridgeOpen ? 'Close the fridge' : 'Open the sample fridge');
-      case 'sink': return '[E] Sink + eyewash';
+      case 'fridgeRack':return '[E] Slide sample rack in / out';
+      case 'dnaHatch':return this.bio.running?'Sample compartment locked':'[E] '+(this.bio.hatchOpen?'Close sample compartment':'Open sample compartment');
+      case 'dnaControl':return this.bio.running?'Analysis running':this.bio.ready?'[E] Compare references':'[E] Start analysis';
+      case 'dnaDisplay':return '[E] Read analyser results';
+      case 'sink': return '[E] '+(this._tapOn?'Turn tap off':'Run water');
       case 'centrifuge': return '[E] Centrifuge';
       case 'pipettes': return '[E] Pipette rack';
-      case 'balance': return '[E] Analytical balance';
+      case 'balance': return '[E] '+(this._balanceLoaded?'Lift calibration weight':'Weigh calibration weight');
       case 'whiteboard': return '[E] Read the whiteboard';
-      case 'bin': return '[E] Biohazard bin';
+      case 'bin': return '[E] '+(this._binOpen?'Close bin lid':'Open bin lid');
       case 'cheatcard': return '[E] Read the analyst\u2019s card';
       case 'laptop': return c.staged === 'cradle' ? '[E] Open the laptop \u2014 crack the lock' : '[E] Open the laptop';
       case 'handset': return c.unlocked ? '[E] Pick up the handset \u2014 read his apps' : '[E] Pick up the handset \u2014 type the PIN';
@@ -645,7 +595,6 @@ const extras = {
     if (t.reported) { this._toast('TRACE REPORT', 'Already filed.', 2500); return true; }
     if (!t.strand || !t.cover) { this._toast('TRACE REPORT', 'Nothing to file yet \u2014 prep the slide and compare under the eyepiece.', 4000); return true; }
     if (!this._traceClaimComplete()) { this._toast('TRACE REPORT', 'The comparison is not finished \u2014 follow the recipe in the eyepiece, then record your claim.', 5000); return true; }
-    if (!this._hasPhoto('microscope')) { this._toast('EXHIBIT FIRST', 'Photograph the comparison scope ([Q], close and centred) before you file.', 5000); return true; }
     t.reported = true;
     const pick = SUSPECTS[t.claimPick];
     const kl = this.killer.hairLong ? 'long' : 'short';
@@ -670,7 +619,6 @@ const extras = {
     const b = this.bio;
     if (b.reported) { this._toast('DNA REPORT', 'Already filed.', 2500); return true; }
     if (!b.matched) { this._toast('DNA REPORT', b.ready ? 'Run the reference match on the sequencer first.' : 'No profile yet \u2014 the sequencer has not finished.', 4000); return true; }
-    if (!this._hasPhoto('sequencer')) { this._toast('EXHIBIT FIRST', 'Photograph the sequencer readout ([Q], close and centred) before you file.', 5000); return true; }
     b.reported = true;
     this.reports.dna = { body: 'Sample: dried blood, item #4 (handkerchief). Full 16-locus STR profile, high confidence.<br>' + this._bioMatchText() + '<br>Trail photo (item #6): the bleeder walked \u2014 steady stride, no drag. Whoever left was calm.', signed: false };
     this.dossier.names.add(this.killer.name);
@@ -684,9 +632,6 @@ const extras = {
     if (this.docs.reported) { this._toast('RECONSTRUCTION REPORT', 'Already filed.', 2500); return true; }
     if (!this._docsReady()) {
       this._toast('EXAMINE THE SCENE EVIDENCE', 'Use [E] on the casing tray and the UV trail print before filing.', 4500); return true;
-    }
-    if (!this._hasPhoto('casing') || !this._hasPhoto('trail')) {
-      this._toast('PHOTOGRAPHS REQUIRED', 'Photograph the casing tray and the UV trail working print with [Q].', 4500); return true;
     }
     this.docs.reported = true;
     this.reports.docs = {
@@ -768,9 +713,11 @@ const extras = {
       '<div style="display:flex;border-top:1px solid #1f2a35;padding:7px 12px;font:13px \'Courier New\',monospace;color:#e8eef3"><span id="tm-ps" style="color:#7fd4a0;white-space:pre">' + PS + '</span>' +
       '<input id="tm-in" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1;background:transparent;border:0;outline:0;color:#e8eef3;font:inherit;margin-left:6px"></div></div>';
     const inp = el.querySelector('#tm-in');
-    el.addEventListener('click', () => { if (!T.busy) inp.focus(); });
+    el.onclick = (event) => {
+      if (!T.busy && event.target.closest('#tm-out') === null && inp.isConnected) inp.focus();
+    };
     inp.addEventListener('keydown', (e) => {
-      if (e.code === 'Escape') return;           // bubbles to the lab handler, which closes the lid
+      if (e.code === 'Escape' || e.code === 'Tab') return; // close / dialog focus navigation
       e.stopPropagation();
       if (e.code === 'Enter') {
         const v = inp.value; inp.value = '';
@@ -778,7 +725,6 @@ const extras = {
         this._termRun(v);
       } else if (e.code === 'ArrowUp') { e.preventDefault(); if (T.hi > 0) inp.value = T.hist[--T.hi] || ''; }
       else if (e.code === 'ArrowDown') { e.preventDefault(); T.hi = Math.min(T.hist.length, T.hi + 1); inp.value = T.hist[T.hi] || ''; }
-      else if (e.code === 'Tab') e.preventDefault();
     });
     this._termPaint(); this._termSetPrompt();
   },

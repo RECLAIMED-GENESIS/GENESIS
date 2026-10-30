@@ -1,26 +1,30 @@
-.lab-coach { position:fixed; z-index:11000; right:var(--game-gap); top:var(--game-gap); width:min(340px,36vw); box-sizing:border-box; padding:16px; background:rgba(7,17,26,.95); color:var(--game-paper); border:1px solid var(--game-border); border-top:3px solid var(--game-accent); border-radius:4px; pointer-events:none; font:13px/1.5 var(--game-font); }
+.lab-coach {
+  position:fixed; z-index:11000; right:var(--game-gap); top:var(--game-gap);
+  width:min(290px,40vw); box-sizing:border-box; padding:14px 16px;
+  background:rgba(15,27,33,.88); color:var(--game-paper);
+  border:1px solid #c9dfdb24; border-radius:12px; pointer-events:none;
+  font:13px/1.5 var(--game-font); box-shadow:0 8px 24px #0002;
+}
 .lab-coach[hidden] { display:none; }
-.lc-kicker { color:var(--game-accent); font-size:10px; letter-spacing:.1em; display:flex; justify-content:space-between; gap:10px; }
-.lab-coach h3 { font-size:17px; margin:10px 0; }
-.lab-coach p { margin:8px 0; }
-.lab-coach code { display:block; overflow-wrap:anywhere; padding:8px; background:#0008; color:#b7e7c8; }
-.lab-coach code[hidden] { display:none; }
-.lab-coach small { color:var(--game-muted); font-size:10px; }
-.lc-navigation { margin:10px 0 6px; color:var(--game-accent); }
-.lab-guide-toggle { position:fixed; left:var(--game-gap); top:140px; z-index:11001; padding:8px 12px; font:12px var(--game-font); color:var(--game-paper); background:var(--game-panel); border:1px solid var(--game-border); border-radius:4px; cursor:pointer; }
-.lab-coach-target { outline:3px solid #e8b45b !important; outline-offset:3px; box-shadow:0 0 0 6px #e8b45b26 !important; }
-.lab-coach.lc-in-panel { top:auto; bottom:12px; left:50%; right:auto; transform:translateX(-50%); width:min(800px,92vw); padding:10px 16px; max-height:28vh; overflow:auto; pointer-events:auto; }
-.lc-in-panel h3 { margin:4px 0; font-size:15px; }
-.lc-in-panel p,.lc-in-panel .lc-navigation { margin:4px 0; }
-.lc-in-panel small { display:none; }
-.lab-coach.lc-urgent { border-color:#ef936c; }
-body.lab-coach-panel .game-modal { padding-bottom:30vh !important; box-sizing:border-box; }
-body.lab-coach-panel .game-file { padding-bottom:32vh !important; }
-body.lab-coach-panel .game-modal > div { max-height:64vh !important; overflow:auto; }
-@media(max-width:760px) {
-  .lab-coach { width:44vw; padding:10px; font-size:11px; }
-  .lab-coach h3 { font-size:14px; }
-  .lc-kicker { display:block; }.lc-progress { display:block; }
-  .lab-guide-toggle { top:115px; font-size:10px; }
-  .lab-coach.lc-in-panel { max-height:32vh; }
+.lc-kicker { color:#91aaa9; font-size:9px; letter-spacing:.16em; display:flex; justify-content:space-between; gap:10px; }
+.lc-progress { display:none; }
+.lab-coach h3 { font-size:14px; font-weight:500; margin:6px 0; line-height:1.4; }
+.lab-coach p,.lab-coach code,.lab-coach small { display:none; }
+.lab-coach.lc-expanded p { display:block; margin:12px 0; color:#c1cecd; }
+.lab-coach.lc-expanded code:not([hidden]) { display:block; overflow-wrap:anywhere; padding:10px; background:#0005; border-radius:6px; color:#b7e7c8; }
+.lab-coach.lc-expanded small { display:block; margin-top:10px; color:var(--game-muted); font-size:10px; }
+.lab-coach.lc-expanded .lc-progress { display:block; font-size:9px; letter-spacing:0; }
+.lc-navigation { margin-top:6px; color:#c7af7f; font-size:11px; }
+.lab-guide-toggle { position:fixed; left:var(--game-gap); bottom:var(--game-gap); z-index:11001; padding:9px 12px; font:12px var(--game-font); color:var(--game-paper); background:var(--game-panel); border:1px solid var(--game-border); border-radius:8px; cursor:pointer; }
+.lab-guide-toggle kbd,.game-prompt kbd,.lab-panel-close kbd { display:inline-grid; place-items:center; min-width:20px; height:20px; margin-right:8px; border:1px solid #c4d3d350; border-radius:4px; font:11px var(--game-font); }
+.lab-coach-target { outline:2px solid #c7af7f !important; outline-offset:3px; }
+.lab-coach.lc-urgent { border-color:#e48e68; }
+.lab-coach.lc-in-panel { top:auto; bottom:16px; right:16px; max-height:28vh; overflow:auto; pointer-events:auto; width:min(430px,calc(100vw - 32px)); }
+body.lab-coach-panel .lab-panel { padding-bottom:32vh !important; }
+@media(max-width:760px),(max-height:600px) {
+  .lab-coach { padding:10px 12px; width:43vw; }
+  .lab-coach h3 { font-size:12px; }.lc-kicker { font-size:8px; }
+  .lab-coach.lc-expanded .lc-progress { display:none; }
+  .lab-coach.lc-expanded { max-height:50vh; overflow:auto; pointer-events:auto; }
+  .lab-coach.lc-in-panel { max-height:28vh; }
 }
